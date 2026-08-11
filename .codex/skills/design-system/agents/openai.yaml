@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design System"
+  short_description: "Apply the JIEN visual language consistently"
+  default_prompt: "Use $design-system to design or review a JIEN app screen."

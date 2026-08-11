@@ -1,0 +1,4 @@
+interface:
+  display_name: "Progression Algorithm"
+  short_description: "Apply offline volume progression rules"
+  default_prompt: "Use $progression-algorithm for this lift progression task."

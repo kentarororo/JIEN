@@ -1,0 +1,4 @@
+interface:
+  display_name: "Notification Design"
+  short_description: "Design contextual opt-in notifications"
+  default_prompt: "Use $notification-design for this notification behavior."

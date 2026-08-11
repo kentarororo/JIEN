@@ -1,0 +1,4 @@
+interface:
+  display_name: "Supabase Schema"
+  short_description: "Apply JIEN schema and RLS conventions"
+  default_prompt: "Use $supabase-schema for this database change."

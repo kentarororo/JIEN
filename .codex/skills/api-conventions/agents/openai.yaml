@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Conventions"
+  short_description: "Apply JIEN Edge Function API conventions"
+  default_prompt: "Use $api-conventions for this backend integration."

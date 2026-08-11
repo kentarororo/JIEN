@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "JIEN",
+    "slug": "jien",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "jien",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen",
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

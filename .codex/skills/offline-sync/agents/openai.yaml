@@ -1,0 +1,4 @@
+interface:
+  display_name: "Offline Sync"
+  short_description: "Apply local-first data and sync rules"
+  default_prompt: "Use $offline-sync for this local data write flow."
