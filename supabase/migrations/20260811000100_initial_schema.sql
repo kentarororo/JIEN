@@ -391,6 +391,12 @@ security invoker
 set search_path = ''
 as $$
 begin
+  -- A delayed offline client must not overwrite a newer logical write.
+  -- Returning OLD makes client_updated_at the last-write-wins clock while the
+  -- normal updated_at column remains server-controlled.
+  if new.client_updated_at < old.client_updated_at then
+    return old;
+  end if;
   new.updated_at = now();
   return new;
 end;

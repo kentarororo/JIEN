@@ -18,4 +18,24 @@ Apply the chosen token set from `src/theme/` rather than embedding visual values
 
 ## Approved tokens
 
-Pending the first visual-direction checkpoint. Once selected, record the exact palette, type scale, spacing scale, corner radii, elevation, and light/dark semantic mappings here before building the first real screen.
+Direction: **Warm Utility**, softened with pastel cream, royal-brown, and restrained wood accents.
+
+### Color
+
+Use semantic tokens from `src/theme/tokens.ts` only.
+
+- Light: canvas `#F7F1E7`, surface `#FFFBF5`, raised surface `#FFFDF9`, primary text `#2B211B`, secondary text `#6E6056`, border `#E4D7C8`, royal-brown action `#71452F`, pastel brown `#E8D3C2`, wood accent `#B98462`.
+- Dark: canvas `#17120F`, surface `#211A16`, raised surface `#2A211B`, primary text `#F7EFE4`, secondary text `#BDAEA1`, border `#49392F`, royal-brown action `#D7A47E`, pastel brown `#4A352A`, wood accent `#AA7554`.
+- Semantic feedback: sage success, ochre warning, muted terracotta danger. Do not use accent colors as decoration.
+- Follow the OS theme by default and allow an explicit light/dark override. Dark mode is separately mapped, never mechanically inverted.
+
+### Typography
+
+Use the platform system face (SF Pro on iOS, Roboto on Android) and dynamic type. Scale: caption `12/16`, label `14/20`, body `16/24`, body-large `18/24`, section `22/28`, title `28/34`, display `36/42`. Use weights 400, 500, 600, and 700. Use tabular numerals for loads, reps, calories, and macros.
+
+### Layout
+
+- Spacing: `4, 8, 12, 16, 20, 24, 32, 40, 48`.
+- Radius: `8` compact controls, `12` buttons and inputs, `16` cards, `24` sheets. Use full pills only for chips and statuses.
+- Minimum touch target: 44 by 44 points.
+- Use one subtle shadow only for floating surfaces; prefer borders and tonal separation elsewhere.

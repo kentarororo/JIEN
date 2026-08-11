@@ -3,6 +3,8 @@
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true,
+    "types": ["react", "node"],
     "paths": {
       "@/*": [
         "./src/*"

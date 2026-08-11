@@ -18,7 +18,9 @@
     "plugins": [
       "expo-router",
       "expo-splash-screen",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-notifications",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

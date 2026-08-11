@@ -17,6 +17,15 @@ Run progression entirely offline as pure TypeScript over locally stored complete
 - Treat rear delts and core as first-class muscle groups.
 - Never calculate, request, or prescribe 1RM or max-effort tests.
 
+## Phase 1 defaults
+
+- Default compound machine/cable range: 8-12 reps.
+- Isolation range: 10-15 reps. Rear-delt and core work may use 12-20 reps.
+- Count primary-muscle volume at 100% and secondary-muscle volume at 50%.
+- Permit a load increase only when every working set reaches the top of its configured range and no set exceeds RPE 9.
+- Otherwise add one rep to the lowest-rep eligible set. Hold the prescription when a joint flag is present or RPE exceeds 9.
+- Flag an unplanned weekly drop at 20% or more. Flag stagnation after three consecutive completed week-over-week changes below 2%. Both are advisory deload signals, never automatic plan changes.
+
 ## Safety and explainability
 
 - Preserve recorded values; suggestions are separate derived data.

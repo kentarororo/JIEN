@@ -14,6 +14,9 @@ implementation is in
   timestamp maintained by a trigger, and `client_updated_at` is the client-supplied
   logical timestamp used by last-write-wins sync. Sync compares
   `client_updated_at`; it must not use `updated_at` for conflict resolution.
+- The shared update trigger returns the existing row when an incoming
+  `client_updated_at` is older. This prevents a delayed offline queue item from
+  replacing a newer logical write; `updated_at` remains server-controlled.
 - User-visible deletion is a soft delete: set `deleted_at` and enqueue that tombstone.
   Authenticated clients intentionally receive no hard-delete policy. A privileged
   maintenance process may purge old tombstones later.

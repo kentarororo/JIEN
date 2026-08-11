@@ -8,14 +8,21 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/lib/progression/progression.test.ts src/lib/export/csv.test.ts src/lib/notifications/meal-gap-policy.test.ts"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@supabase/supabase-js": "^2.112.2",
     "expo": "~57.0.12",
+    "expo-crypto": "~57.0.1",
     "expo-dev-client": "~57.0.11",
+    "expo-file-system": "~57.0.2",
     "expo-linking": "~57.0.5",
+    "expo-network": "~57.0.1",
+    "expo-notifications": "~57.0.10",
     "expo-router": "~57.0.12",
+    "expo-sharing": "~57.0.11",
     "expo-splash-screen": "~57.0.6",
     "expo-sqlite": "~57.0.1",
     "expo-status-bar": "~57.0.1",
@@ -33,6 +40,7 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },

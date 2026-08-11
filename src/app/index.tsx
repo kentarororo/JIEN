@@ -1,4 +1,5 @@
+import { Redirect } from 'expo-router';
+
 export default function IndexRoute() {
-  // Product UI intentionally starts after the visual-direction checkpoint.
-  return null;
+  return <Redirect href="/(tabs)/today" />;
 }
