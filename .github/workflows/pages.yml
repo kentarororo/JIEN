@@ -43,6 +43,7 @@ jobs:
       - name: Build Pages artifact
         env:
           EXPO_PUBLIC_BASE_URL: /JIEN
+          EXPO_PUBLIC_SITE_ORIGIN: https://kentarororo.github.io
         run: pnpm run pages:build
 
       - name: Configure Pages

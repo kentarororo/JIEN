@@ -8,9 +8,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "pages:build": "expo export --platform web && node -e \"require('fs').copyFileSync(require.resolve('coi-serviceworker/coi-serviceworker.js'), 'dist/coi-serviceworker.js'); require('fs').writeFileSync('dist/.nojekyll', '')\"",
+    "pages:build": "expo export --platform web && node scripts/finalize-pages-build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/progression/progression.test.ts src/lib/export/csv.test.ts src/lib/notifications/meal-gap-policy.test.ts src/lib/db/migration-utils.test.ts src/lib/web-sqlite-readiness.test.ts src/lib/web-sqlite-bootstrap.test.ts"
+    "test": "node --experimental-strip-types --test scripts/finalize-pages-build.test.mjs src/lib/progression/progression.test.ts src/lib/export/csv.test.ts src/lib/notifications/meal-gap-policy.test.ts src/lib/db/migration-utils.test.ts src/lib/web-sqlite-readiness.test.ts src/lib/web-sqlite-bootstrap.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
