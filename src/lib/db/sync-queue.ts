@@ -6,12 +6,16 @@ import { getSupabaseClient } from './supabase';
 import type { SyncStatus } from './types';
 
 export type RemoteTable =
+  | 'users'
   | 'exercises'
   | 'workouts'
   | 'sets'
   | 'meals'
   | 'food_items'
   | 'nutrition_targets'
+  | 'wellness_logs'
+  | 'ai_conversations'
+  | 'ai_messages'
   | 'notification_preferences';
 
 type QueueRow = {
@@ -24,13 +28,17 @@ type QueueRow = {
 };
 
 const TABLE_PRIORITY: Record<RemoteTable, number> = {
+  users: 0,
   exercises: 0,
   workouts: 1,
   meals: 1,
   nutrition_targets: 1,
+  wellness_logs: 1,
+  ai_conversations: 1,
   notification_preferences: 1,
   sets: 2,
   food_items: 2,
+  ai_messages: 2,
 };
 
 export async function enqueueUpsert(
@@ -109,7 +117,9 @@ export async function syncPendingChanges(db: SQLiteDatabase): Promise<SyncResult
   for (const row of rows) {
     try {
       const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
-      const { error } = await supabase.from(row.table_name).upsert({ ...payload, user_id: userId });
+      const { error } = row.table_name === 'users'
+        ? await supabase.from('users').upsert({ ...payload, id: userId })
+        : await supabase.from(row.table_name).upsert({ ...payload, user_id: userId });
       if (error) {
         throw error;
       }

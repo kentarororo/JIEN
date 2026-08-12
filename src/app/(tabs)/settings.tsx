@@ -7,13 +7,13 @@ import { AppText, Button, Card, Pill, Screen, ScreenHeading, SectionHeading, Sta
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
 import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
-import { getSyncStatus, listNotificationPreferences, saveNotificationPreference, syncPendingChanges } from '@/lib/db';
+import { getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, syncPendingChanges } from '@/lib/db';
 import { reconcileMealGapNotification } from '@/lib/notifications';
 import { spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
 
 async function loadSettings(db: ReturnType<typeof useSQLiteContext>) {
-  const [sync, notifications, account] = await Promise.all([getSyncStatus(db), listNotificationPreferences(db), getAccountState()]);
-  return { sync, account, mealGap: notifications.find((item) => item.type === 'meal_gap') ?? null };
+  const [sync, notifications, account, profile] = await Promise.all([getSyncStatus(db), listNotificationPreferences(db), getAccountState(), getUserProfile(db)]);
+  return { sync, account, profile, mealGap: notifications.find((item) => item.type === 'meal_gap') ?? null };
 }
 
 export default function SettingsScreen() {
@@ -78,6 +78,13 @@ export default function SettingsScreen() {
       {loading && !data ? <StatePanel title="Loading settings" body="Reading preferences from this device." loading /> : null}
       {error ? <StatePanel title="Settings are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
 
+      <SectionHeading title="Your foundation" detail="Used to tailor training and future guidance" />
+      <Card>
+        <AppText style={styles.cardTitle}>{data?.profile ? 'Profile complete' : 'Profile not set'}</AppText>
+        <AppText style={{ color: theme.colors.textMuted }}>{data?.profile ? `${data.profile.goals[0]?.replaceAll('_', ' ')} · ${data.profile.trainingExperience} · ${data.profile.preferredLoadUnit}` : 'Complete the guided setup to establish your preferences.'}</AppText>
+        <Button label={data?.profile ? 'Review profile' : 'Start guided setup'} onPress={() => router.push({ pathname: '/onboarding', params: { edit: '1' } })} variant="secondary" />
+      </Card>
+
       <SectionHeading title="Appearance" detail="Follows your device by default" />
       <Card style={styles.pillRow}>
         {(['system', 'light', 'dark'] as ThemePreference[]).map((preference) => <Pill key={preference} label={preference[0]!.toUpperCase() + preference.slice(1)} active={theme.preference === preference} onPress={() => theme.setPreference(preference)} />)}
@@ -110,7 +117,7 @@ export default function SettingsScreen() {
       {message ? <Card style={{ backgroundColor: theme.colors.successSoft }}><AppText>{message}</AppText></Card> : null}
 
       <SectionHeading title="Health guidance" />
-      <Card><AppText style={styles.cardTitle}>Not medical advice</AppText><AppText style={{ color: theme.colors.textMuted }}>JIEN’s future AI guidance will support reflection and planning, not diagnose, treat, or replace a qualified clinician.</AppText></Card>
+      <Card><AppText style={styles.cardTitle}>Not medical advice</AppText><AppText style={{ color: theme.colors.textMuted }}>JIEN’s AI guidance supports reflection and planning; it does not diagnose, treat, or replace a qualified clinician.</AppText><Button label="Open wellness hub" onPress={() => router.push('/wellness' as never)} variant="secondary" /></Card>
     </Screen>
   );
 }

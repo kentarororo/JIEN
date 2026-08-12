@@ -36,11 +36,18 @@ function mapExercise(row: ExerciseRow): Exercise {
 
 export async function listExercises(db: SQLiteDatabase): Promise<Exercise[]> {
   const rows = await db.getAllAsync<ExerciseRow>(
-    `SELECT id, name, movement_pattern, primary_muscle_group, secondary_muscle_groups,
-      equipment, target_rep_min, target_rep_max, load_increment, notes, is_archived
-     FROM exercises
-     WHERE deleted_at IS NULL AND is_archived = 0
-     ORDER BY primary_muscle_group, name`,
+    `SELECT e.id, e.name, e.movement_pattern, e.primary_muscle_group, e.secondary_muscle_groups,
+      e.equipment, e.target_rep_min, e.target_rep_max, e.load_increment, e.notes, e.is_archived
+     FROM exercises e
+     LEFT JOIN workout_sets s ON s.exercise_id = e.id AND s.deleted_at IS NULL
+     WHERE e.deleted_at IS NULL AND e.is_archived = 0
+     GROUP BY e.id
+     ORDER BY
+       CASE WHEN MAX(s.completed_at) IS NULL THEN 1 ELSE 0 END,
+       MAX(s.completed_at) DESC,
+       CASE WHEN e.id LIKE '10000000-%' THEN 0 ELSE 1 END,
+       e.id,
+       e.name`,
   );
   return rows.map(mapExercise);
 }

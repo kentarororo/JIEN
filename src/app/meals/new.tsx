@@ -1,16 +1,29 @@
 import * as Crypto from 'expo-crypto';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
-import { saveMeal, type MealType } from '@/lib/db';
+import {
+  analyzeMealPhoto,
+  cacheFoodCatalogItems,
+  lookupFoodBarcode,
+  markFoodCatalogItemUsed,
+  saveMeal,
+  searchFoodDatabase,
+  searchLocalFoodCatalog,
+  type FoodCatalogItem,
+  type MealType,
+} from '@/lib/db';
 import { reconcileMealGapNotification } from '@/lib/notifications';
-import { spacing, typography, useJienTheme } from '@/theme';
+import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 type DraftFood = {
   key: string;
+  catalogId: string | null;
   name: string;
   quantity: string;
   unit: string;
@@ -18,30 +31,142 @@ type DraftFood = {
   protein: string;
   carbs: string;
   fat: string;
+  fibre: string;
+  source: 'manual' | 'ai_photo' | 'imported';
+  sourceLabel: string | null;
+  confidence: number | null;
 };
 
-const emptyFood = (): DraftFood => ({ key: Crypto.randomUUID(), name: '', quantity: '1', unit: 'serving', calories: '', protein: '', carbs: '', fat: '' });
+type CameraMode = 'barcode' | 'photo' | null;
+
+const emptyFood = (): DraftFood => ({
+  key: Crypto.randomUUID(), catalogId: null, name: '', quantity: '1', unit: 'serving',
+  calories: '', protein: '', carbs: '', fat: '', fibre: '', source: 'manual', sourceLabel: null, confidence: null,
+});
 const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'];
 
 export default function NewMealScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
+  const cameraRef = useRef<CameraView>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const now = new Date();
   const inferred: MealType = now.getHours() < 11 ? 'breakfast' : now.getHours() < 15 ? 'lunch' : now.getHours() < 19 ? 'dinner' : 'snack';
   const [name, setName] = useState('Meal');
   const [type, setType] = useState<MealType>(inferred);
   const [foods, setFoods] = useState<DraftFood[]>([emptyFood()]);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<FoodCatalogItem[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [cameraMode, setCameraMode] = useState<CameraMode>(null);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const [photoDescription, setPhotoDescription] = useState('');
+  const [toolMessage, setToolMessage] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void searchLocalFoodCatalog(db, query).then(setResults).catch((cause) => {
+        setToolMessage(cause instanceof Error ? cause.message : 'Could not search saved foods.');
+      });
+    }, 160);
+    return () => clearTimeout(timer);
+  }, [db, query]);
+
   const update = (key: string, field: keyof Omit<DraftFood, 'key'>, value: string) => {
+    setFormError(null);
     setFoods((current) => current.map((food) => food.key === key ? { ...food, [field]: value } : food));
+  };
+
+  const addCatalogFood = async (item: FoodCatalogItem) => {
+    const draft = toDraftFood(item);
+    setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? [draft] : [...current, draft]);
+    setQuery('');
+    setResults([]);
+    setToolMessage(`${item.name} added. Adjust the portion or macros if needed.`);
+    if (item.source !== 'ai_photo') await markFoodCatalogItemUsed(db, item.id);
+  };
+
+  const runDatabaseSearch = async () => {
+    if (query.trim().length < 2) {
+      setToolMessage('Enter at least two characters to search the online database.');
+      return;
+    }
+    setSearching(true);
+    setToolMessage(null);
+    try {
+      const items = await searchFoodDatabase(query);
+      await cacheFoodCatalogItems(db, items);
+      setResults(items);
+      setToolMessage(items.length ? `Found ${items.length} USDA FoodData Central matches.` : 'No database matches found.');
+    } catch (cause) {
+      setToolMessage(cause instanceof Error ? cause.message : 'Online food search is unavailable.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const openCamera = async (mode: Exclude<CameraMode, null>) => {
+    setToolMessage(null);
+    let granted = cameraPermission?.granted ?? false;
+    if (!granted) granted = (await requestCameraPermission()).granted;
+    if (!granted) {
+      setToolMessage('Camera permission is needed for photos and barcode scanning.');
+      return;
+    }
+    setCameraMode(mode);
+  };
+
+  const handleBarcode = async ({ data }: BarcodeScanningResult) => {
+    if (cameraBusy) return;
+    setCameraBusy(true);
+    setCameraMode(null);
+    try {
+      const items = await lookupFoodBarcode(data);
+      await cacheFoodCatalogItems(db, items);
+      if (!items[0]) throw new Error('No food matched that barcode.');
+      await addCatalogFood(items[0]);
+      setToolMessage(`${items[0].name} added from Open Food Facts. Review its 100 g values and portion.`);
+    } catch (cause) {
+      setToolMessage(cause instanceof Error ? cause.message : 'Could not look up that barcode.');
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  const analyzePhoto = async () => {
+    if (!cameraRef.current || cameraBusy) return;
+    setCameraBusy(true);
+    setToolMessage('Analyzing the visible meal…');
+    try {
+      const picture = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+      if (!picture?.uri) throw new Error('The camera did not return an image to analyze.');
+      const context = ImageManipulator.manipulate(picture.uri);
+      if (picture.width > 1280) context.resize({ width: 1280, height: null });
+      const rendered = await context.renderAsync();
+      const resized = await rendered.saveAsync({ compress: 0.68, format: SaveFormat.JPEG, base64: true });
+      if (!resized.base64) throw new Error('The meal photo could not be prepared for analysis.');
+      const items = await analyzeMealPhoto(resized.base64, photoDescription);
+      if (!items.length) throw new Error('No food items were identified. Try a clearer photo or add a description.');
+      const drafts = items.map(toDraftFood);
+      setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? drafts : [...current, ...drafts]);
+      setCameraMode(null);
+      setToolMessage(`Added ${items.length} AI-estimated item${items.length === 1 ? '' : 's'}. Review every portion and macro before saving. Not medical advice.`);
+    } catch (cause) {
+      setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
+    } finally {
+      setCameraBusy(false);
+    }
   };
 
   const submit = async () => {
     setSaving(true);
+    setFormError(null);
     try {
-      const items = foods.map((food) => ({
+      const completedFoods = foods.filter((food) => !isBlankFood(food));
+      const items = completedFoods.map((food) => ({
         name: food.name,
         quantity: Number(food.quantity),
         unit: food.unit,
@@ -49,55 +174,150 @@ export default function NewMealScreen() {
         proteinG: Number(food.protein),
         carbohydrateG: Number(food.carbs),
         fatG: Number(food.fat),
+        fibreG: food.fibre.trim() ? Number(food.fibre) : null,
+        source: food.source,
+        confidence: food.confidence,
       }));
-      if (items.some((item) => [item.quantity, item.caloriesKcal, item.proteinG, item.carbohydrateG, item.fatG].some((value) => !Number.isFinite(value)))) {
+      if (!items.length) throw new Error('Add at least one food before saving.');
+      if (items.some((item) => [item.quantity, item.caloriesKcal, item.proteinG, item.carbohydrateG, item.fatG, item.fibreG ?? 0].some((value) => !Number.isFinite(value)))) {
         throw new Error('Enter a valid portion and macro estimate for every food.');
       }
       await saveMeal(db, { name, type, eatenAt: new Date().toISOString(), items });
       await reconcileMealGapNotification(db);
       router.back();
     } catch (cause) {
-      Alert.alert('Meal not saved', cause instanceof Error ? cause.message : 'Please check the meal and try again.');
+      setFormError(cause instanceof Error ? cause.message : 'Please check the meal and try again.');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Screen>
+    <Screen contentContainerStyle={styles.screenContent}>
       <Field label="Meal name" value={name} onChangeText={setName} placeholder="Dinner" />
       <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>
-      <AppText style={{ color: colors.textMuted }}>Use the estimate you have. Consistent logging matters more than false precision.</AppText>
 
+      <Card style={styles.discoveryCard}>
+        <View style={styles.discoveryHeader}><View style={styles.flex}><AppText style={styles.sectionTitle}>Find food quickly</AppText><AppText style={{ color: colors.textMuted }}>Search local foods instantly, then expand to the online database.</AppText></View></View>
+        <Field label="Food search" value={query} onChangeText={setQuery} placeholder="Try chicken, rice, yogurt…" returnKeyType="search" onSubmitEditing={() => void runDatabaseSearch()} />
+        <View style={styles.toolActions}>
+          <Button label="Search food database" onPress={() => void runDatabaseSearch()} busy={searching} variant="secondary" />
+          <Button label="Scan barcode" onPress={() => void openCamera('barcode')} variant="secondary" />
+          <Button label="Analyze meal photo" onPress={() => void openCamera('photo')} variant="secondary" />
+        </View>
+
+        {results.length ? (
+          <View style={styles.results}>
+            {results.map((item) => (
+              <Pressable key={item.id} accessibilityRole="button" onPress={() => void addCatalogFood(item)} style={({ pressed }) => pressed && styles.pressed}>
+                <View style={[styles.resultRow, { borderColor: colors.border }]}>
+                  <View style={styles.flex}><AppText style={styles.resultName}>{item.name}</AppText><AppText style={{ color: colors.textMuted }}>{item.brand ? `${item.brand} · ` : ''}{item.servingQuantity} {item.servingUnit} · {sourceName(item.source)}</AppText></View>
+                  <View><AppText style={styles.resultCalories}>{Math.round(item.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>P {roundMacro(item.proteinG)} · C {roundMacro(item.carbohydrateG)} · F {roundMacro(item.fatG)}</AppText></View>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online search: USDA FoodData Central. Barcode data: Open Food Facts contributors (ODbL).</AppText>
+      </Card>
+
+      {cameraMode ? (
+        <Card>
+          <View style={styles.header}><View style={styles.flex}><AppText style={styles.sectionTitle}>{cameraMode === 'barcode' ? 'Center the barcode' : 'Frame the whole meal'}</AppText><AppText style={{ color: colors.textMuted }}>{cameraMode === 'barcode' ? 'Lookup starts after a code is detected.' : 'Good light and a short description improve the estimate.'}</AppText></View><Button label="Cancel" onPress={() => setCameraMode(null)} variant="quiet" /></View>
+          <View style={[styles.cameraFrame, { backgroundColor: colors.surfaceMuted }]}>
+            <CameraView
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }}
+              onBarcodeScanned={cameraMode === 'barcode' ? handleBarcode : undefined}
+            />
+          </View>
+          {cameraMode === 'photo' ? <><Field label="What is in this meal? (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" /><Button label="Take photo and estimate" onPress={() => void analyzePhoto()} busy={cameraBusy} /></> : null}
+        </Card>
+      ) : null}
+
+      {toolMessage ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.accentSoft }]}><AppText>{toolMessage}</AppText></View> : null}
+      {formError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
+
+      <SectionHeading title="Meal items" detail="Database and AI values stay editable" />
       {foods.map((food, index) => (
         <Card key={food.key}>
-          <View style={styles.header}><AppText style={styles.foodTitle}>Food {index + 1}</AppText>{foods.length > 1 ? <Button label="Remove" onPress={() => setFoods((current) => current.filter((item) => item.key !== food.key))} variant="quiet" /> : null}</View>
+          <View style={styles.header}><View style={styles.flex}><AppText style={styles.foodTitle}>Food {index + 1}</AppText>{food.sourceLabel ? <AppText style={{ color: colors.textMuted }}>{food.sourceLabel}{food.confidence != null ? ` · ${Math.round(food.confidence * 100)}% confidence` : ''}</AppText> : null}</View>{foods.length > 1 ? <Button label="Remove" onPress={() => setFoods((current) => current.filter((item) => item.key !== food.key))} variant="quiet" /> : null}</View>
           <Field label="Food" value={food.name} onChangeText={(value) => update(food.key, 'name', value)} placeholder="Chicken rice" />
-          <View style={styles.twoCol}>
-            <View style={styles.flex}><Field label="Quantity" value={food.quantity} onChangeText={(value) => update(food.key, 'quantity', value)} keyboardType="decimal-pad" /></View>
-            <View style={styles.flex}><Field label="Unit" value={food.unit} onChangeText={(value) => update(food.key, 'unit', value)} placeholder="serving" /></View>
+          <View style={styles.fieldGrid}>
+            <Field label="Quantity" value={food.quantity} onChangeText={(value) => update(food.key, 'quantity', value)} keyboardType="decimal-pad" containerStyle={styles.gridField} />
+            <Field label="Unit" value={food.unit} onChangeText={(value) => update(food.key, 'unit', value)} placeholder="serving" containerStyle={styles.gridField} />
           </View>
-          <View style={styles.twoCol}>
-            <View style={styles.flex}><Field label="Calories" value={food.calories} onChangeText={(value) => update(food.key, 'calories', value)} keyboardType="decimal-pad" placeholder="kcal" /></View>
-            <View style={styles.flex}><Field label="Protein" value={food.protein} onChangeText={(value) => update(food.key, 'protein', value)} keyboardType="decimal-pad" placeholder="g" /></View>
+          <View style={styles.fieldGrid}>
+            <Field label="Calories" value={food.calories} onChangeText={(value) => update(food.key, 'calories', value)} keyboardType="decimal-pad" placeholder="kcal" containerStyle={styles.macroField} />
+            <Field label="Protein (g)" value={food.protein} onChangeText={(value) => update(food.key, 'protein', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Carbs (g)" value={food.carbs} onChangeText={(value) => update(food.key, 'carbs', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Fat (g)" value={food.fat} onChangeText={(value) => update(food.key, 'fat', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => update(food.key, 'fibre', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
           </View>
-          <View style={styles.twoCol}>
-            <View style={styles.flex}><Field label="Carbs" value={food.carbs} onChangeText={(value) => update(food.key, 'carbs', value)} keyboardType="decimal-pad" placeholder="g" /></View>
-            <View style={styles.flex}><Field label="Fat" value={food.fat} onChangeText={(value) => update(food.key, 'fat', value)} keyboardType="decimal-pad" placeholder="g" /></View>
-          </View>
+          {food.source === 'ai_photo' ? <AppText style={[styles.attribution, { color: colors.warning }]}>AI estimate—review before saving. Not medical advice.</AppText> : null}
         </Card>
       ))}
-      <Button label="Add another food" onPress={() => setFoods((current) => [...current, emptyFood()])} variant="secondary" />
+      <Button label="Add a blank food" onPress={() => setFoods((current) => [...current, emptyFood()])} variant="secondary" />
       <SectionHeading title="Finish" detail="Saved locally, even without a connection" />
       <Button label="Save meal" onPress={() => void submit()} busy={saving} />
     </Screen>
   );
 }
 
+function toDraftFood(item: FoodCatalogItem): DraftFood {
+  return {
+    key: Crypto.randomUUID(),
+    catalogId: item.id,
+    name: item.name,
+    quantity: String(item.servingQuantity),
+    unit: item.servingUnit,
+    calories: String(roundMacro(item.caloriesKcal)),
+    protein: String(roundMacro(item.proteinG)),
+    carbs: String(roundMacro(item.carbohydrateG)),
+    fat: String(roundMacro(item.fatG)),
+    fibre: item.fibreG == null ? '' : String(roundMacro(item.fibreG)),
+    source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' ? 'manual' : 'imported',
+    sourceLabel: sourceName(item.source),
+    confidence: item.confidence,
+  };
+}
+
+function isBlankFood(food: DraftFood): boolean {
+  return !food.name.trim() && !food.calories.trim() && !food.protein.trim() && !food.carbs.trim() && !food.fat.trim();
+}
+
+function sourceName(source: FoodCatalogItem['source']): string {
+  if (source === 'usda_fdc') return 'USDA FoodData Central';
+  if (source === 'open_food_facts') return 'Open Food Facts';
+  if (source === 'ai_photo') return 'AI photo estimate';
+  return 'JIEN starter estimate';
+}
+
+function roundMacro(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 const styles = StyleSheet.create({
+  screenContent: { width: '100%', maxWidth: 980, alignSelf: 'center' },
   typeWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  discoveryCard: { padding: spacing.lg },
+  discoveryHeader: { flexDirection: 'row', gap: spacing.sm },
+  sectionTitle: { ...typography.section, fontWeight: '700' },
+  toolActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  results: { gap: 0 },
+  resultRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
+  resultName: { fontWeight: '700' },
+  resultCalories: { fontWeight: '800', textAlign: 'right' },
+  attribution: { ...typography.caption },
+  cameraFrame: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, overflow: 'hidden', borderRadius: radii.card },
+  message: { padding: spacing.md, borderRadius: radii.control },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },
-  twoCol: { flexDirection: 'row', gap: spacing.sm },
+  fieldGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  gridField: { flexGrow: 1, flexBasis: 240, minWidth: 140 },
+  macroField: { flexGrow: 1, flexBasis: 150, minWidth: 118 },
   flex: { flex: 1 },
+  pressed: { opacity: 0.7 },
 });

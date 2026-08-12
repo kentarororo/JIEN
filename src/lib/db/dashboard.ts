@@ -3,6 +3,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { startOfIsoWeek, toLocalDateKey } from '@/lib/time';
 
 import { getDailyNutrition } from './nutrition';
+import { getLatestBodyMeasurement } from './wellness';
+import { getWorkoutProgressComparison } from './workouts';
 import type { DashboardSummary, WorkoutStatus, WorkoutSummary } from './types';
 
 export async function getDashboardSummary(db: SQLiteDatabase): Promise<DashboardSummary> {
@@ -61,6 +63,8 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
     workoutCountThisWeek: workoutRow?.workout_count ?? 0,
     weeklyVolumeKg: workoutRow?.volume_kg ?? 0,
     latestWorkout,
+    workoutProgress: await getWorkoutProgressComparison(db, latestWorkout?.id),
+    latestBodyMeasurement: await getLatestBodyMeasurement(db),
     nutrition: await getDailyNutrition(db),
   };
 }

@@ -3,6 +3,100 @@ export type SetKind = 'working' | 'warmup' | 'drop' | 'failure';
 export type WorkoutStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 export type NotificationType = 'meal_gap' | 'workout_plan' | 'sync_issue';
+export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
+export type FitnessGoal = 'composition' | 'strength' | 'both' | 'general_wellness';
+
+export type UserProfile = {
+  trainingExperience: TrainingExperience;
+  availableEquipment: string[];
+  injuryFlags: string[];
+  goals: FitnessGoal[];
+  typicalDietPattern: string;
+  preferredLoadUnit: LoadUnit;
+  aiDataConsent: boolean;
+  aiDataConsentedAt: string | null;
+  medicalDisclaimerAcknowledgedAt: string | null;
+  onboardingCompletedAt: string;
+};
+
+export type SaveUserProfileInput = Omit<UserProfile, 'aiDataConsentedAt' | 'medicalDisclaimerAcknowledgedAt' | 'onboardingCompletedAt'>;
+
+export type SaveBodyMeasurementInput = {
+  heightCm: number;
+  bodyWeightKg: number;
+  bodyFatPercent: number | null;
+  bodyFatIsEstimated: boolean | null;
+};
+
+export type BodyMeasurement = SaveBodyMeasurementInput & {
+  id: string;
+  loggedAt: string;
+};
+
+export type WellnessCheckInInput = {
+  moodScore: number | null;
+  energyScore: number | null;
+  stressScore: number | null;
+  sorenessScore: number | null;
+  motivationScore: number | null;
+  sleepDurationMinutes: number | null;
+  sleepQualityScore: number | null;
+  injuryFlags: string[];
+  notes: string;
+};
+
+export type WellnessCheckIn = WellnessCheckInInput & {
+  id: string;
+  loggedAt: string;
+};
+
+export type AiMessageRole = 'user' | 'assistant';
+export type AiMessageLocalStatus = 'pending' | 'complete' | 'failed';
+
+export type AiMessage = {
+  id: string;
+  conversationId: string;
+  sequence: number;
+  role: AiMessageRole;
+  content: string;
+  createdAt: string;
+  localStatus: AiMessageLocalStatus;
+  metadata: Record<string, unknown>;
+};
+
+export type PlanBriefExercise = {
+  exerciseId: string;
+  exerciseName: string;
+  action: 'start' | 'hold' | 'add_reps' | 'add_load';
+  loadValue: number | null;
+  loadUnit: LoadUnit;
+  targetReps: number[] | null;
+  reason: string;
+};
+
+export type DeterministicPlanBrief = {
+  version: 1;
+  generatedAt: string;
+  sourceWorkoutId: string | null;
+  sourceWorkoutTitle: string | null;
+  activeJointFlag: boolean;
+  weeklyVolumeKg: number[];
+  deloadSignal: { kind: 'none' | 'stagnation' | 'volume_drop'; message: string };
+  exercises: PlanBriefExercise[];
+};
+
+export type WellnessHubSummary = {
+  workoutCount7Days: number;
+  trainingVolume7DaysKg: number;
+  trainingVolumePrevious7DaysKg: number;
+  trainingVolumeChangePercent: number | null;
+  nutritionDaysLogged: number;
+  averageCalories7Days: number;
+  averageProtein7Days: number;
+  latestCheckIn: WellnessCheckIn | null;
+  plan: DeterministicPlanBrief;
+  messages: AiMessage[];
+};
 
 export type Exercise = {
   id: string;
@@ -66,6 +160,24 @@ export type WorkoutDetail = WorkoutSummary & {
   sets: WorkoutSet[];
 };
 
+export type ExerciseProgressComparison = {
+  exerciseId: string;
+  exerciseName: string;
+  currentVolumeKg: number;
+  previousVolumeKg: number | null;
+  changePercent: number | null;
+};
+
+export type WorkoutProgressComparison = {
+  workoutId: string;
+  comparableExerciseCount: number;
+  improvedExerciseCount: number;
+  currentComparableVolumeKg: number;
+  previousComparableVolumeKg: number;
+  overallChangePercent: number | null;
+  exercises: ExerciseProgressComparison[];
+};
+
 export type FoodItemInput = {
   name: string;
   quantity: number;
@@ -75,6 +187,25 @@ export type FoodItemInput = {
   carbohydrateG: number;
   fatG: number;
   fibreG?: number | null;
+  source?: 'manual' | 'ai_photo' | 'imported';
+  confidence?: number | null;
+};
+
+export type FoodCatalogItem = {
+  id: string;
+  name: string;
+  brand: string | null;
+  servingQuantity: number;
+  servingUnit: string;
+  caloriesKcal: number;
+  proteinG: number;
+  carbohydrateG: number;
+  fatG: number;
+  fibreG: number | null;
+  source: 'starter' | 'usda_fdc' | 'open_food_facts' | 'ai_photo';
+  sourceRef: string | null;
+  barcode: string | null;
+  confidence: number | null;
 };
 
 export type SaveMealInput = {
@@ -135,6 +266,8 @@ export type DashboardSummary = {
   workoutCountThisWeek: number;
   weeklyVolumeKg: number;
   latestWorkout: WorkoutSummary | null;
+  workoutProgress: WorkoutProgressComparison | null;
+  latestBodyMeasurement: BodyMeasurement | null;
   nutrition: DailyNutrition;
 };
 

@@ -50,6 +50,7 @@ create table public.users (
   typical_diet_pattern text,
   ai_data_consent boolean not null default false,
   ai_data_consented_at timestamptz,
+  onboarding_completed_at timestamptz,
   medical_disclaimer_acknowledged_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

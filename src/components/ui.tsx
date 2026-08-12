@@ -10,6 +10,8 @@ import {
   type TextProps,
   View,
   type ViewProps,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -113,11 +115,53 @@ export function Pill({ label, active = false, onPress }: { label: string; active
   );
 }
 
-export function Field({ label, hint, ...props }: TextInputProps & { label: string; hint?: string }) {
+export function ChoiceCard({
+  title,
+  body,
+  selected,
+  onPress,
+}: {
+  title: string;
+  body?: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
   const { colors } = useJienTheme();
   return (
-    <View style={styles.field}>
-      <AppText style={styles.fieldLabel}>{label}</AppText>
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.choice,
+        {
+          backgroundColor: selected ? colors.accentSoft : colors.surface,
+          borderColor: selected ? colors.accent : colors.border,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={styles.choiceCopy}>
+        <AppText style={styles.choiceTitle}>{title}</AppText>
+        {body ? <AppText style={[styles.choiceBody, { color: colors.textMuted }]}>{body}</AppText> : null}
+      </View>
+      <View style={[styles.choiceMark, { borderColor: selected ? colors.accent : colors.border, backgroundColor: selected ? colors.accent : 'transparent' }]}>
+        {selected ? <AppText style={[styles.choiceTick, { color: colors.textOnAccent }]}>✓</AppText> : null}
+      </View>
+    </Pressable>
+  );
+}
+
+export function Field({
+  label,
+  hint,
+  containerStyle,
+  ...props
+}: TextInputProps & { label?: string; hint?: string; containerStyle?: StyleProp<ViewStyle> }) {
+  const { colors } = useJienTheme();
+  return (
+    <View style={[styles.field, containerStyle]}>
+      {label ? <AppText style={styles.fieldLabel}>{label}</AppText> : null}
       <TextInput
         {...props}
         placeholderTextColor={colors.textMuted}
@@ -180,6 +224,12 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.48 },
   pill: { minHeight: 40, borderRadius: radii.pill, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
   pillLabel: { ...typography.label, fontWeight: '600' },
+  choice: { minHeight: 72, borderWidth: 1, borderRadius: radii.card, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  choiceCopy: { flex: 1, gap: spacing.xxs },
+  choiceTitle: { ...typography.bodyLarge, fontWeight: '700' },
+  choiceBody: { ...typography.label },
+  choiceMark: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  choiceTick: { ...typography.caption, fontWeight: '700' },
   field: { gap: spacing.xs },
   fieldLabel: { ...typography.label, fontWeight: '700' },
   input: { minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, paddingHorizontal: spacing.md, ...typography.body },

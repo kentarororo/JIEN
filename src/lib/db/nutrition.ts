@@ -41,13 +41,16 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
   const id = Crypto.randomUUID();
   const now = new Date().toISOString();
   const eatenOn = toLocalDateKey(new Date(input.eatenAt));
+  const mealSource = input.items.some((item) => item.source === 'ai_photo')
+    ? 'ai_photo'
+    : input.items.some((item) => item.source === 'imported') ? 'imported' : 'manual';
   const mealPayload = {
     id,
     name: input.name.trim() || 'Meal',
     type: input.type,
     eaten_on: eatenOn,
     eaten_at: input.eatenAt,
-    source: 'manual',
+    source: mealSource,
     notes: input.notes?.trim() || null,
     photo_storage_path: null,
     ai_context: null,
@@ -63,8 +66,8 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
       `INSERT INTO meals (
         id, name, type, eaten_on, eaten_at, source, notes,
         created_at, updated_at, client_updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)`,
-      [id, mealPayload.name, input.type, eatenOn, input.eatenAt, mealPayload.notes, now, now, now],
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, mealPayload.name, input.type, eatenOn, input.eatenAt, mealSource, mealPayload.notes, now, now, now],
     );
     await enqueueUpsert(db, 'meals', id, mealPayload);
 
@@ -82,8 +85,8 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
         carbohydrate_g: item.carbohydrateG,
         fat_g: item.fatG,
         fibre_g: item.fibreG ?? null,
-        source: 'manual',
-        confidence: null,
+        source: item.source ?? 'manual',
+        confidence: item.confidence ?? null,
         created_at: now,
         client_updated_at: now,
         deleted_at: null,
@@ -91,8 +94,8 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
       await db.runAsync(
         `INSERT INTO food_items (
           id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
-          carbohydrate_g, fat_g, fibre_g, source, created_at, updated_at, client_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?)`,
+          carbohydrate_g, fat_g, fibre_g, source, confidence, created_at, updated_at, client_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           itemId,
           id,
@@ -105,6 +108,8 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
           item.carbohydrateG,
           item.fatG,
           item.fibreG ?? null,
+          itemPayload.source,
+          itemPayload.confidence,
           now,
           now,
           now,

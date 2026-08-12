@@ -7,13 +7,15 @@ to a Supabase backend with row-level security.
 ## Current build
 
 - Expo Router tabs for Today, Training, Food, and Settings
-- multi-exercise workout logging with sets, reps, load, and optional RPE
-- deterministic double progression and weekly volume summaries (no 1RM flows)
+- responsive multi-exercise workout logging, custom exercises, and optional RPE
+- deterministic session-over-session overload and weekly volume summaries (no 1RM flows)
+- searchable offline food starters, editable database/barcode results, and AI meal-photo scaffolding
 - meal, food-item, macro-total, and versioned nutrition-target logging
 - native share / web download for workout CSV, nutrition CSV, and complete JSON
 - opt-in, context-aware missing-meal notification scaffolding
 - Supabase email/password authentication and automatic foreground/connectivity sync
 - warm cream, royal-brown, and wood-accented light/dark themes
+- calm guided onboarding for goals, body baseline, equipment, joint considerations, diet, and AI consent
 
 ## Local setup
 
@@ -27,6 +29,11 @@ pnpm start
 
 Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to enable
 accounts and cloud sync. Logging and exports continue to work without them.
+
+Online USDA search, Open Food Facts barcode lookup, and consent-gated Claude photo
+analysis are implemented as Supabase Edge Functions. Their server-only setup is in
+[supabase/functions/README.md](supabase/functions/README.md). Local food search and
+manual meal logging remain available without those services.
 
 Useful checks:
 
@@ -59,3 +66,12 @@ pnpm exec expo run:android
 Web hosting must preserve the `Cross-Origin-Embedder-Policy: require-corp` and
 `Cross-Origin-Opener-Policy: same-origin` response headers required by the SQLite
 WebAssembly worker. The local Expo server config already supplies them.
+
+## GitHub Pages test build
+
+Pushes to `main` run the Pages workflow and publish the static Expo build at
+`https://kentarororo.github.io/JIEN/`. The build uses Expo Router's `/JIEN` base URL.
+Because GitHub Pages cannot set the cross-origin isolation headers needed by
+Expo SQLite, the Pages artifact includes the MIT-licensed `coi-serviceworker` bridge;
+the first visit may reload once while it takes control. This is a test deployment
+constraint, not the preferred long-term production hosting setup.

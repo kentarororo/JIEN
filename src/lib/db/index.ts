@@ -1,6 +1,24 @@
 export { getDashboardSummary } from './dashboard';
 export { createCustomExercise, listExercises } from './exercises';
+export {
+  analyzeMealPhoto,
+  cacheFoodCatalogItems,
+  lookupFoodBarcode,
+  markFoodCatalogItemUsed,
+  searchFoodDatabase,
+  searchLocalFoodCatalog,
+} from './food-catalog';
 export { migrateDatabase } from './migrate';
+export { getUserProfile, hasCompletedOnboarding, saveUserProfile } from './profile';
+export {
+  acknowledgeMedicalDisclaimer,
+  getLatestBodyMeasurement,
+  getLatestWellnessCheckIn,
+  getWellnessHubSummary,
+  saveBodyMeasurement,
+  saveWellnessCheckIn,
+} from './wellness';
+export { retryWellnessMessage, sendWellnessMessage } from './wellness-chat';
 export {
   getDailyNutrition,
   getNutritionTarget,
@@ -21,6 +39,7 @@ export { getSupabaseClient } from './supabase';
 export { getSyncStatus, syncPendingChanges } from './sync-queue';
 export {
   getExerciseHistory,
+  getWorkoutProgressComparison,
   getWorkoutDetail,
   listRecentWorkouts,
   listVolumeHistory,

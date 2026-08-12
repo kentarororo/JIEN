@@ -31,6 +31,10 @@ export default function TabLayout() {
         options={{ title: 'Food', tabBarIcon: ({ color, size }) => <Ionicons name="restaurant-outline" color={color} size={size} /> }}
       />
       <Tabs.Screen
+        name="wellness"
+        options={{ title: 'Wellness', tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" color={color} size={size} /> }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{ title: 'Settings', tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" color={color} size={size} /> }}
       />

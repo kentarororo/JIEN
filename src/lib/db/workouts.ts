@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toLocalDateKey } from '@/lib/time';
+import { calculateOverloadChangePercent, calculateSetVolumeKg } from '@/lib/progression';
 
 import { exerciseRemotePayload } from './exercises';
 import { enqueueUpsert } from './sync-queue';
@@ -15,6 +16,7 @@ import type {
   WorkoutSet,
   WorkoutStatus,
   WorkoutSummary,
+  WorkoutProgressComparison,
 } from './types';
 
 type WorkoutSummaryRow = {
@@ -277,6 +279,74 @@ export async function getExerciseHistory(
     completedAt: set.completed_at,
     sortOrder: set.sort_order,
   }));
+}
+
+export async function getWorkoutProgressComparison(
+  db: SQLiteDatabase,
+  workoutId?: string,
+): Promise<WorkoutProgressComparison | null> {
+  const targetId = workoutId ?? (await listRecentWorkouts(db, 1))[0]?.id;
+  if (!targetId) return null;
+  const workout = await getWorkoutDetail(db, targetId);
+  if (!workout?.completedAt) return null;
+
+  const grouped = new Map<string, { exerciseName: string; currentVolumeKg: number }>();
+  for (const set of workout.sets) {
+    if (set.kind !== 'working') continue;
+    const current = grouped.get(set.exerciseId) ?? { exerciseName: set.exerciseName, currentVolumeKg: 0 };
+    current.currentVolumeKg += calculateSetVolumeKg(set);
+    grouped.set(set.exerciseId, current);
+  }
+
+  const exercises = await Promise.all([...grouped.entries()].map(async ([exerciseId, current]) => {
+    const previous = await db.getFirstAsync<{ volume_kg: number | null }>(
+      `SELECT SUM(CASE
+          WHEN s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
+          ELSE s.load_value * s.reps END) AS volume_kg
+       FROM workout_sets s
+       WHERE s.workout_id = (
+         SELECT previous_workout.id
+         FROM workouts previous_workout
+         JOIN workout_sets previous_set ON previous_set.workout_id = previous_workout.id
+         WHERE previous_set.exercise_id = ?
+           AND previous_set.kind = 'working'
+           AND previous_set.deleted_at IS NULL
+           AND previous_workout.deleted_at IS NULL
+           AND previous_workout.status = 'completed'
+           AND previous_workout.completed_at < ?
+         GROUP BY previous_workout.id
+         ORDER BY previous_workout.completed_at DESC
+         LIMIT 1
+       )
+         AND s.exercise_id = ?
+         AND s.kind = 'working'
+         AND s.deleted_at IS NULL`,
+      [exerciseId, workout.completedAt, exerciseId],
+    );
+    const previousVolumeKg = previous?.volume_kg ?? null;
+    return {
+      exerciseId,
+      exerciseName: current.exerciseName,
+      currentVolumeKg: current.currentVolumeKg,
+      previousVolumeKg,
+      changePercent: previousVolumeKg == null
+        ? null
+        : calculateOverloadChangePercent(current.currentVolumeKg, previousVolumeKg),
+    };
+  }));
+
+  const comparable = exercises.filter((exercise) => exercise.previousVolumeKg != null && exercise.previousVolumeKg > 0);
+  const currentComparableVolumeKg = comparable.reduce((sum, exercise) => sum + exercise.currentVolumeKg, 0);
+  const previousComparableVolumeKg = comparable.reduce((sum, exercise) => sum + (exercise.previousVolumeKg ?? 0), 0);
+  return {
+    workoutId: targetId,
+    comparableExerciseCount: comparable.length,
+    improvedExerciseCount: comparable.filter((exercise) => (exercise.changePercent ?? 0) > 0).length,
+    currentComparableVolumeKg,
+    previousComparableVolumeKg,
+    overallChangePercent: calculateOverloadChangePercent(currentComparableVolumeKg, previousComparableVolumeKg),
+    exercises,
+  };
 }
 
 export async function listWorkoutExportRows(db: SQLiteDatabase): Promise<WorkoutExportRow[]> {

@@ -26,6 +26,7 @@ function AppNavigator() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="workouts/new" options={{ title: 'Log workout', presentation: 'modal' }} />
         <Stack.Screen name="workouts/[id]" options={{ title: 'Workout' }} />
         <Stack.Screen name="meals/new" options={{ title: 'Log meal', presentation: 'modal' }} />

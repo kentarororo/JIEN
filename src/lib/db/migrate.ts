@@ -17,15 +17,29 @@ const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000014', 'Standing Calf Raise', 'plantar_flexion', 'calves', '[]', 'machine', 10, 15, 2.5],
 ] as const;
 
+const STARTER_FOODS = [
+  ['starter-chicken-breast', 'Chicken breast, cooked', null, 100, 'g', 165, 31, 0, 3.6, 0],
+  ['starter-white-rice', 'White rice, cooked', null, 100, 'g', 130, 2.7, 28.2, 0.3, 0.4],
+  ['starter-brown-rice', 'Brown rice, cooked', null, 100, 'g', 123, 2.7, 25.6, 1, 1.6],
+  ['starter-egg', 'Whole egg', null, 1, 'large egg', 72, 6.3, 0.4, 4.8, 0],
+  ['starter-banana', 'Banana', null, 1, 'medium', 105, 1.3, 27, 0.4, 3.1],
+  ['starter-oats', 'Rolled oats, dry', null, 40, 'g', 152, 5.1, 27.1, 3.2, 4],
+  ['starter-greek-yogurt', 'Greek yogurt, plain nonfat', null, 170, 'g', 100, 17, 6, 0.7, 0],
+  ['starter-tofu', 'Firm tofu', null, 100, 'g', 144, 17.3, 2.8, 8.7, 2.3],
+  ['starter-salmon', 'Salmon, cooked', null, 100, 'g', 206, 22.1, 0, 12.4, 0],
+  ['starter-broccoli', 'Broccoli, cooked', null, 100, 'g', 35, 2.4, 7.2, 0.4, 3.3],
+  ['starter-milk', 'Milk, 2%', null, 250, 'ml', 125, 8.3, 12, 5, 0],
+  ['starter-peanut-butter', 'Peanut butter', null, 32, 'g', 188, 8, 6.9, 16, 1.9],
+] as const;
+
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
 
-  if ((version?.user_version ?? 0) >= 1) {
-    return;
-  }
+  const currentVersion = version?.user_version ?? 0;
 
-  await db.execAsync(`
+  if (currentVersion < 1) {
+    await db.execAsync(`
     CREATE TABLE IF NOT EXISTS exercises (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT,
@@ -176,20 +190,154 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS meals_timeline_idx ON meals(eaten_on DESC, eaten_at DESC);
     CREATE INDEX IF NOT EXISTS food_items_meal_idx ON food_items(meal_id, sort_order);
     CREATE INDEX IF NOT EXISTS sync_queue_retry_idx ON sync_queue(next_attempt_at, created_at);
-  `);
+    `);
 
-  const now = new Date().toISOString();
-  await db.withTransactionAsync(async () => {
-    for (const exercise of DEFAULT_EXERCISES) {
-      await db.runAsync(
-        `INSERT OR IGNORE INTO exercises (
-          id, name, movement_pattern, primary_muscle_group, secondary_muscle_groups,
-          equipment, target_rep_min, target_rep_max, load_increment,
-          created_at, updated_at, client_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [...exercise, now, now, now],
+    const now = new Date().toISOString();
+    await db.withTransactionAsync(async () => {
+      for (const exercise of DEFAULT_EXERCISES) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO exercises (
+            id, name, movement_pattern, primary_muscle_group, secondary_muscle_groups,
+            equipment, target_rep_min, target_rep_max, load_increment,
+            created_at, updated_at, client_updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [...exercise, now, now, now],
+        );
+      }
+      await db.execAsync('PRAGMA user_version = 1;');
+    });
+  }
+
+  if (currentVersion < 2) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS user_profile (
+        id TEXT PRIMARY KEY NOT NULL CHECK (id = 'current'),
+        training_experience TEXT NOT NULL,
+        available_equipment TEXT NOT NULL DEFAULT '[]',
+        injury_flags TEXT NOT NULL DEFAULT '[]',
+        goals TEXT NOT NULL DEFAULT '[]',
+        typical_diet_pattern TEXT NOT NULL,
+        preferred_load_unit TEXT NOT NULL DEFAULT 'kg',
+        ai_data_consent INTEGER NOT NULL DEFAULT 0,
+        ai_data_consented_at TEXT,
+        onboarding_completed_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        client_updated_at TEXT NOT NULL
       );
-    }
-    await db.execAsync('PRAGMA user_version = 1;');
-  });
+      PRAGMA user_version = 2;
+    `);
+  }
+
+  if (currentVersion < 3) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS wellness_logs (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        kind TEXT NOT NULL,
+        logged_on TEXT NOT NULL,
+        logged_at TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual',
+        mood_score INTEGER,
+        energy_score INTEGER,
+        stress_score INTEGER,
+        soreness_score INTEGER,
+        motivation_score INTEGER,
+        sleep_duration_minutes INTEGER,
+        sleep_quality_score INTEGER,
+        body_weight_kg REAL,
+        injury_flags TEXT NOT NULL DEFAULT '[]',
+        notes TEXT,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        client_updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS wellness_logs_timeline_idx ON wellness_logs(kind, logged_at DESC);
+      PRAGMA user_version = 3;
+    `);
+  }
+
+  if (currentVersion < 4) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS food_catalog_cache (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        serving_quantity REAL NOT NULL,
+        serving_unit TEXT NOT NULL,
+        calories_kcal REAL NOT NULL,
+        protein_g REAL NOT NULL,
+        carbohydrate_g REAL NOT NULL,
+        fat_g REAL NOT NULL,
+        fibre_g REAL,
+        source TEXT NOT NULL,
+        source_ref TEXT,
+        barcode TEXT,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS food_catalog_name_idx ON food_catalog_cache(name);
+      CREATE UNIQUE INDEX IF NOT EXISTS food_catalog_source_ref_idx ON food_catalog_cache(source, source_ref) WHERE source_ref IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS food_catalog_barcode_idx ON food_catalog_cache(barcode) WHERE barcode IS NOT NULL;
+    `);
+    const foodNow = new Date().toISOString();
+    await db.withTransactionAsync(async () => {
+      for (const food of STARTER_FOODS) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO food_catalog_cache (
+            id, name, brand, serving_quantity, serving_unit, calories_kcal,
+            protein_g, carbohydrate_g, fat_g, fibre_g, source, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starter', ?)`,
+          [...food, foodNow],
+        );
+      }
+      await db.execAsync('PRAGMA user_version = 4;');
+    });
+  }
+
+  if (currentVersion < 5) {
+    await db.execAsync(`
+      ALTER TABLE user_profile ADD COLUMN medical_disclaimer_acknowledged_at TEXT;
+
+      CREATE TABLE IF NOT EXISTS ai_conversations (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        purpose TEXT NOT NULL DEFAULT 'wellness',
+        title TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        last_message_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        client_updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS ai_messages (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        conversation_id TEXT NOT NULL REFERENCES ai_conversations(id),
+        sequence INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        structured_content TEXT NOT NULL DEFAULT '{}',
+        metadata TEXT NOT NULL DEFAULT '{}',
+        model TEXT,
+        provider_message_id TEXT,
+        local_status TEXT NOT NULL DEFAULT 'complete',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        client_updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        UNIQUE(conversation_id, sequence)
+      );
+
+      CREATE INDEX IF NOT EXISTS ai_conversations_recent_idx
+        ON ai_conversations(status, last_message_at DESC);
+      CREATE INDEX IF NOT EXISTS ai_messages_conversation_idx
+        ON ai_messages(conversation_id, sequence);
+      PRAGMA user_version = 5;
+    `);
+  }
 }

@@ -44,7 +44,12 @@ export function calculateSetVolumeKg(set: ProgressionSet): number {
   return loadToKg(set.loadValue, set.loadUnit) * set.reps;
 }
 
-function isoWeekKey(value: string): string {
+export function calculateOverloadChangePercent(currentVolumeKg: number, previousVolumeKg: number): number | null {
+  if (!Number.isFinite(currentVolumeKg) || !Number.isFinite(previousVolumeKg) || previousVolumeKg <= 0) return null;
+  return ((currentVolumeKg - previousVolumeKg) / previousVolumeKg) * 100;
+}
+
+export function isoWeekKey(value: string): string {
   const date = new Date(value);
   const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = utc.getUTCDay() || 7;

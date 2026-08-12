@@ -3,10 +3,17 @@ import test from 'node:test';
 
 import {
   aggregateWeeklyVolume,
+  calculateOverloadChangePercent,
   calculateSetVolumeKg,
   detectDeloadSignal,
   suggestDoubleProgression,
 } from './index.ts';
+
+test('compares only against a meaningful prior volume', () => {
+  assert.equal(calculateOverloadChangePercent(1_050, 1_000), 5);
+  assert.equal(calculateOverloadChangePercent(950, 1_000), -5);
+  assert.equal(calculateOverloadChangePercent(100, 0), null);
+});
 
 test('normalizes pounds and ignores warm-up volume', () => {
   assert.ok(Math.abs(calculateSetVolumeKg({ reps: 10, loadValue: 100, loadUnit: 'lb' }) - 453.59237) < 0.001);

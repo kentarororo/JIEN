@@ -52,6 +52,7 @@ accounts.
 | `typical_diet_pattern` | `text` | Optional onboarding context; sensitive |
 | `ai_data_consent` | `boolean` | Explicit AI processing consent |
 | `ai_data_consented_at` | `timestamptz` | Required while consent is true |
+| `onboarding_completed_at` | `timestamptz` | Set after the guided profile is committed |
 | `medical_disclaimer_acknowledged_at` | `timestamptz` | First-AI-use acknowledgement |
 | common timestamps | `timestamptz` | `created_at`, `updated_at`, `client_updated_at` |
 
@@ -198,8 +199,12 @@ future HealthKit or Health Connect imports.
 | `body_weight_kg` | `numeric(7,3)` | Optional positive canonical weight |
 | `injury_flags` | `jsonb` | JSON array; sensitive |
 | `notes` | `text` | Optional free-form check-in; sensitive |
-| `metadata` | `jsonb` | JSON object for source-specific values |
+| `metadata` | `jsonb` | JSON object for source-specific values. `body_measurement` rows use `height_cm`, optional `body_fat_percent`, and `body_fat_is_estimated`. |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
+
+The SQLite mirror includes the same wellness columns. Onboarding writes a
+`body_measurement` row with canonical kilograms and centimetres; body-fat provenance
+is retained so an estimate is never presented as a measured value.
 
 ### `ai_conversations`
 
@@ -236,6 +241,13 @@ history does not disappear.
 | `model`, `provider_message_id` | `text` | Optional provider audit identifiers |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
 
+The SQLite mirror adds one device-only `local_status` field (`pending`, `complete`,
+or `failed`) so the interface can expose delivery state and retry the same stable
+assistant UUID after a timeout. Device-only request metadata retains the immutable
+deterministic plan brief needed for retry; it is not copied into the remote user
+message. Assistant rows are written remotely by `wellness-chat` and cached locally
+from the versioned Edge Function response.
+
 ### `notification_preferences`
 
 One row per user and contextual notification type. Preferences include an enabled
@@ -254,6 +266,15 @@ there is no blanket retention reminder type.
 | `last_notified_at` | `timestamptz` | Last successful delivery time |
 | `conditions` | `jsonb` | Trigger-specific threshold object |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
+
+## Local food discovery cache
+
+`food_catalog_cache` is a SQLite-only read-through cache, not a Supabase-owned user
+table. It stores normalized food names, brands, portions, macros, optional barcodes,
+provider attribution, and source identifiers. Starter entries keep core food search
+useful offline; USDA FoodData Central and Open Food Facts results are cached only
+after retrieval. Users always edit the copied meal-item macros before saving if the
+database portion does not match what they ate.
 
 ## Row Level Security
 
