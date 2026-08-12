@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "pages:build": "expo export --platform web && node -e \"require('fs').copyFileSync(require.resolve('coi-serviceworker/coi-serviceworker.js'), 'dist/coi-serviceworker.js'); require('fs').writeFileSync('dist/.nojekyll', '')\"",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/progression/progression.test.ts src/lib/export/csv.test.ts src/lib/notifications/meal-gap-policy.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/progression/progression.test.ts src/lib/export/csv.test.ts src/lib/notifications/meal-gap-policy.test.ts src/lib/db/migration-utils.test.ts src/lib/web-sqlite-readiness.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

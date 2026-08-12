@@ -1,5 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { addColumnIfMissing } from './migration-utils';
+
 const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000002', 'Lat Pulldown', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'cable', 8, 12, 2.5],
@@ -298,9 +300,15 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   }
 
   if (currentVersion < 5) {
+    // A browser can be closed between individual schema statements. Inspect the
+    // table before ALTER so an interrupted v5 upgrade remains safe to retry.
+    await addColumnIfMissing(
+      db,
+      'user_profile',
+      'medical_disclaimer_acknowledged_at',
+      'TEXT',
+    );
     await db.execAsync(`
-      ALTER TABLE user_profile ADD COLUMN medical_disclaimer_acknowledged_at TEXT;
-
       CREATE TABLE IF NOT EXISTS ai_conversations (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT,

@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/app-error-boundary';
 import { AppRuntime } from '@/components/app-runtime';
+import { WebSQLiteGate } from '@/components/web-sqlite-gate';
 import { migrateDatabase } from '@/lib/db';
 import { configureNotificationHandling } from '@/lib/notifications';
 import { JienThemeProvider, useJienTheme } from '@/theme';
@@ -41,14 +42,16 @@ function AppNavigator() {
 export default function RootLayout() {
   return (
     <AppErrorBoundary>
-      <Suspense fallback={<View style={styles.boot}><ActivityIndicator color="#71452F" /></View>}>
-        <SQLiteProvider databaseName="jien.db" onInit={migrateDatabase} useSuspense>
-          <JienThemeProvider>
-            <AppRuntime />
-            <AppNavigator />
-          </JienThemeProvider>
-        </SQLiteProvider>
-      </Suspense>
+      <WebSQLiteGate>
+        <Suspense fallback={<View style={styles.boot}><ActivityIndicator color="#71452F" /></View>}>
+          <SQLiteProvider databaseName="jien.db" onInit={migrateDatabase} useSuspense>
+            <JienThemeProvider>
+              <AppRuntime />
+              <AppNavigator />
+            </JienThemeProvider>
+          </SQLiteProvider>
+        </Suspense>
+      </WebSQLiteGate>
     </AppErrorBoundary>
   );
 }
