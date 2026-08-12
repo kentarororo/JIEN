@@ -1,6 +1,7 @@
 import {
   copyFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   statSync,
@@ -73,6 +74,24 @@ export function createHashedBundleName(prefix, source) {
   return `${prefix}-${hash}.js`;
 }
 
+export function validatePublicWasmUrl(value) {
+  const url = new URL(value);
+  const hasHiddenDirectory = url.pathname
+    .split('/')
+    .filter(Boolean)
+    .some((segment) => segment.startsWith('.'));
+
+  if (hasHiddenDirectory) {
+    throw new Error(`The public SQLite WASM URL cannot contain hidden directories: ${value}`);
+  }
+
+  if (!url.pathname.endsWith('.wasm')) {
+    throw new Error(`The public SQLite asset must use a .wasm URL: ${value}`);
+  }
+
+  return url.href;
+}
+
 function listFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
@@ -134,19 +153,50 @@ export async function finalizePagesBuild(options = {}) {
 
   const patchedWorker = patches.find((patch) => patch.replacementCount === 1);
   const assetPath = patchedWorker.assetPaths[0];
-  const absoluteAssetUrl = `${siteOrigin}${assetPath}`;
+  const exportedWasmPath = resolveDistAsset(distRoot, basePath, assetPath);
 
-  new URL(absoluteAssetUrl);
+  if (!existsSync(exportedWasmPath) || statSync(exportedWasmPath).size === 0) {
+    throw new Error(`Expo SQLite WASM asset is missing or empty: ${exportedWasmPath}`);
+  }
 
-  writeFileSync(patchedWorker.workerPath, patchedWorker.patchedSource);
+  const wasmBytes = readFileSync(exportedWasmPath);
+  await WebAssembly.compile(wasmBytes);
+
+  // Expo exports this asset below node_modules/.pnpm. GitHub Pages answers
+  // requests containing that hidden directory with its HTML 404 document,
+  // which WebAssembly then reports as an invalid magic word. Publish an exact
+  // copy at a clean URL that Pages serves as a binary asset.
+  const wasmHash = createHash('sha256').update(wasmBytes).digest('hex').slice(0, 32);
+  const publicWasmName = `wa-sqlite-${wasmHash}.wasm`;
+  const publicWasmDirectory = path.join(distRoot, 'assets', 'jien-sqlite');
+  const publicWasmPath = path.join(publicWasmDirectory, publicWasmName);
+  const publicWasmAssetPath = `${basePath}/assets/jien-sqlite/${publicWasmName}`;
+  const absoluteAssetUrl = validatePublicWasmUrl(`${siteOrigin}${publicWasmAssetPath}`);
+  mkdirSync(publicWasmDirectory, { recursive: true });
+  writeFileSync(publicWasmPath, wasmBytes);
+
+  const originalAbsoluteAssetUrl = `${siteOrigin}${assetPath}`;
+  const deployableWorkerSource = patchedWorker.patchedSource.replace(
+    originalAbsoluteAssetUrl,
+    absoluteAssetUrl,
+  );
+
+  if (
+    deployableWorkerSource === patchedWorker.patchedSource ||
+    deployableWorkerSource.includes(originalAbsoluteAssetUrl)
+  ) {
+    throw new Error('Failed to redirect the Expo SQLite worker to its Pages-safe WASM asset.');
+  }
+
+  writeFileSync(patchedWorker.workerPath, deployableWorkerSource);
 
   // The worker filename was hashed before this post-export fix. Give both the
   // worker and its referring entry bundle new content-derived URLs so browsers
   // cannot reuse the broken Pages artifacts from an earlier deployment.
   const originalWorkerName = path.basename(patchedWorker.workerPath);
-  const cacheBustedWorkerName = createHashedBundleName('worker', patchedWorker.patchedSource);
+  const cacheBustedWorkerName = createHashedBundleName('worker', deployableWorkerSource);
   const cacheBustedWorkerPath = path.join(workerDirectory, cacheBustedWorkerName);
-  writeFileSync(cacheBustedWorkerPath, patchedWorker.patchedSource);
+  writeFileSync(cacheBustedWorkerPath, deployableWorkerSource);
 
   const bundleReferencePatches = listFiles(distRoot)
     .filter((filePath) => filePath.endsWith('.js') && filePath !== patchedWorker.workerPath)
@@ -195,13 +245,11 @@ export async function finalizePagesBuild(options = {}) {
     throw new Error(`No exported HTML referenced the Expo entry bundle ${originalEntryName}.`);
   }
 
-  const wasmPath = resolveDistAsset(distRoot, basePath, assetPath);
-
-  if (!existsSync(wasmPath) || statSync(wasmPath).size === 0) {
-    throw new Error(`Expo SQLite WASM asset is missing or empty: ${wasmPath}`);
+  if (statSync(publicWasmPath).size !== wasmBytes.length) {
+    throw new Error('The Pages-safe SQLite WASM copy is incomplete.');
   }
 
-  await WebAssembly.compile(readFileSync(wasmPath));
+  await WebAssembly.compile(readFileSync(publicWasmPath));
 
   const indexPath = path.join(distRoot, 'index.html');
   const serviceWorkerSrc = `${basePath}/coi-serviceworker.js`;
@@ -218,7 +266,7 @@ export async function finalizePagesBuild(options = {}) {
   return {
     absoluteAssetUrl,
     entryPath: cacheBustedEntryPath,
-    wasmBytes: statSync(wasmPath).size,
+    wasmBytes: statSync(publicWasmPath).size,
     workerPath: cacheBustedWorkerPath,
   };
 }

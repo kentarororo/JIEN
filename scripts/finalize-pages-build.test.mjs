@@ -6,6 +6,7 @@ import {
   createHashedBundleName,
   normalizeBasePath,
   normalizeSiteOrigin,
+  validatePublicWasmUrl,
 } from './finalize-pages-build.mjs';
 
 test('absolutizes the Expo SQLite WASM URL for a GitHub Pages worker', () => {
@@ -47,6 +48,22 @@ test('gives post-processed bundles deterministic cache-busting names', () => {
   assert.match(firstName, /^worker-[0-9a-f]{32}\.js$/);
   assert.equal(createHashedBundleName('worker', patchedWorker), firstName);
   assert.notEqual(createHashedBundleName('worker', `${patchedWorker};`), firstName);
+});
+
+test('rejects hidden package-manager directories in the public WASM URL', () => {
+  assert.throws(
+    () =>
+      validatePublicWasmUrl(
+        'https://kentarororo.github.io/JIEN/assets/node_modules/.pnpm/expo-sqlite/wa-sqlite.wasm',
+      ),
+    /cannot contain hidden directories/,
+  );
+  assert.equal(
+    validatePublicWasmUrl(
+      'https://kentarororo.github.io/JIEN/assets/jien-sqlite/wa-sqlite-abc123.wasm',
+    ),
+    'https://kentarororo.github.io/JIEN/assets/jien-sqlite/wa-sqlite-abc123.wasm',
+  );
 });
 
 test('normalizes the Pages path and rejects an origin with a path', () => {
