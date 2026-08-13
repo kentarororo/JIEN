@@ -1,9 +1,9 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { AppText, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getWorkoutDetail, getWorkoutProgressComparison } from '@/lib/db';
 import { formatShortDate, formatTime } from '@/lib/time';
@@ -11,6 +11,7 @@ import { spacing, typography, useJienTheme } from '@/theme';
 
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const db = useSQLiteContext();
   const { colors } = useJienTheme();
   const loader = useCallback(async () => {
@@ -80,6 +81,16 @@ export default function WorkoutDetailScreen() {
         </View>
       ))}
       {detail.notes ? <><SectionHeading title="Notes" /><Card><AppText>{detail.notes}</AppText></Card></> : null}
+      <Card style={[styles.nextSession, { backgroundColor: colors.surfaceMuted }]}>
+        <View style={styles.flex}>
+          <AppText style={styles.progressName}>Ready for the next session?</AppText>
+          <AppText style={{ color: colors.textMuted }}>Load this workout again with JIEN's smallest safe rep or load progression already filled in.</AppText>
+        </View>
+        <View style={styles.actions}>
+          <Button label="Plan next session" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
+          <Button label="Back to training" onPress={() => router.replace('/train')} variant="secondary" />
+        </View>
+      </Card>
     </Screen>
   );
 }
@@ -99,6 +110,8 @@ const styles = StyleSheet.create({
   setRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   setIndex: { width: 24, opacity: 0.65 },
   setValue: { flex: 1, fontWeight: '700' },
+  nextSession: { padding: spacing.lg },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 });
 
 function formatPercent(value: number): string {

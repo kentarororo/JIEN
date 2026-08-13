@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -7,12 +7,14 @@ import { Alert, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } f
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import {
   createCustomExercise,
-  getExerciseHistory,
+  getLastExerciseSessionSets,
+  getWorkoutDetail,
   getUserProfile,
   listExercises,
   saveWorkout,
   type Exercise,
   type LoadUnit,
+  type WorkoutDetail,
 } from '@/lib/db';
 import { suggestDoubleProgression, type ProgressionSuggestion } from '@/lib/progression';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -23,9 +25,10 @@ type DraftExercise = {
   exerciseId: string;
   sets: DraftSet[];
   suggestion: ProgressionSuggestion | null;
+  autoApplySuggestion: boolean;
 };
 
-const COMMON_EXERCISE_COUNT = 8;
+const COMMON_EXERCISE_COUNT = 12;
 const MUSCLE_GROUPS = ['chest', 'back', 'quadriceps', 'hamstrings', 'glutes', 'shoulders', 'arms', 'core'];
 const newSet = (load = '', reps = '', rpe = ''): DraftSet => ({ key: Crypto.randomUUID(), load, reps, rpe });
 const newBlock = (exerciseId: string): DraftExercise => ({
@@ -33,12 +36,14 @@ const newBlock = (exerciseId: string): DraftExercise => ({
   exerciseId,
   sets: [newSet(), newSet(), newSet()],
   suggestion: null,
+  autoApplySuggestion: false,
 });
 const isRowEmpty = (set: DraftSet) => !set.load.trim() && !set.reps.trim() && !set.rpe.trim();
 
 export default function NewWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { templateWorkoutId } = useLocalSearchParams<{ templateWorkoutId?: string }>();
   const { width } = useWindowDimensions();
   const compact = width < 520;
   const { colors } = useJienTheme();
@@ -49,6 +54,7 @@ export default function NewWorkoutScreen() {
   const [unit, setUnit] = useState<LoadUnit>('kg');
   const [blocks, setBlocks] = useState<DraftExercise[]>([]);
   const [exerciseQueries, setExerciseQueries] = useState<Record<string, string>>({});
+  const [exerciseBrowsers, setExerciseBrowsers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState('');
@@ -59,29 +65,43 @@ export default function NewWorkoutScreen() {
   const loadCatalog = useCallback(async () => {
     setLoadError(null);
     try {
-      const [exercises, profile] = await Promise.all([listExercises(db), getUserProfile(db)]);
+      const [exercises, profile, template] = await Promise.all([
+        listExercises(db),
+        getUserProfile(db),
+        templateWorkoutId ? getWorkoutDetail(db, templateWorkoutId) : Promise.resolve(null),
+      ]);
       setCatalog(exercises);
-      if (profile) setUnit(profile.preferredLoadUnit);
-      setBlocks((current) => current.length ? current : [newBlock(exercises[0]?.id ?? '')]);
+      if (template?.sets[0]) setUnit(template.sets[0].loadUnit);
+      else if (profile) setUnit(profile.preferredLoadUnit);
+      if (template) {
+        setTitle(template.title);
+        setBlocks(blocksFromTemplate(template));
+      } else {
+        setBlocks((current) => current.length ? current : [newBlock(exercises[0]?.id ?? '')]);
+      }
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Could not load exercises.');
     }
-  }, [db]);
+  }, [db, templateWorkoutId]);
 
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
 
   const updateSuggestion = useCallback(async (blockKey: string, exerciseId: string) => {
     const exercise = catalog?.find((item) => item.id === exerciseId);
     if (!exercise) return;
-    const history = await getExerciseHistory(db, exerciseId, 3);
+    const history = await getLastExerciseSessionSets(db, exerciseId);
     const suggestion = suggestDoubleProgression({
       sets: history,
       repMin: exercise.targetRepMin,
       repMax: exercise.targetRepMax,
-      loadIncrement: exercise.loadIncrement,
+      loadIncrement: unit === 'lb' ? Math.max(5, exercise.loadIncrement) : exercise.loadIncrement,
     });
-    setBlocks((current) => current.map((block) => block.key === blockKey ? { ...block, suggestion } : block));
-  }, [catalog, db]);
+    setBlocks((current) => current.map((block) => {
+      if (block.key !== blockKey) return block;
+      const next = { ...block, suggestion };
+      return block.autoApplySuggestion ? applySuggestionToBlock(next) : next;
+    }));
+  }, [catalog, db, unit]);
 
   useEffect(() => {
     blocks.forEach((block) => {
@@ -90,8 +110,9 @@ export default function NewWorkoutScreen() {
   }, [blocks, updateSuggestion]);
 
   const setExercise = (blockKey: string, exerciseId: string) => {
-    setBlocks((current) => current.map((block) => block.key === blockKey ? { ...block, exerciseId, suggestion: null } : block));
+    setBlocks((current) => current.map((block) => block.key === blockKey ? { ...block, exerciseId, suggestion: null, autoApplySuggestion: false } : block));
     setExerciseQueries((current) => ({ ...current, [blockKey]: '' }));
+    setExerciseBrowsers((current) => ({ ...current, [blockKey]: false }));
   };
 
   const updateSet = (blockKey: string, setKey: string, field: 'load' | 'reps' | 'rpe', value: string) => {
@@ -103,19 +124,7 @@ export default function NewWorkoutScreen() {
   };
 
   const applySuggestion = (blockKey: string) => {
-    setBlocks((current) => current.map((block) => {
-      if (block.key !== blockKey || !block.suggestion || block.suggestion.action === 'start' || block.suggestion.action === 'hold') return block;
-      const suggestion = block.suggestion;
-      const targetReps = suggestion.targetReps.map(String);
-      return {
-        ...block,
-        sets: block.sets.map((set, index) => ({
-          ...set,
-          load: String(suggestion.loadValue),
-          reps: targetReps[index] ?? set.reps,
-        })),
-      };
-    }));
+    setBlocks((current) => current.map((block) => block.key === blockKey ? applySuggestionToBlock(block) : block));
   };
 
   const addExercise = () => {
@@ -147,7 +156,7 @@ export default function NewWorkoutScreen() {
       setBlocks((current) => {
         const last = current.at(-1);
         if (last && last.sets.every(isRowEmpty)) {
-          return current.map((block) => block.key === last.key ? { ...block, exerciseId: exercise.id, suggestion: null } : block);
+          return current.map((block) => block.key === last.key ? { ...block, exerciseId: exercise.id, suggestion: null, autoApplySuggestion: false } : block);
         }
         return [...current, newBlock(exercise.id)];
       });
@@ -221,13 +230,32 @@ export default function NewWorkoutScreen() {
         </View>
       </View>
 
+      {templateWorkoutId ? (
+        <View style={[styles.templateBanner, { backgroundColor: colors.successSoft }]}>
+          <AppText style={styles.suggestionTitle}>Next session prepared</AppText>
+          <AppText style={{ color: colors.textMuted }}>Last session's exercises and sets are loaded. Eligible rep or load progressions are applied automatically; every field remains editable.</AppText>
+        </View>
+      ) : null}
+
+      <Card style={styles.rpeGuide}>
+        <View style={styles.rpeHeader}><View style={styles.flex}><AppText style={styles.suggestionTitle}>RPE, simply</AppText><AppText style={{ color: colors.textMuted }}>Rate how many good reps you had left. It is optional.</AppText></View></View>
+        <View style={styles.rpeScale}>
+          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>6</AppText> · 4 reps left</AppText>
+          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>7</AppText> · 3 left</AppText>
+          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>8</AppText> · 2 left</AppText>
+          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>9</AppText> · 1 left</AppText>
+          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>10</AppText> · max effort</AppText>
+        </View>
+      </Card>
+
       {formError ? <View accessibilityRole="alert" style={[styles.errorBanner, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
 
       {blocks.map((block, blockIndex) => {
         const selected = catalog?.find((exercise) => exercise.id === block.exerciseId);
         const query = exerciseQueries[block.key]?.trim().toLocaleLowerCase() ?? '';
-        const results = query
-          ? catalog?.filter((exercise) => `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(query)).slice(0, 12) ?? []
+        const browserOpen = exerciseBrowsers[block.key] ?? false;
+        const results = query || browserOpen
+          ? catalog?.filter((exercise) => !query || `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(query)) ?? []
           : [];
         return (
           <Card key={block.key} style={styles.exerciseCard}>
@@ -238,19 +266,28 @@ export default function NewWorkoutScreen() {
 
             <View style={styles.pickerSection}>
               <AppText style={styles.pickerLabel}>Common exercises</AppText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catalog}>
+              <View style={styles.catalog}>
                 {commonExercises.map((exercise) => <Pill key={exercise.id} label={exercise.name} active={exercise.id === block.exerciseId} onPress={() => setExercise(block.key, exercise.id)} />)}
-              </ScrollView>
-              <Field
-                accessibilityLabel={`Find exercise for exercise ${blockIndex + 1}`}
-                placeholder="Search all exercises"
-                value={exerciseQueries[block.key] ?? ''}
-                onChangeText={(value) => setExerciseQueries((current) => ({ ...current, [block.key]: value }))}
-              />
-              {query ? (
-                <View style={styles.searchResults}>
-                  {results.length ? results.map((exercise) => <Pill key={exercise.id} label={exercise.name} active={exercise.id === block.exerciseId} onPress={() => setExercise(block.key, exercise.id)} />) : <AppText style={{ color: colors.textMuted }}>No match. Add your own exercise below.</AppText>}
-                </View>
+              </View>
+              <View style={styles.exerciseSearchHeader}>
+                <Field
+                  accessibilityLabel={`Find exercise for exercise ${blockIndex + 1}`}
+                  placeholder="Search by exercise, muscle, or equipment"
+                  value={exerciseQueries[block.key] ?? ''}
+                  onChangeText={(value) => setExerciseQueries((current) => ({ ...current, [block.key]: value }))}
+                  containerStyle={styles.flex}
+                />
+                <Button label={browserOpen ? 'Close list' : `Browse all ${catalog?.length ?? 0}`} onPress={() => setExerciseBrowsers((current) => ({ ...current, [block.key]: !browserOpen }))} variant="secondary" />
+              </View>
+              {query || browserOpen ? (
+                <ScrollView style={[styles.exerciseResultScroll, { borderColor: colors.border }]} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {results.length ? results.map((exercise) => (
+                    <Pressable key={exercise.id} accessibilityRole="button" onPress={() => setExercise(block.key, exercise.id)} style={({ pressed }) => [styles.exerciseResult, { borderBottomColor: colors.border }, pressed && styles.pressed]}>
+                      <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{exercise.primaryMuscleGroup.replaceAll('_', ' ')} · {exercise.equipment ?? 'bodyweight'}</AppText></View>
+                      <AppText style={{ color: exercise.id === block.exerciseId ? colors.success : colors.accent, fontWeight: '700' }}>{exercise.id === block.exerciseId ? 'Selected' : 'Choose'}</AppText>
+                    </Pressable>
+                  )) : <AppText style={[styles.noResult, { color: colors.textMuted }]}>No match. Add your own exercise below.</AppText>}
+                </ScrollView>
               ) : null}
             </View>
 
@@ -262,7 +299,7 @@ export default function NewWorkoutScreen() {
               </View>
             ) : null}
 
-            <View style={styles.setTable}>
+            {!compact ? <View style={styles.setTable}>
               <View style={styles.setLabels}>
                 <AppText style={styles.setNo}>Set</AppText>
                 <AppText style={styles.setInputLabel}>Load ({unit})</AppText>
@@ -285,7 +322,20 @@ export default function NewWorkoutScreen() {
                   ><AppText style={{ color: colors.textMuted }}>×</AppText></Pressable>
                 </View>
               ))}
-            </View>
+            </View> : (
+              <View style={styles.mobileSetList}>
+                {block.sets.map((set, setIndex) => (
+                  <View key={set.key} style={[styles.mobileSetCard, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}>
+                    <View style={styles.mobileSetHeader}><AppText style={styles.suggestionTitle}>Set {setIndex + 1}</AppText><Pressable accessibilityRole="button" accessibilityLabel={`Remove set ${setIndex + 1}`} disabled={block.sets.length === 1} onPress={() => setBlocks((current) => current.map((item) => item.key === block.key ? { ...item, sets: item.sets.filter((row) => row.key !== set.key) } : item))} style={({ pressed }) => [styles.mobileRemove, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}><AppText style={{ color: colors.textMuted }}>Remove</AppText></Pressable></View>
+                    <View style={styles.mobileSetFields}>
+                      <Field label={`Load (${unit})`} value={set.load} onChangeText={(value) => updateSet(block.key, set.key, 'load', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
+                      <Field label="Reps" value={set.reps} onChangeText={(value) => updateSet(block.key, set.key, 'reps', value)} keyboardType="number-pad" containerStyle={styles.mobileSetField} />
+                      <Field label="RPE" value={set.rpe} placeholder="optional" onChangeText={(value) => updateSet(block.key, set.key, 'rpe', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
             <View style={styles.setActions}><Button label="Add set" onPress={() => setBlocks((current) => current.map((item) => item.key === block.key ? { ...item, sets: [...item.sets, newSet()] } : item))} variant="secondary" /></View>
           </Card>
         );
@@ -323,13 +373,24 @@ const styles = StyleSheet.create({
   pills: { flexDirection: 'row', gap: spacing.xs },
   flex: { flex: 1 },
   errorBanner: { padding: spacing.md, borderRadius: radii.control },
+  templateBanner: { padding: spacing.md, borderRadius: radii.control, gap: spacing.xxs },
+  rpeGuide: { gap: spacing.sm },
+  rpeHeader: { flexDirection: 'row', alignItems: 'center' },
+  rpeScale: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  rpeItem: { ...typography.label },
+  rpeNumber: { fontWeight: '800' },
   exerciseCard: { paddingHorizontal: 0, overflow: 'hidden' },
   blockHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, gap: spacing.sm },
   blockNumber: { ...typography.caption, fontWeight: '700', opacity: 0.65 },
   exerciseName: { ...typography.section, fontWeight: '700' },
   pickerSection: { gap: spacing.sm, paddingHorizontal: spacing.md },
   pickerLabel: { ...typography.label, fontWeight: '700' },
-  catalog: { gap: spacing.xs, paddingRight: spacing.md },
+  catalog: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  exerciseSearchHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.sm },
+  exerciseResultScroll: { maxHeight: 288, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control },
+  exerciseResult: { minHeight: 58, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
+  resultName: { fontWeight: '700' },
+  noResult: { padding: spacing.md },
   searchResults: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   range: { paddingHorizontal: spacing.md },
   suggestion: { marginHorizontal: spacing.md, padding: spacing.sm, borderRadius: radii.control, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -346,8 +407,47 @@ const styles = StyleSheet.create({
   removeColumn: { width: 44 },
   removeSet: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
   setActions: { flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.md },
+  mobileSetList: { paddingHorizontal: spacing.md, gap: spacing.sm },
+  mobileSetCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.sm, gap: spacing.sm },
+  mobileSetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  mobileSetFields: { flexDirection: 'row', gap: spacing.xs },
+  mobileSetField: { flex: 1, minWidth: 0 },
+  mobileRemove: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xs },
   customHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   customForm: { gap: spacing.md },
   pressed: { opacity: 0.72 },
   disabled: { opacity: 0.35 },
 });
+
+function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
+  const grouped = new Map<string, DraftExercise>();
+  template.sets.filter((set) => set.kind === 'working').forEach((set) => {
+    const block = grouped.get(set.exerciseId) ?? {
+      key: Crypto.randomUUID(),
+      exerciseId: set.exerciseId,
+      sets: [],
+      suggestion: null,
+      autoApplySuggestion: true,
+    };
+    block.sets.push(newSet(String(set.loadValue), String(set.reps)));
+    grouped.set(set.exerciseId, block);
+  });
+  return [...grouped.values()];
+}
+
+function applySuggestionToBlock(block: DraftExercise): DraftExercise {
+  const suggestion = block.suggestion;
+  if (!suggestion || suggestion.action === 'start' || suggestion.action === 'hold') {
+    return { ...block, autoApplySuggestion: false };
+  }
+  return {
+    ...block,
+    autoApplySuggestion: false,
+    sets: block.sets.map((set, index) => ({
+      ...set,
+      load: String(suggestion.loadValue),
+      reps: suggestion.targetReps[index] == null ? set.reps : String(suggestion.targetReps[index]),
+      rpe: '',
+    })),
+  };
+}

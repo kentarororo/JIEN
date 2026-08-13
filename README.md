@@ -30,10 +30,12 @@ pnpm start
 Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to enable
 accounts and cloud sync. Logging and exports continue to work without them.
 
-Online USDA search, Open Food Facts barcode lookup, and consent-gated Claude photo
-analysis are implemented as Supabase Edge Functions. Their server-only setup is in
-[supabase/functions/README.md](supabase/functions/README.md). Local food search and
-manual meal logging remain available without those services.
+Online food search and barcode lookup use Open Food Facts directly and work without
+a JIEN account. Consent-gated Claude photo analysis remains a Supabase Edge Function;
+its server-only setup is in [supabase/functions/README.md](supabase/functions/README.md).
+For GitHub Pages, add the same two public Supabase values as repository secrets when
+you are ready to enable sign-in and AI features. Local food search and manual logging
+remain available without them.
 
 Useful checks:
 

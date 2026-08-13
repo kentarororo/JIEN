@@ -2,6 +2,12 @@ import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getSupabaseClient } from './supabase';
+import {
+  mapOpenFoodFactsProduct,
+  OPEN_FOOD_FACTS_FIELDS,
+  type OpenFoodFactsProductResponse,
+  type OpenFoodFactsSearchResponse,
+} from './open-food-facts';
 import type { FoodCatalogItem } from './types';
 
 type FoodCatalogRow = {
@@ -109,15 +115,61 @@ export async function markFoodCatalogItemUsed(db: SQLiteDatabase, id: string): P
 }
 
 export async function searchFoodDatabase(query: string): Promise<FoodCatalogItem[]> {
-  return invokeFoodFunction('food-search', { query });
+  const clean = query.trim();
+  if (clean.length < 2) return [];
+  const params = new URLSearchParams({
+    search_terms: clean,
+    search_simple: '1',
+    action: 'process',
+    json: '1',
+    page_size: '12',
+    sort_by: 'unique_scans_n',
+    fields: OPEN_FOOD_FACTS_FIELDS,
+  });
+  const response = await fetchOpenFoodFacts<OpenFoodFactsSearchResponse>(
+    `https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`,
+  );
+  return (response.products ?? [])
+    .map(mapOpenFoodFactsProduct)
+    .filter((item): item is FoodCatalogItem => item != null);
 }
 
 export async function lookupFoodBarcode(barcode: string): Promise<FoodCatalogItem[]> {
-  return invokeFoodFunction('food-barcode', { barcode });
+  const clean = barcode.replace(/\D/g, '');
+  if (clean.length < 8 || clean.length > 14) throw new Error('Scan or enter a valid 8-14 digit barcode.');
+  const response = await fetchOpenFoodFacts<OpenFoodFactsProductResponse>(
+    `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(clean)}.json?fields=${encodeURIComponent(OPEN_FOOD_FACTS_FIELDS)}`,
+  );
+  const item = response.product ? mapOpenFoodFactsProduct({ ...response.product, code: response.product.code ?? clean }) : null;
+  return item ? [item] : [];
 }
 
-export async function analyzeMealPhoto(base64: string, description: string): Promise<FoodCatalogItem[]> {
-  return invokeFoodFunction('analyze-food-photo', { imageBase64: base64, mediaType: 'image/jpeg', description });
+export async function analyzeMealPhoto(
+  base64: string,
+  description: string,
+  mediaType = 'image/jpeg',
+): Promise<FoodCatalogItem[]> {
+  return invokeFoodFunction('analyze-food-photo', { imageBase64: base64, mediaType, description });
+}
+
+async function fetchOpenFoodFacts<T>(url: string): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`Food database request failed (${response.status}).`);
+    return await response.json() as T;
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === 'AbortError') {
+      throw new Error('The food database took too long to respond. Try again.');
+    }
+    throw cause instanceof Error ? cause : new Error('The online food database is unavailable.');
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function invokeFoodFunction(name: string, body: Record<string, unknown>): Promise<FoodCatalogItem[]> {
@@ -125,10 +177,10 @@ async function invokeFoodFunction(name: string, body: Record<string, unknown>): 
   try {
     supabase = getSupabaseClient();
   } catch {
-    throw new Error('Online food lookup needs Supabase configuration. Local food search still works offline.');
+    throw new Error('AI photo analysis is not configured yet. Food search and barcode lookup still work online.');
   }
   const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) throw new Error('Sign in to use online food search, barcode lookup, or AI photo analysis.');
+  if (!sessionData.session) throw new Error('Sign in to use AI meal-photo analysis. Food search and barcode lookup do not require sign-in.');
   const { data, error } = await supabase.functions.invoke(name, { body });
   if (error) throw new Error(error.message || 'The online food service is unavailable.');
   const items = (data as { items?: FoodCatalogItem[] } | null)?.items;

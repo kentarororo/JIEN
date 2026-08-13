@@ -2,8 +2,11 @@ import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toLocalDateKey } from '@/lib/time';
+import { calculateStartingNutritionTarget } from '@/lib/nutrition/targets';
 
 import { enqueueUpsert } from './sync-queue';
+import { getUserProfile } from './profile';
+import { getLatestBodyMeasurement } from './wellness';
 import type {
   DailyNutrition,
   MacroTotals,
@@ -175,7 +178,33 @@ export async function getDailyNutrition(
     { ...EMPTY_TOTALS },
   );
 
-  return { date, meals, totals, target: await getNutritionTarget(db, date) };
+  const target = await getNutritionTarget(db, date) ?? (date === toLocalDateKey()
+    ? await ensureStartingNutritionTarget(db)
+    : null);
+  return { date, meals, totals, target };
+}
+
+export async function ensureStartingNutritionTarget(
+  db: SQLiteDatabase,
+): Promise<NutritionTarget | null> {
+  const current = await getNutritionTarget(db);
+  if (current) return current;
+  const [measurement, profile] = await Promise.all([
+    getLatestBodyMeasurement(db),
+    getUserProfile(db),
+  ]);
+  if (!measurement || !profile) return null;
+  return saveNutritionTarget(
+    db,
+    calculateStartingNutritionTarget({
+      bodyWeightKg: measurement.bodyWeightKg,
+      goals: profile.goals,
+    }),
+    {
+      source: 'adaptive',
+      rationale: `Starting estimate from ${measurement.bodyWeightKg} kg body weight and onboarding goal. Edit at any time.`,
+    },
+  );
 }
 
 export async function getNutritionTarget(
@@ -215,6 +244,7 @@ export async function getNutritionTarget(
 export async function saveNutritionTarget(
   db: SQLiteDatabase,
   input: Omit<NutritionTarget, 'id' | 'effectiveFrom'>,
+  options: { source?: 'manual' | 'adaptive'; rationale?: string | null } = {},
 ): Promise<NutritionTarget> {
   if (input.caloriesKcal <= 0 || input.proteinG < 0 || input.carbohydrateG < 0 || input.fatG < 0) {
     throw new Error('Macro targets must be valid non-negative values.');
@@ -241,6 +271,8 @@ export async function saveNutritionTarget(
   );
   const updateCurrentDay = current?.effective_from === effectiveFrom;
   const id = updateCurrentDay && current ? current.id : Crypto.randomUUID();
+  const source = options.source ?? 'manual';
+  const rationale = options.rationale?.trim() || null;
   const payload = {
     id,
     effective_from: effectiveFrom,
@@ -250,8 +282,8 @@ export async function saveNutritionTarget(
     carbohydrate_g: input.carbohydrateG,
     fat_g: input.fatG,
     fibre_g: input.fibreG,
-    source: 'manual',
-    rationale: null,
+    source,
+    rationale,
     created_at: updateCurrentDay && current ? current.created_at : now,
     client_updated_at: now,
     deleted_at: null,
@@ -262,13 +294,15 @@ export async function saveNutritionTarget(
       await db.runAsync(
         `UPDATE nutrition_targets SET
           calories_kcal = ?, protein_g = ?, carbohydrate_g = ?, fat_g = ?, fibre_g = ?,
-          updated_at = ?, client_updated_at = ? WHERE id = ?`,
+          source = ?, rationale = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
         [
           input.caloriesKcal,
           input.proteinG,
           input.carbohydrateG,
           input.fatG,
           input.fibreG,
+          source,
+          rationale,
           now,
           now,
           id,
@@ -301,8 +335,8 @@ export async function saveNutritionTarget(
       await db.runAsync(
         `INSERT INTO nutrition_targets (
           id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g,
-          source, created_at, updated_at, client_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?)`,
+          source, rationale, created_at, updated_at, client_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           effectiveFrom,
@@ -311,6 +345,8 @@ export async function saveNutritionTarget(
           input.carbohydrateG,
           input.fatG,
           input.fibreG,
+          source,
+          rationale,
           now,
           now,
           now,

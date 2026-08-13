@@ -272,9 +272,9 @@ there is no blanket retention reminder type.
 `food_catalog_cache` is a SQLite-only read-through cache, not a Supabase-owned user
 table. It stores normalized food names, brands, portions, macros, optional barcodes,
 provider attribution, and source identifiers. Starter entries keep core food search
-useful offline; USDA FoodData Central and Open Food Facts results are cached only
-after retrieval. Users always edit the copied meal-item macros before saving if the
-database portion does not match what they ate.
+useful offline; Open Food Facts search and barcode results are cached only after
+retrieval. Users always edit the copied meal-item macros before saving if the database
+portion does not match what they ate.
 
 ## Row Level Security
 

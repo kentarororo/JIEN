@@ -44,6 +44,8 @@ jobs:
         env:
           EXPO_PUBLIC_BASE_URL: /JIEN
           EXPO_PUBLIC_SITE_ORIGIN: https://kentarororo.github.io
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: pnpm run pages:build
 
       - name: Configure Pages

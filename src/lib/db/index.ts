@@ -20,6 +20,7 @@ export {
 } from './wellness';
 export { retryWellnessMessage, sendWellnessMessage } from './wellness-chat';
 export {
+  ensureStartingNutritionTarget,
   getDailyNutrition,
   getNutritionTarget,
   listNutritionExportRows,
@@ -39,6 +40,7 @@ export { getSupabaseClient } from './supabase';
 export { getSyncStatus, syncPendingChanges } from './sync-queue';
 export {
   getExerciseHistory,
+  getLastExerciseSessionSets,
   getWorkoutProgressComparison,
   getWorkoutDetail,
   listRecentWorkouts,

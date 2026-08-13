@@ -3,8 +3,8 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { createElement, useEffect, useRef, useState } from 'react';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
 import {
@@ -19,6 +19,13 @@ import {
   type MealType,
 } from '@/lib/db';
 import { reconcileMealGapNotification } from '@/lib/notifications';
+import {
+  convertServingQuantity,
+  scaleServingMacros,
+  servingScale,
+  servingUnitOptions,
+  type ServingMacros,
+} from '@/lib/nutrition/serving';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 type DraftFood = {
@@ -35,6 +42,9 @@ type DraftFood = {
   source: 'manual' | 'ai_photo' | 'imported';
   sourceLabel: string | null;
   confidence: number | null;
+  referenceQuantity: number;
+  referenceUnit: string;
+  referenceMacros: ServingMacros;
 };
 
 type CameraMode = 'barcode' | 'photo' | null;
@@ -42,6 +52,9 @@ type CameraMode = 'barcode' | 'photo' | null;
 const emptyFood = (): DraftFood => ({
   key: Crypto.randomUUID(), catalogId: null, name: '', quantity: '1', unit: 'serving',
   calories: '', protein: '', carbs: '', fat: '', fibre: '', source: 'manual', sourceLabel: null, confidence: null,
+  referenceQuantity: 1,
+  referenceUnit: 'serving',
+  referenceMacros: { caloriesKcal: 0, proteinG: 0, carbohydrateG: 0, fatG: 0, fibreG: 0 },
 });
 const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'];
 
@@ -50,6 +63,7 @@ export default function NewMealScreen() {
   const router = useRouter();
   const { colors } = useJienTheme();
   const cameraRef = useRef<CameraView>(null);
+  const barcodeLockRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const now = new Date();
   const inferred: MealType = now.getHours() < 11 ? 'breakfast' : now.getHours() < 15 ? 'lunch' : now.getHours() < 19 ? 'dinner' : 'snack';
@@ -62,6 +76,7 @@ export default function NewMealScreen() {
   const [cameraMode, setCameraMode] = useState<CameraMode>(null);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [photoDescription, setPhotoDescription] = useState('');
+  const [barcodeValue, setBarcodeValue] = useState('');
   const [toolMessage, setToolMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -75,9 +90,54 @@ export default function NewMealScreen() {
     return () => clearTimeout(timer);
   }, [db, query]);
 
-  const update = (key: string, field: keyof Omit<DraftFood, 'key'>, value: string) => {
+  const update = (key: string, field: 'name', value: string) => {
     setFormError(null);
     setFoods((current) => current.map((food) => food.key === key ? { ...food, [field]: value } : food));
+  };
+
+  const updateQuantity = (key: string, value: string) => {
+    setFormError(null);
+    setFoods((current) => current.map((food) => {
+      if (food.key !== key) return food;
+      const scale = servingScale(Number(value), food.unit, food.referenceQuantity, food.referenceUnit);
+      if (scale == null) return { ...food, quantity: value };
+      return { ...food, quantity: value, ...macroStrings(scaleServingMacros(food.referenceMacros, scale)) };
+    }));
+  };
+
+  const updateUnit = (key: string, value: string) => {
+    setFormError(null);
+    setFoods((current) => current.map((food) => {
+      if (food.key !== key || food.unit === value) return food;
+      const currentQuantity = Number(food.quantity);
+      const converted = convertServingQuantity(currentQuantity, food.unit, value);
+      if (converted != null) {
+        return { ...food, unit: value, quantity: formatFoodNumber(converted) };
+      }
+      return {
+        ...food,
+        unit: value,
+        referenceQuantity: Number.isFinite(currentQuantity) && currentQuantity > 0 ? currentQuantity : 1,
+        referenceUnit: value,
+        referenceMacros: currentMacros(food),
+      };
+    }));
+  };
+
+  const updateMacro = (key: string, field: 'calories' | 'protein' | 'carbs' | 'fat' | 'fibre', value: string) => {
+    setFormError(null);
+    setFoods((current) => current.map((food) => {
+      if (food.key !== key) return food;
+      const next = { ...food, [field]: value };
+      const numeric = Number(value);
+      const scale = servingScale(Number(food.quantity), food.unit, food.referenceQuantity, food.referenceUnit);
+      if (!Number.isFinite(numeric) || scale == null || scale <= 0) return next;
+      const referenceKey = macroReferenceKey(field);
+      return {
+        ...next,
+        referenceMacros: { ...food.referenceMacros, [referenceKey]: numeric / scale },
+      };
+    }));
   };
 
   const addCatalogFood = async (item: FoodCatalogItem) => {
@@ -100,7 +160,7 @@ export default function NewMealScreen() {
       const items = await searchFoodDatabase(query);
       await cacheFoodCatalogItems(db, items);
       setResults(items);
-      setToolMessage(items.length ? `Found ${items.length} USDA FoodData Central matches.` : 'No database matches found.');
+      setToolMessage(items.length ? `Found ${items.length} Open Food Facts matches.` : 'No database matches found.');
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'Online food search is unavailable.');
     } finally {
@@ -120,20 +180,40 @@ export default function NewMealScreen() {
   };
 
   const handleBarcode = async ({ data }: BarcodeScanningResult) => {
-    if (cameraBusy) return;
-    setCameraBusy(true);
+    if (cameraBusy || barcodeLockRef.current) return;
+    barcodeLockRef.current = true;
     setCameraMode(null);
     try {
-      const items = await lookupFoodBarcode(data);
+      await lookupBarcode(data);
+    } finally {
+      barcodeLockRef.current = false;
+    }
+  };
+
+  const lookupBarcode = async (value = barcodeValue) => {
+    if (cameraBusy) return;
+    setCameraBusy(true);
+    try {
+      const items = await lookupFoodBarcode(value);
       await cacheFoodCatalogItems(db, items);
       if (!items[0]) throw new Error('No food matched that barcode.');
       await addCatalogFood(items[0]);
-      setToolMessage(`${items[0].name} added from Open Food Facts. Review its 100 g values and portion.`);
+      setBarcodeValue('');
+      setToolMessage(`${items[0].name} added from Open Food Facts. Review the serving and macros.`);
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'Could not look up that barcode.');
     } finally {
       setCameraBusy(false);
     }
+  };
+
+  const addAnalyzedPhoto = async (base64: string, mediaType = 'image/jpeg') => {
+    const items = await analyzeMealPhoto(base64, photoDescription, mediaType);
+    if (!items.length) throw new Error('No food items were identified. Try a clearer photo or add a description.');
+    const drafts = items.map(toDraftFood);
+    setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? drafts : [...current, ...drafts]);
+    setCameraMode(null);
+    setToolMessage(`Added ${items.length} AI-estimated item${items.length === 1 ? '' : 's'}. Review every portion and macro before saving. Not medical advice.`);
   };
 
   const analyzePhoto = async () => {
@@ -148,15 +228,28 @@ export default function NewMealScreen() {
       const rendered = await context.renderAsync();
       const resized = await rendered.saveAsync({ compress: 0.68, format: SaveFormat.JPEG, base64: true });
       if (!resized.base64) throw new Error('The meal photo could not be prepared for analysis.');
-      const items = await analyzeMealPhoto(resized.base64, photoDescription);
-      if (!items.length) throw new Error('No food items were identified. Try a clearer photo or add a description.');
-      const drafts = items.map(toDraftFood);
-      setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? drafts : [...current, ...drafts]);
-      setCameraMode(null);
-      setToolMessage(`Added ${items.length} AI-estimated item${items.length === 1 ? '' : 's'}. Review every portion and macro before saving. Not medical advice.`);
+      await addAnalyzedPhoto(resized.base64);
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
     } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  const handleWebPhoto = async (event: { target: { files?: FileList | null; value?: string } }) => {
+    const file = event.target.files?.[0];
+    if (!file || cameraBusy) return;
+    setCameraBusy(true);
+    setToolMessage('Uploading the selected photo for analysis...');
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const base64 = dataUrl.split(',')[1];
+      if (!base64) throw new Error('The selected photo could not be read.');
+      await addAnalyzedPhoto(base64, file.type || 'image/jpeg');
+    } catch (cause) {
+      setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
+    } finally {
+      if (event.target) event.target.value = '';
       setCameraBusy(false);
     }
   };
@@ -203,7 +296,25 @@ export default function NewMealScreen() {
         <View style={styles.toolActions}>
           <Button label="Search food database" onPress={() => void runDatabaseSearch()} busy={searching} variant="secondary" />
           <Button label="Scan barcode" onPress={() => void openCamera('barcode')} variant="secondary" />
-          <Button label="Analyze meal photo" onPress={() => void openCamera('photo')} variant="secondary" />
+          {Platform.OS === 'web' ? (
+            <View style={[styles.webPhotoButton, { backgroundColor: colors.accentSoft, borderColor: colors.accentSoft }]}>
+              <AppText style={[styles.webPhotoLabel, { color: colors.accent }]}>{cameraBusy ? 'Preparing photo...' : 'Take or choose meal photo'}</AppText>
+              {createElement('input', {
+                'aria-label': 'Take or choose a meal photo',
+                accept: 'image/jpeg,image/png,image/webp',
+                capture: 'environment',
+                disabled: cameraBusy,
+                onChange: handleWebPhoto,
+                style: { cursor: 'pointer', inset: 0, opacity: 0, position: 'absolute', width: '100%' },
+                type: 'file',
+              })}
+            </View>
+          ) : <Button label="Analyze meal photo" onPress={() => void openCamera('photo')} variant="secondary" />}
+        </View>
+        <Field label="Meal photo context (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" />
+        <View style={styles.barcodeRow}>
+          <Field label="Barcode number" value={barcodeValue} onChangeText={setBarcodeValue} placeholder="Enter if camera scanning is unavailable" keyboardType="number-pad" returnKeyType="search" onSubmitEditing={() => void lookupBarcode()} containerStyle={styles.flex} />
+          <Button label="Look up barcode" onPress={() => void lookupBarcode()} busy={cameraBusy} variant="secondary" />
         </View>
 
         {results.length ? (
@@ -218,7 +329,7 @@ export default function NewMealScreen() {
             ))}
           </View>
         ) : null}
-        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online search: USDA FoodData Central. Barcode data: Open Food Facts contributors (ODbL).</AppText>
+        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food and barcode data: Open Food Facts contributors (ODbL). Search works without a JIEN account.</AppText>
       </Card>
 
       {cameraMode ? (
@@ -233,7 +344,7 @@ export default function NewMealScreen() {
               onBarcodeScanned={cameraMode === 'barcode' ? handleBarcode : undefined}
             />
           </View>
-          {cameraMode === 'photo' ? <><Field label="What is in this meal? (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" /><Button label="Take photo and estimate" onPress={() => void analyzePhoto()} busy={cameraBusy} /></> : null}
+          {cameraMode === 'photo' ? <Button label="Take photo and estimate" onPress={() => void analyzePhoto()} busy={cameraBusy} /> : null}
         </Card>
       ) : null}
 
@@ -245,16 +356,20 @@ export default function NewMealScreen() {
         <Card key={food.key}>
           <View style={styles.header}><View style={styles.flex}><AppText style={styles.foodTitle}>Food {index + 1}</AppText>{food.sourceLabel ? <AppText style={{ color: colors.textMuted }}>{food.sourceLabel}{food.confidence != null ? ` · ${Math.round(food.confidence * 100)}% confidence` : ''}</AppText> : null}</View>{foods.length > 1 ? <Button label="Remove" onPress={() => setFoods((current) => current.filter((item) => item.key !== food.key))} variant="quiet" /> : null}</View>
           <Field label="Food" value={food.name} onChangeText={(value) => update(food.key, 'name', value)} placeholder="Chicken rice" />
-          <View style={styles.fieldGrid}>
-            <Field label="Quantity" value={food.quantity} onChangeText={(value) => update(food.key, 'quantity', value)} keyboardType="decimal-pad" containerStyle={styles.gridField} />
-            <Field label="Unit" value={food.unit} onChangeText={(value) => update(food.key, 'unit', value)} placeholder="serving" containerStyle={styles.gridField} />
+          <View style={styles.portionSection}>
+            <Field label="Quantity" value={food.quantity} onChangeText={(value) => updateQuantity(food.key, value)} keyboardType="decimal-pad" containerStyle={styles.quantityField} />
+            <View style={styles.unitSection}>
+              <AppText style={styles.unitLabel}>Unit</AppText>
+              <View style={styles.typeWrap}>{servingUnitOptions(food.unit).map((unit) => <Pill key={unit} label={unit} active={food.unit === unit} onPress={() => updateUnit(food.key, unit)} />)}</View>
+            </View>
           </View>
+          <AppText style={[styles.autoNote, { color: colors.textMuted }]}>Changing the quantity scales calories and macros automatically. Changing compatible units keeps the same physical portion.</AppText>
           <View style={styles.fieldGrid}>
-            <Field label="Calories" value={food.calories} onChangeText={(value) => update(food.key, 'calories', value)} keyboardType="decimal-pad" placeholder="kcal" containerStyle={styles.macroField} />
-            <Field label="Protein (g)" value={food.protein} onChangeText={(value) => update(food.key, 'protein', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
-            <Field label="Carbs (g)" value={food.carbs} onChangeText={(value) => update(food.key, 'carbs', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
-            <Field label="Fat (g)" value={food.fat} onChangeText={(value) => update(food.key, 'fat', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
-            <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => update(food.key, 'fibre', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Calories" value={food.calories} onChangeText={(value) => updateMacro(food.key, 'calories', value)} keyboardType="decimal-pad" placeholder="kcal" containerStyle={styles.macroField} />
+            <Field label="Protein (g)" value={food.protein} onChangeText={(value) => updateMacro(food.key, 'protein', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Carbs (g)" value={food.carbs} onChangeText={(value) => updateMacro(food.key, 'carbs', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Fat (g)" value={food.fat} onChangeText={(value) => updateMacro(food.key, 'fat', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => updateMacro(food.key, 'fibre', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
           </View>
           {food.source === 'ai_photo' ? <AppText style={[styles.attribution, { color: colors.warning }]}>AI estimate—review before saving. Not medical advice.</AppText> : null}
         </Card>
@@ -281,7 +396,59 @@ function toDraftFood(item: FoodCatalogItem): DraftFood {
     source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' ? 'manual' : 'imported',
     sourceLabel: sourceName(item.source),
     confidence: item.confidence,
+    referenceQuantity: item.servingQuantity,
+    referenceUnit: item.servingUnit,
+    referenceMacros: {
+      caloriesKcal: item.caloriesKcal,
+      proteinG: item.proteinG,
+      carbohydrateG: item.carbohydrateG,
+      fatG: item.fatG,
+      fibreG: item.fibreG ?? 0,
+    },
   };
+}
+
+function macroStrings(macros: ServingMacros): Pick<DraftFood, 'calories' | 'protein' | 'carbs' | 'fat' | 'fibre'> {
+  return {
+    calories: formatFoodNumber(macros.caloriesKcal),
+    protein: formatFoodNumber(macros.proteinG),
+    carbs: formatFoodNumber(macros.carbohydrateG),
+    fat: formatFoodNumber(macros.fatG),
+    fibre: formatFoodNumber(macros.fibreG),
+  };
+}
+
+function currentMacros(food: DraftFood): ServingMacros {
+  return {
+    caloriesKcal: Number(food.calories) || 0,
+    proteinG: Number(food.protein) || 0,
+    carbohydrateG: Number(food.carbs) || 0,
+    fatG: Number(food.fat) || 0,
+    fibreG: Number(food.fibre) || 0,
+  };
+}
+
+function macroReferenceKey(field: 'calories' | 'protein' | 'carbs' | 'fat' | 'fibre'): keyof ServingMacros {
+  if (field === 'calories') return 'caloriesKcal';
+  if (field === 'protein') return 'proteinG';
+  if (field === 'carbs') return 'carbohydrateG';
+  if (field === 'fat') return 'fatG';
+  return 'fibreG';
+}
+
+function formatFoodNumber(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('The selected photo could not be read.'));
+    reader.onload = () => typeof reader.result === 'string'
+      ? resolve(reader.result)
+      : reject(new Error('The selected photo had an unsupported format.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function isBlankFood(food: DraftFood): boolean {
@@ -306,6 +473,9 @@ const styles = StyleSheet.create({
   discoveryHeader: { flexDirection: 'row', gap: spacing.sm },
   sectionTitle: { ...typography.section, fontWeight: '700' },
   toolActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  webPhotoButton: { minHeight: 48, paddingHorizontal: spacing.lg, borderRadius: radii.control, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' },
+  webPhotoLabel: { fontWeight: '700' },
+  barcodeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.sm },
   results: { gap: 0 },
   resultRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
   resultName: { fontWeight: '700' },
@@ -316,6 +486,11 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },
   fieldGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  portionSection: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.md },
+  quantityField: { flexBasis: 160, flexGrow: 0 },
+  unitSection: { flex: 1, minWidth: 220, gap: spacing.xs },
+  unitLabel: { ...typography.label, fontWeight: '700' },
+  autoNote: { ...typography.caption },
   gridField: { flexGrow: 1, flexBasis: 240, minWidth: 140 },
   macroField: { flexGrow: 1, flexBasis: 150, minWidth: 118 },
   flex: { flex: 1 },

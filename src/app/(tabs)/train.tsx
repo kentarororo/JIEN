@@ -57,6 +57,7 @@ export default function TrainScreen() {
               </View>
             ))}
           </View>
+          <Button label="Repeat with progression" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: data.progress!.workoutId } })} variant="secondary" />
         </Card>
       ) : null}
       {data?.weeks.at(-1) ? (

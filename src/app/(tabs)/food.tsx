@@ -10,10 +10,32 @@ import { formatTime } from '@/lib/time';
 import { spacing, typography, useJienTheme } from '@/theme';
 
 function Macro({ label, value, target, color }: { label: string; value: number; target?: number; color?: string }) {
+  const remaining = target == null ? null : target - value;
   return (
     <View style={styles.macro}>
       <View style={styles.row}><AppText>{label}</AppText><AppText style={styles.value}>{Math.round(value)}{target ? ` / ${Math.round(target)}` : ''} g</AppText></View>
       <ProgressBar value={target ? value / target : 0} color={color} />
+      {remaining != null ? <AppText style={styles.remaining}>{remaining >= 0 ? `${Math.round(remaining)} g remaining` : `${Math.abs(Math.round(remaining))} g over`}</AppText> : null}
+    </View>
+  );
+}
+
+function MacroCalorieSplit({ protein, carbs, fat }: { protein: number; carbs: number; fat: number }) {
+  const { colors } = useJienTheme();
+  const values = [protein * 4, carbs * 4, fat * 9];
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return (
+    <View style={styles.splitSection}>
+      <View style={styles.row}><AppText style={styles.value}>Macro calorie split</AppText><AppText style={{ color: colors.textMuted }}>P / C / F</AppText></View>
+      <View accessibilityLabel="Macro calorie split" style={[styles.splitTrack, { backgroundColor: colors.surfaceMuted }]}>
+        {total > 0 ? (
+          <>
+            <View style={{ flex: values[0], backgroundColor: colors.success }} />
+            <View style={{ flex: values[1], backgroundColor: colors.wood }} />
+            <View style={{ flex: values[2], backgroundColor: colors.warning }} />
+          </>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -38,9 +60,12 @@ export default function FoodScreen() {
               <AppText style={{ color: colors.textMuted }}>{data.target ? `of ${Math.round(data.target.caloriesKcal).toLocaleString()} kcal` : 'No target set'}</AppText>
             </View>
             <ProgressBar value={data.target ? data.totals.caloriesKcal / data.target.caloriesKcal : 0} />
+            {data.target ? <AppText style={{ color: data.totals.caloriesKcal > data.target.caloriesKcal ? colors.warning : colors.textMuted }}>{data.totals.caloriesKcal <= data.target.caloriesKcal ? `${Math.round(data.target.caloriesKcal - data.totals.caloriesKcal).toLocaleString()} kcal remaining today` : `${Math.round(data.totals.caloriesKcal - data.target.caloriesKcal).toLocaleString()} kcal over today`}</AppText> : null}
             <Macro label="Protein" value={data.totals.proteinG} target={data.target?.proteinG} color={colors.success} />
             <Macro label="Carbs" value={data.totals.carbohydrateG} target={data.target?.carbohydrateG} color={colors.wood} />
             <Macro label="Fat" value={data.totals.fatG} target={data.target?.fatG} color={colors.warning} />
+            <MacroCalorieSplit protein={data.totals.proteinG} carbs={data.totals.carbohydrateG} fat={data.totals.fatG} />
+            {data.target ? <AppText style={{ color: colors.textMuted }}>Starting targets are calculated from your onboarding weight and goal, then remain fully editable.</AppText> : null}
             <Button label={data.target ? 'Edit macro targets' : 'Set macro targets'} onPress={() => router.push('/settings/macros')} variant="secondary" />
           </Card>
 
@@ -65,6 +90,9 @@ const styles = StyleSheet.create({
   kicker: { ...typography.caption, fontWeight: '700', letterSpacing: 0.7 },
   calories: { ...typography.display, fontWeight: '700' },
   macro: { gap: spacing.xs },
+  remaining: { ...typography.caption, opacity: 0.7, textAlign: 'right' },
+  splitSection: { gap: spacing.xs, marginTop: spacing.xs },
+  splitTrack: { height: 12, borderRadius: 999, overflow: 'hidden', flexDirection: 'row' },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
   value: { fontWeight: '700' },
   flex: { flex: 1 },

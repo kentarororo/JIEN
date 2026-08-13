@@ -281,6 +281,28 @@ export async function getExerciseHistory(
   }));
 }
 
+export async function getLastExerciseSessionSets(
+  db: SQLiteDatabase,
+  exerciseId: string,
+): Promise<WorkoutSet[]> {
+  const latest = await db.getFirstAsync<{ workout_id: string }>(
+    `SELECT s.workout_id
+     FROM workout_sets s
+     JOIN workouts w ON w.id = s.workout_id
+     WHERE s.exercise_id = ?
+       AND s.kind = 'working'
+       AND s.deleted_at IS NULL
+       AND w.deleted_at IS NULL
+       AND w.status = 'completed'
+     ORDER BY w.completed_at DESC
+     LIMIT 1`,
+    [exerciseId],
+  );
+  if (!latest) return [];
+  const detail = await getWorkoutDetail(db, latest.workout_id);
+  return detail?.sets.filter((set) => set.exerciseId === exerciseId && set.kind === 'working') ?? [];
+}
+
 export async function getWorkoutProgressComparison(
   db: SQLiteDatabase,
   workoutId?: string,
