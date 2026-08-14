@@ -9,7 +9,19 @@ transaction. UI success for manual logging never waits for the network.
 
 Client-generated UUIDs make retries idempotent. One queue row is retained per
 `(table_name, entity_id)`, so a newer local edit replaces an older queued payload.
-Parents are pushed before children and failures use bounded exponential backoff.
+Parents are pushed before children. Transient failures use bounded exponential
+backoff (one minute base, one hour maximum) with +/- 25% jitter so multiple devices do
+not retry in lockstep. The next-attempt timestamp is persisted, preventing app
+foreground or connectivity events from creating a tight retry loop.
+
+Failures are reduced to stable, non-sensitive categories before they are stored or
+shown. Network interruptions, timeouts, HTTP 408/429, and server 5xx responses are
+transient. Authentication/session failures, RLS or authorization denials, invalid
+payloads, schema mismatches, and missing configuration require action. Their queue
+rows are retained with `retry_paused = 1`; they are not discarded and background
+events do not repeatedly submit them. A newer local edit resets the row because it
+replaces the queued payload. **Sync now** or a new authenticated session deliberately
+unpauses the row so an account, schema, or app-state correction can be tested.
 
 ## Runtime states
 
@@ -20,6 +32,8 @@ Parents are pushed before children and failures use bounded exponential backoff.
 | `not_configured` | Supabase public environment is absent | Local mode remains available |
 | `signed_out` | No authenticated owner | Offer account entry; retain queue |
 | `partial` | Some rows synced before a retryable failure | Show the error and retry later |
+| `action_required` | A queued row needs sign-in, permission, schema, configuration, or payload attention | Keep it paused and queued; show a safe next step and allow a deliberate retry |
+| `account_conflict` | The signed-in user differs from the device owner | Sign out and do not upload or merge records |
 
 The app attempts sync at startup, after authentication, when returning to the
 foreground, when connectivity returns, and when the user chooses **Sync now**.
@@ -57,6 +71,22 @@ The first authenticated user ID is stored locally as `cloud_owner_user_id`. Sign
 out does not remove offline records. A different account is blocked from sync until
 an explicit future account-switch/reset flow exists, preventing accidental
 cross-account health-data merges.
+
+## Portable export boundary
+
+The full JSON export is a versioned, deterministic envelope over active/current
+SQLite records. It contains the onboarding profile, the exercise catalogue needed
+to interpret sets, workouts and sets, meals and food-item provenance, nutrition
+target history, wellness/body measurements, AI conversations and messages, and
+notification preferences. Structured SQLite JSON columns are emitted as JSON arrays
+or objects rather than encoded strings.
+
+The envelope records `schemaVersion`, `generatedAt`, local database schema version,
+and the cloud owner ID when present. Tombstones are intentionally excluded for a
+user-readable export and this policy is declared as `active_records_only`. Auth
+tokens, Supabase keys, raw sync queue payloads/errors, pull cursors, browser storage,
+and device-only scheduled notification identifiers are never selected. CSV export
+contracts remain unchanged.
 
 The onboarding body baseline is a normal local `wellness_logs` row and is queued in
 the same transaction as the profile. Height and optional body-fat details live in

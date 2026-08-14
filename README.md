@@ -101,3 +101,9 @@ Because GitHub Pages cannot set the cross-origin isolation headers needed by
 Expo SQLite, the Pages artifact includes the MIT-licensed `coi-serviceworker` bridge;
 the first visit may reload once while it takes control. This is a test deployment
 constraint, not the preferred long-term production hosting setup.
+
+The web build keeps one OPFS SQLite owner per origin. On refresh or when another
+JIEN tab opens, the newer page asks the prior page to synchronously close SQLite,
+terminates Expo's access-handle worker, then acquires the browser Web Lock before
+opening the same database. This handoff preserves the database and avoids the
+stale-worker collision seen on mobile Safari; no recovery path deletes local data.

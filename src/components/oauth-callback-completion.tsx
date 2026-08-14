@@ -53,7 +53,7 @@ export function OAuthCallbackCompletion({ request }: { request: OAuthCallbackReq
       ));
       return;
     }
-    router.replace('/settings/account');
+    router.replace('/');
   };
 
   return (
@@ -76,7 +76,7 @@ export function OAuthCallbackCompletion({ request }: { request: OAuthCallbackReq
               pressed && styles.pressed,
             ]}
           >
-            <Text style={[styles.buttonText, { color: colors.accent }]}>Back to account</Text>
+            <Text style={[styles.buttonText, { color: colors.accent }]}>Return to sign in</Text>
           </Pressable>
         ) : null}
       </View>

@@ -50,7 +50,7 @@ export default function SettingsScreen() {
 
   const performSync = async () => {
     await run('sync', async () => {
-      const result = await syncAccountData(db);
+      const result = await syncAccountData(db, { trigger: 'manual' });
       switch (result.state) {
         case 'synced':
           setMessage(`${result.pushed} uploaded · ${result.pulled} cloud row${result.pulled === 1 ? '' : 's'} checked.`);
@@ -66,6 +66,9 @@ export default function SettingsScreen() {
           break;
         case 'partial':
           setMessage(`Uploaded ${result.pushed}, then paused: ${result.error}`);
+          break;
+        case 'action_required':
+          setMessage(`${result.error} Your queued records remain safe on this device.`);
           break;
         case 'account_conflict':
           setMessage('This device belongs to a different JIEN account. Sign back in with the original account; records were not merged.');
@@ -106,15 +109,16 @@ export default function SettingsScreen() {
       <Card>
         <View style={styles.row}><View style={styles.copy}><AppText style={styles.cardTitle}>{data?.account.user?.email ?? (data?.account.configured ? 'Not signed in' : 'Supabase not configured')}</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.account.user ? 'This device keeps your session and restores newer cloud records in the background.' : data?.account.configured ? 'Local logging stays fully available.' : 'Add the public URL and publishable key in your environment.'}</AppText></View></View>
         {data?.account.user ? <Button label="Sign out" onPress={() => void run('account', async () => { await signOut(); await reload(); })} busy={busy === 'account'} variant="quiet" /> : data?.account.configured ? <Button label="Sign in or create account" onPress={() => router.push('/settings/account')} variant="secondary" /> : null}
-        <View style={styles.row}><View><AppText style={styles.cardTitle}>{data?.sync.pendingCount ?? 0} queued</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.sync.failedCount ? `${data.sync.failedCount} waiting to retry` : 'Ready when a signed-in connection is available'}</AppText></View></View>
+        <View style={styles.row}><View style={styles.copy}><AppText style={styles.cardTitle}>{data?.sync.pendingCount ?? 0} queued</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.sync.actionRequiredCount ? `${data.sync.actionRequiredCount} need attention. Sync now retries them after you sign in or update the app.` : data?.sync.failedCount ? `${data.sync.failedCount} waiting for an automatic retry` : 'Ready when a signed-in connection is available'}</AppText></View></View>
         <Button label="Sync now" onPress={() => void performSync()} busy={busy === 'sync'} variant="secondary" />
       </Card>
 
-      <SectionHeading title="Export" detail="Portable files generated on this device" />
+      <SectionHeading title="Export" detail="Portable files generated from this device" />
       <Card>
+        <AppText style={{ color: theme.colors.textMuted }}>The full JSON contains sensitive health, wellness, nutrition, training, and AI conversation history. On web it downloads to your browser; on iOS or Android you choose its destination in the share sheet. Store and share it carefully.</AppText>
         <Button label="Workout CSV" onPress={() => void run('workouts', () => exportWorkoutsCsv(db))} busy={busy === 'workouts'} variant="secondary" />
         <Button label="Nutrition CSV" onPress={() => void run('nutrition', () => exportNutritionCsv(db))} busy={busy === 'nutrition'} variant="secondary" />
-        <Button label="Complete JSON" onPress={() => void run('all', () => exportAllJson(db))} busy={busy === 'all'} variant="quiet" />
+        <Button label="Full data JSON" onPress={() => void run('all', async () => { await exportAllJson(db); setMessage(Platform.OS === 'web' ? 'Your full data JSON was downloaded by this browser.' : 'Your full data JSON was passed to the system share sheet.'); })} busy={busy === 'all'} variant="quiet" />
       </Card>
 
       {message ? <Card style={{ backgroundColor: theme.colors.successSoft }}><AppText>{message}</AppText></Card> : null}

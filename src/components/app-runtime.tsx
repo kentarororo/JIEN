@@ -10,12 +10,12 @@ export function AppRuntime() {
   const db = useSQLiteContext();
   const syncing = useRef(false);
 
-  const reconcile = useCallback(async () => {
+  const reconcile = useCallback(async (trigger: 'background' | 'auth_state_change' = 'background') => {
     if (syncing.current) return;
     syncing.current = true;
     try {
       await Promise.allSettled([
-        syncAccountData(db),
+        syncAccountData(db, { trigger }),
         reconcileMealGapNotification(db),
       ]);
     } finally {
@@ -40,7 +40,7 @@ export function AppRuntime() {
   useEffect(() => {
     try {
       const { data } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
-        if (session) setTimeout(() => void reconcile(), 0);
+        if (session) setTimeout(() => void reconcile('auth_state_change'), 0);
       });
       return () => data.subscription.unsubscribe();
     } catch {

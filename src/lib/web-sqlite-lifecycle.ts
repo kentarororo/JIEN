@@ -1,4 +1,56 @@
 export const WEB_SQLITE_LOCK_NAME = 'jien:sqlite:jien.db';
+export const WEB_SQLITE_HANDOFF_CHANNEL_NAME = 'jien:sqlite:jien.db:ownership:v1';
+export const WEB_SQLITE_HANDOFF_SETTLE_MS = 350;
+
+const WEB_SQLITE_HANDOFF_PROTOCOL = 'jien-web-sqlite-ownership-v1';
+
+export type WebSQLiteOwnerIdentity = {
+  startedAt: number;
+  pageId: string;
+};
+
+export type WebSQLiteHandoffRequest = {
+  protocol: typeof WEB_SQLITE_HANDOFF_PROTOCOL;
+  type: 'request-ownership';
+  requester: WebSQLiteOwnerIdentity;
+};
+
+/**
+ * A later page wins ownership. The page ID is a deterministic tie-breaker for
+ * two documents that start in the same millisecond, preventing both from
+ * yielding during a simultaneous refresh/open.
+ */
+export function shouldYieldWebSQLiteOwnership(
+  current: WebSQLiteOwnerIdentity,
+  message: unknown,
+): message is WebSQLiteHandoffRequest {
+  if (!isWebSQLiteHandoffRequest(message)) return false;
+  const requester = message.requester;
+  return requester.startedAt > current.startedAt ||
+    (requester.startedAt === current.startedAt && requester.pageId > current.pageId);
+}
+
+export function createWebSQLiteHandoffRequest(
+  requester: WebSQLiteOwnerIdentity,
+): WebSQLiteHandoffRequest {
+  return {
+    protocol: WEB_SQLITE_HANDOFF_PROTOCOL,
+    type: 'request-ownership',
+    requester,
+  };
+}
+
+function isWebSQLiteHandoffRequest(value: unknown): value is WebSQLiteHandoffRequest {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<WebSQLiteHandoffRequest>;
+  const requester = candidate.requester as Partial<WebSQLiteOwnerIdentity> | undefined;
+  return candidate.protocol === WEB_SQLITE_HANDOFF_PROTOCOL &&
+    candidate.type === 'request-ownership' &&
+    typeof requester?.startedAt === 'number' &&
+    Number.isFinite(requester.startedAt) &&
+    typeof requester.pageId === 'string' &&
+    requester.pageId.length > 0;
+}
 
 type LockRequest = (
   name: string,
@@ -68,6 +120,7 @@ export function requestWebSQLiteLease(
 
 export type WebSQLitePageLifecycle = {
   closeForPageTransition: () => void;
+  registerDatabaseCloser: (closeDatabaseSync: () => void) => () => void;
   restoreAfterPageTransition: () => void;
 };
 
@@ -77,19 +130,20 @@ export type WebSQLitePageLifecycle = {
  * mobile Safari before the OPFS access handle has actually been released.
  */
 export function createWebSQLitePageLifecycle(options: {
-  closeDatabaseSync: () => void;
+  closeDatabaseSync?: () => void;
   terminateWorkers: () => void;
   releaseLease: () => void;
   reload: () => void;
 }): WebSQLitePageLifecycle {
   let closed = false;
+  let closeDatabaseSync = options.closeDatabaseSync ?? null;
 
   return {
     closeForPageTransition() {
       if (closed) return;
       closed = true;
       try {
-        options.closeDatabaseSync();
+        closeDatabaseSync?.();
       } finally {
         try {
           options.terminateWorkers();
@@ -97,6 +151,17 @@ export function createWebSQLitePageLifecycle(options: {
           options.releaseLease();
         }
       }
+    },
+    registerDatabaseCloser(closer) {
+      if (closed) {
+        // The worker registry is already shut down, including workers created
+        // late while React is unmounting the provider.
+        return () => undefined;
+      }
+      closeDatabaseSync = closer;
+      return () => {
+        if (closeDatabaseSync === closer) closeDatabaseSync = null;
+      };
     },
     restoreAfterPageTransition() {
       if (closed) options.reload();

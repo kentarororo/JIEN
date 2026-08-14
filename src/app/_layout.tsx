@@ -38,12 +38,14 @@ function AppNavigator() {
           headerBackButtonDisplayMode: 'minimal',
         }}
       >
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
         <Stack.Screen name="workouts/new" options={{ title: 'Log workout', presentation: 'modal' }} />
         <Stack.Screen name="workouts/[id]" options={{ title: 'Workout' }} />
         <Stack.Screen name="meals/new" options={{ title: 'Log meal', presentation: 'modal' }} />
+        <Stack.Screen name="meals/[id]" options={{ title: 'Meal' }} />
         <Stack.Screen name="settings/macros" options={{ title: 'Macro targets', presentation: 'modal' }} />
         <Stack.Screen name="settings/account" options={{ title: 'Account', presentation: 'modal' }} />
       </Stack>

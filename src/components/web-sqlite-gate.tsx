@@ -1,5 +1,5 @@
 import { useSQLiteContext } from 'expo-sqlite';
-import { Component, createContext, type ErrorInfo, type PropsWithChildren, useContext, useEffect, useRef, useState } from 'react';
+import { Component, createContext, type ErrorInfo, type PropsWithChildren, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import {
@@ -7,9 +7,14 @@ import {
   type WebSQLiteStartupFailure,
 } from '@/lib/web-sqlite-bootstrap';
 import {
+  createWebSQLiteHandoffRequest,
   createWebSQLitePageLifecycle,
   requestWebSQLiteLease,
+  shouldYieldWebSQLiteOwnership,
+  WEB_SQLITE_HANDOFF_CHANNEL_NAME,
+  WEB_SQLITE_HANDOFF_SETTLE_MS,
   type WebSQLiteLease,
+  type WebSQLitePageLifecycle,
 } from '@/lib/web-sqlite-lifecycle';
 import {
   evaluateWebSQLiteReadiness,
@@ -24,9 +29,21 @@ const BOOT_RELOAD_KEY = 'jien:sqlite-bootstrap-reload';
 type LeaseReadiness =
   | { state: 'preparing' }
   | { state: 'ready' }
+  | { state: 'displaced' }
   | ({ state: 'unsupported' } & WebSQLiteStartupFailure);
 
-const WebSQLiteLeaseReleaseContext = createContext<(() => void) | null>(null);
+type WebSQLiteOwnershipContextValue = {
+  registerDatabaseCloser: (closeDatabaseSync: () => void) => () => void;
+};
+
+const WebSQLiteOwnershipContext = createContext<WebSQLiteOwnershipContextValue | null>(null);
+
+function createPageId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 function readEnvironment(): WebSQLiteReadiness {
   const storage = navigator.storage as StorageManager & { getDirectory?: () => Promise<unknown> };
@@ -54,6 +71,11 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
     state: 'preparing',
   });
   const leaseRef = useRef<WebSQLiteLease | null>(null);
+  const lifecycleRef = useRef<WebSQLitePageLifecycle | null>(null);
+
+  const registerDatabaseCloser = useCallback((closeDatabaseSync: () => void) => {
+    return lifecycleRef.current?.registerDatabaseCloser(closeDatabaseSync) ?? (() => undefined);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -114,6 +136,8 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
     if (readiness.state !== 'ready') return;
 
     let active = true;
+    let yielded = false;
+    let channel: BroadcastChannel | null = null;
     webSQLiteWorkerRegistry.install(window);
     const requestLock = 'locks' in navigator
       ? (name: string, callback: (lock: unknown) => Promise<void>) =>
@@ -121,36 +145,85 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
       : null;
     const lease = requestWebSQLiteLease(requestLock);
     leaseRef.current = lease;
+    const lifecycle = createWebSQLitePageLifecycle({
+      terminateWorkers: () => webSQLiteWorkerRegistry.shutdown(),
+      releaseLease: () => lease.release(),
+      reload: () => window.location.reload(),
+    });
+    lifecycleRef.current = lifecycle;
+    const owner = { startedAt: Date.now(), pageId: createPageId() };
 
-    void lease.acquired.then(
-      () => {
-        if (active) setLeaseReadiness({ state: 'ready' });
-      },
-      (cause) => {
+    const closeOwnership = () => {
+      try {
+        lifecycle.closeForPageTransition();
+      } catch (error) {
+        console.error('Failed to close the web SQLite owner', error);
+      }
+    };
+    const handlePageHide = () => {
+      yielded = true;
+      closeOwnership();
+    };
+    const handlePageShow = () => lifecycle.restoreAfterPageTransition();
+
+    // iOS Safari does not reliably finish React/pagehide cleanup before the
+    // replacement document starts. Ask the existing same-origin JIEN page to
+    // close SQLite proactively, then let the Web Lock serialize the handoff.
+    if (typeof globalThis.BroadcastChannel === 'function') {
+      try {
+        channel = new BroadcastChannel(WEB_SQLITE_HANDOFF_CHANNEL_NAME);
+        channel.addEventListener('message', (event) => {
+          if (!shouldYieldWebSQLiteOwnership(owner, event.data)) return;
+          yielded = true;
+          closeOwnership();
+          if (active) setLeaseReadiness({ state: 'displaced' });
+        });
+        channel.postMessage(createWebSQLiteHandoffRequest(owner));
+      } catch (error) {
+        console.warn('Web SQLite ownership channel is unavailable', error);
+        channel?.close();
+        channel = null;
+      }
+    }
+
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+
+    void lease.acquired.then(async () => {
+      // Give WebKit time to release the previous worker's OPFS handles after
+      // the ownership lock changes hands. Opening immediately is the refresh
+      // race that produced NoModificationAllowedError on iPhone.
+      await new Promise((resolve) => setTimeout(resolve, WEB_SQLITE_HANDOFF_SETTLE_MS));
+      if (active && !yielded) setLeaseReadiness({ state: 'ready' });
+    }).catch((cause) => {
         if (active) {
           setLeaseReadiness({
             state: 'unsupported',
             ...describeWebSQLiteStartupFailure(cause),
           });
         }
-      },
-    );
+      });
     // The lease normally finishes only during pagehide/unmount. Its rejection
     // is already surfaced through `acquired` when startup fails.
     void lease.finished.catch(() => undefined);
 
     return () => {
       active = false;
-      lease.release();
+      yielded = true;
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+      channel?.close();
+      closeOwnership();
+      if (lifecycleRef.current === lifecycle) lifecycleRef.current = null;
       if (leaseRef.current === lease) leaseRef.current = null;
     };
   }, [readiness.state]);
 
   if (readiness.state === 'ready' && leaseReadiness.state === 'ready') {
     return (
-      <WebSQLiteLeaseReleaseContext.Provider value={() => leaseRef.current?.release()}>
+      <WebSQLiteOwnershipContext.Provider value={{ registerDatabaseCloser }}>
         {children}
-      </WebSQLiteLeaseReleaseContext.Provider>
+      </WebSQLiteOwnershipContext.Provider>
     );
   }
 
@@ -165,9 +238,21 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
   };
   const environmentFailure = readiness.state === 'unsupported' ? readiness : null;
   const leaseFailure = leaseReadiness.state === 'unsupported' ? leaseReadiness : null;
-  const failure = leaseFailure ?? environmentFailure;
+  const handoffFailure = leaseReadiness.state === 'displaced'
+    ? {
+        code: 'LOCAL_STORAGE_HANDED_OFF',
+        message: 'JIEN is open in a newer tab. Your local data is safe. Use this tab to move JIEN back here.',
+      }
+    : null;
+  const failure = handoffFailure ?? leaseFailure ?? environmentFailure;
 
-  return <WebSQLiteStartupPanel failure={failure} onRetry={retry} />;
+  return (
+    <WebSQLiteStartupPanel
+      actionLabel={handoffFailure ? 'Use this tab' : 'Try again'}
+      failure={failure}
+      onRetry={retry}
+    />
+  );
 }
 
 export function WebSQLiteDatabaseLifecycle() {
@@ -177,7 +262,7 @@ export function WebSQLiteDatabaseLifecycle() {
 
 function WebSQLiteDatabaseLifecycleContent() {
   const database = useSQLiteContext();
-  const releaseLease = useContext(WebSQLiteLeaseReleaseContext);
+  const ownership = useContext(WebSQLiteOwnershipContext);
 
   useEffect(() => {
     try {
@@ -186,28 +271,8 @@ function WebSQLiteDatabaseLifecycleContent() {
       // A successfully opened database is authoritative when storage is restricted.
     }
 
-    const lifecycle = createWebSQLitePageLifecycle({
-      closeDatabaseSync: () => database.closeSync(),
-      terminateWorkers: () => webSQLiteWorkerRegistry.terminateAll(),
-      releaseLease: () => releaseLease?.(),
-      reload: () => window.location.reload(),
-    });
-    const closeForPageTransition = () => {
-      try {
-        lifecycle.closeForPageTransition();
-      } catch (error) {
-        console.error('Failed to close the web SQLite connection during pagehide', error);
-      }
-    };
-
-    window.addEventListener('pagehide', closeForPageTransition);
-    window.addEventListener('pageshow', lifecycle.restoreAfterPageTransition);
-    return () => {
-      window.removeEventListener('pagehide', closeForPageTransition);
-      window.removeEventListener('pageshow', lifecycle.restoreAfterPageTransition);
-      closeForPageTransition();
-    };
-  }, [database, releaseLease]);
+    return ownership?.registerDatabaseCloser(() => database.closeSync());
+  }, [database, ownership]);
 
   return null;
 }
@@ -271,9 +336,11 @@ export class WebSQLiteProviderErrorBoundary extends Component<PropsWithChildren,
 }
 
 function WebSQLiteStartupPanel({
+  actionLabel = 'Try again',
   failure,
   onRetry,
 }: {
+  actionLabel?: string;
   failure: { code: string; message: string; detail?: string } | null;
   onRetry: () => void;
 }) {
@@ -308,7 +375,7 @@ function WebSQLiteStartupPanel({
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={[styles.buttonLabel, { color: colors.textOnAccent }]}>Try again</Text>
+              <Text style={[styles.buttonLabel, { color: colors.textOnAccent }]}>{actionLabel}</Text>
             </Pressable>
           </>
         ) : null}

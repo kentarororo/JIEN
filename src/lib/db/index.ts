@@ -3,6 +3,7 @@ export { syncAccountData } from './cloud-sync';
 export type { AccountSyncResult } from './cloud-sync';
 export { listCalendarActivity } from './calendar';
 export { createCustomExercise, listExercises } from './exercises';
+export { getCompleteExportSnapshot } from './export';
 export {
   analyzeMealPhoto,
   cacheFoodCatalogItems,
@@ -30,12 +31,16 @@ export {
 } from './wellness';
 export { retryWellnessMessage, sendWellnessMessage } from './wellness-chat';
 export {
+  deleteMeal,
   ensureStartingNutritionTarget,
   getDailyNutrition,
+  getMealDetail,
   getNutritionTarget,
+  listMealsForDate,
   listNutritionExportRows,
   saveMeal,
   saveNutritionTarget,
+  updateMeal,
 } from './nutrition';
 export {
   getNotificationPreference,

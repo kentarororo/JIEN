@@ -21,3 +21,14 @@ test('the provider installs the page lifecycle before app database consumers', (
   assert.notEqual(lifecycleIndex, -1);
   assert.ok(lifecycleIndex < runtimeIndex);
 });
+
+test('web startup actively hands OPFS ownership to a refreshing page', () => {
+  assert.match(gate, /BroadcastChannel/);
+  assert.match(gate, /createWebSQLiteHandoffRequest/);
+  assert.match(gate, /shouldYieldWebSQLiteOwnership/);
+  assert.match(gate, /webSQLiteWorkerRegistry\.shutdown\(\)/);
+  assert.ok(
+    gate.indexOf("window.addEventListener('pagehide'") <
+      gate.indexOf("setLeaseReadiness({ state: 'ready' })"),
+  );
+});

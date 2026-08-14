@@ -3,18 +3,29 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toLocalDateKey } from '@/lib/time';
 import { calculateStartingNutritionTarget } from '@/lib/nutrition/targets';
+import {
+  activeRecordPredicate,
+  calculateMealTotals,
+  mealDateQueryKey,
+  tombstonePayload,
+  validateMealEdit,
+} from '@/lib/nutrition/meal-record';
 
 import { enqueueUpsert } from './sync-queue';
 import { getUserProfile } from './profile';
 import { getLatestBodyMeasurement } from './wellness';
 import type {
   DailyNutrition,
+  MealDetail,
+  MealItemSnapshot,
+  MealSource,
   MacroTotals,
   MealSummary,
   MealType,
   NutritionExportRow,
   NutritionTarget,
   SaveMealInput,
+  UpdateMealInput,
 } from './types';
 
 const EMPTY_TOTALS: MacroTotals = {
@@ -63,6 +74,7 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
     ai_context: mealSource === 'ai_photo' ? input.aiContext?.trim() || null : null,
     ai_status: mealSource === 'ai_photo' ? 'completed' : 'not_requested',
     ai_error_code: null,
+    is_user_edited: false,
     created_at: now,
     client_updated_at: now,
     deleted_at: null,
@@ -72,8 +84,8 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
     await db.runAsync(
       `INSERT INTO meals (
         id, name, type, eaten_on, eaten_at, source, notes,
-        created_at, updated_at, client_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        is_user_edited, created_at, updated_at, client_updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
       [id, mealPayload.name, input.type, eatenOn, input.eatenAt, mealSource, mealPayload.notes, now, now, now],
     );
     await enqueueUpsert(db, 'meals', id, mealPayload);
@@ -94,6 +106,9 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
         fibre_g: item.fibreG ?? null,
         source: item.source ?? 'manual',
         confidence: item.confidence ?? null,
+        original_source: item.source ?? 'manual',
+        original_confidence: item.confidence ?? null,
+        is_user_edited: false,
         created_at: now,
         client_updated_at: now,
         deleted_at: null,
@@ -101,8 +116,9 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
       await db.runAsync(
         `INSERT INTO food_items (
           id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
-          carbohydrate_g, fat_g, fibre_g, source, confidence, created_at, updated_at, client_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          carbohydrate_g, fat_g, fibre_g, source, confidence, original_source,
+          original_confidence, is_user_edited, created_at, updated_at, client_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
         [
           itemId,
           id,
@@ -117,6 +133,8 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
           item.fibreG ?? null,
           itemPayload.source,
           itemPayload.confidence,
+          itemPayload.original_source,
+          itemPayload.original_confidence,
           now,
           now,
           now,
@@ -129,10 +147,11 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
   return id;
 }
 
-export async function getDailyNutrition(
+export async function listMealsForDate(
   db: SQLiteDatabase,
   date = toLocalDateKey(),
-): Promise<DailyNutrition> {
+): Promise<MealSummary[]> {
+  const queryDate = mealDateQueryKey(date);
   const rows = await db.getAllAsync<{
     id: string;
     name: string;
@@ -152,14 +171,13 @@ export async function getDailyNutrition(
       COALESCE(SUM(f.fat_g), 0) AS fat_g,
       COALESCE(SUM(f.fibre_g), 0) AS fibre_g
      FROM meals m
-     LEFT JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
-     WHERE m.eaten_on = ? AND m.deleted_at IS NULL
+     LEFT JOIN food_items f ON f.meal_id = m.id AND ${activeRecordPredicate('f')}
+     WHERE m.eaten_on = ? AND ${activeRecordPredicate('m')}
      GROUP BY m.id
      ORDER BY m.eaten_at DESC`,
-    [date],
+    [queryDate],
   );
-
-  const meals: MealSummary[] = rows.map((row) => ({
+  return rows.map((row) => ({
     id: row.id,
     name: row.name,
     type: row.type,
@@ -171,6 +189,13 @@ export async function getDailyNutrition(
     fatG: row.fat_g ?? 0,
     fibreG: row.fibre_g ?? 0,
   }));
+}
+
+export async function getDailyNutrition(
+  db: SQLiteDatabase,
+  date = toLocalDateKey(),
+): Promise<DailyNutrition> {
+  const meals = await listMealsForDate(db, date);
   const totals = meals.reduce<MacroTotals>(
     (sum, meal) => ({
       caloriesKcal: sum.caloriesKcal + meal.caloriesKcal,
@@ -186,6 +211,262 @@ export async function getDailyNutrition(
     ? await ensureStartingNutritionTarget(db)
     : null);
   return { date, meals, totals, target };
+}
+
+type MealRecordRow = {
+  id: string;
+  name: string;
+  type: MealType | null;
+  eaten_on: string;
+  eaten_at: string;
+  source: MealSource;
+  notes: string | null;
+  is_user_edited: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type FoodItemRecordRow = {
+  id: string;
+  meal_id: string;
+  sort_order: number;
+  name: string;
+  quantity: number;
+  unit: string;
+  calories_kcal: number;
+  protein_g: number;
+  carbohydrate_g: number;
+  fat_g: number;
+  fibre_g: number | null;
+  source: MealSource;
+  confidence: number | null;
+  original_source: MealSource | null;
+  original_confidence: number | null;
+  is_user_edited: number;
+  created_at: string;
+};
+
+export async function getMealDetail(db: SQLiteDatabase, mealId: string): Promise<MealDetail | null> {
+  const meal = await db.getFirstAsync<MealRecordRow>(
+    `SELECT id, name, type, eaten_on, eaten_at, source, notes, is_user_edited,
+      created_at, updated_at
+     FROM meals WHERE id = ? AND ${activeRecordPredicate('meals')}`,
+    [mealId],
+  );
+  if (!meal) return null;
+  const rows = await db.getAllAsync<FoodItemRecordRow>(
+    `SELECT id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
+      carbohydrate_g, fat_g, fibre_g, source, confidence, original_source,
+      original_confidence, is_user_edited, created_at
+     FROM food_items
+     WHERE meal_id = ? AND ${activeRecordPredicate('food_items')}
+     ORDER BY sort_order`,
+    [mealId],
+  );
+  const items: MealItemSnapshot[] = rows.map((item) => ({
+    id: item.id,
+    sortOrder: item.sort_order,
+    name: item.name,
+    quantity: item.quantity,
+    unit: item.unit,
+    caloriesKcal: item.calories_kcal,
+    proteinG: item.protein_g,
+    carbohydrateG: item.carbohydrate_g,
+    fatG: item.fat_g,
+    fibreG: item.fibre_g,
+    source: item.source,
+    originalSource: item.original_source ?? item.source,
+    confidence: item.confidence,
+    originalConfidence: item.original_confidence ?? item.confidence,
+    isUserEdited: Boolean(item.is_user_edited),
+  }));
+  const totals = calculateMealTotals(items);
+  return {
+    id: meal.id,
+    name: meal.name,
+    type: meal.type,
+    eatenOn: meal.eaten_on,
+    eatenAt: meal.eaten_at,
+    source: meal.source,
+    notes: meal.notes,
+    createdAt: meal.created_at,
+    updatedAt: meal.updated_at,
+    isUserEdited: Boolean(meal.is_user_edited),
+    itemCount: items.length,
+    items,
+    ...totals,
+  };
+}
+
+export async function updateMeal(
+  db: SQLiteDatabase,
+  mealId: string,
+  input: UpdateMealInput,
+): Promise<void> {
+  const meal = await db.getFirstAsync<MealRecordRow>(
+    `SELECT id, name, type, eaten_on, eaten_at, source, notes, is_user_edited,
+      created_at, updated_at FROM meals
+     WHERE id = ? AND ${activeRecordPredicate('meals')}`,
+    [mealId],
+  );
+  if (!meal) throw new Error('This meal is no longer available.');
+  const currentItems = await db.getAllAsync<FoodItemRecordRow>(
+    `SELECT id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
+      carbohydrate_g, fat_g, fibre_g, source, confidence, original_source,
+      original_confidence, is_user_edited, created_at
+     FROM food_items WHERE meal_id = ? AND ${activeRecordPredicate('food_items')}
+     ORDER BY sort_order`,
+    [mealId],
+  );
+  const validated = validateMealEdit(input);
+  if (validated.items.length !== currentItems.length) {
+    throw new Error('Reload this meal before changing its saved items.');
+  }
+  const currentById = new Map(currentItems.map((item) => [item.id, item]));
+  if (validated.items.some((item) => !currentById.has(item.id))) {
+    throw new Error('Reload this meal before changing its saved items.');
+  }
+  const now = new Date().toISOString();
+  const prepared = validated.items.map((item) => {
+    const current = currentById.get(item.id)!;
+    const changed = item.name !== current.name
+      || item.quantity !== current.quantity
+      || item.unit !== current.unit
+      || item.caloriesKcal !== current.calories_kcal
+      || item.proteinG !== current.protein_g
+      || item.carbohydrateG !== current.carbohydrate_g
+      || item.fatG !== current.fat_g
+      || item.fibreG !== current.fibre_g;
+    return {
+      current,
+      item,
+      source: changed ? 'manual' as const : current.source,
+      confidence: changed ? null : current.confidence,
+      originalSource: current.original_source ?? current.source,
+      originalConfidence: current.original_confidence ?? current.confidence,
+      isUserEdited: Boolean(current.is_user_edited) || changed,
+    };
+  });
+  const mealChanged = validated.name !== meal.name
+    || validated.eatenAt !== new Date(meal.eaten_at).toISOString()
+    || prepared.some((entry) => entry.isUserEdited && !entry.current.is_user_edited);
+  const mealPayload = {
+    id: meal.id,
+    name: validated.name,
+    type: meal.type,
+    eaten_on: validated.eatenOn,
+    eaten_at: validated.eatenAt,
+    source: meal.source,
+    notes: meal.notes,
+    is_user_edited: Boolean(meal.is_user_edited) || mealChanged,
+    created_at: meal.created_at,
+    client_updated_at: now,
+    deleted_at: null,
+  };
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE meals SET name = ?, eaten_on = ?, eaten_at = ?, is_user_edited = ?,
+        updated_at = ?, client_updated_at = ? WHERE id = ?`,
+      [validated.name, validated.eatenOn, validated.eatenAt, mealPayload.is_user_edited ? 1 : 0, now, now, mealId],
+    );
+    await enqueueUpsert(db, 'meals', mealId, mealPayload);
+    for (const entry of prepared) {
+      await db.runAsync(
+        `UPDATE food_items SET name = ?, quantity = ?, unit = ?, calories_kcal = ?,
+          protein_g = ?, carbohydrate_g = ?, fat_g = ?, fibre_g = ?, source = ?,
+          confidence = ?, original_source = ?, original_confidence = ?, is_user_edited = ?,
+          updated_at = ?, client_updated_at = ? WHERE id = ?`,
+        [
+          entry.item.name, entry.item.quantity, entry.item.unit, entry.item.caloriesKcal,
+          entry.item.proteinG, entry.item.carbohydrateG, entry.item.fatG, entry.item.fibreG,
+          entry.source, entry.confidence, entry.originalSource, entry.originalConfidence,
+          entry.isUserEdited ? 1 : 0, now, now, entry.item.id,
+        ],
+      );
+      await enqueueUpsert(db, 'food_items', entry.item.id, {
+        id: entry.item.id,
+        meal_id: mealId,
+        sort_order: entry.current.sort_order,
+        name: entry.item.name,
+        quantity: entry.item.quantity,
+        unit: entry.item.unit,
+        calories_kcal: entry.item.caloriesKcal,
+        protein_g: entry.item.proteinG,
+        carbohydrate_g: entry.item.carbohydrateG,
+        fat_g: entry.item.fatG,
+        fibre_g: entry.item.fibreG,
+        source: entry.source,
+        confidence: entry.confidence,
+        original_source: entry.originalSource,
+        original_confidence: entry.originalConfidence,
+        is_user_edited: entry.isUserEdited,
+        created_at: entry.current.created_at,
+        client_updated_at: now,
+        deleted_at: null,
+      });
+    }
+  });
+}
+
+export async function deleteMeal(db: SQLiteDatabase, mealId: string): Promise<void> {
+  const meal = await db.getFirstAsync<MealRecordRow>(
+    `SELECT id, name, type, eaten_on, eaten_at, source, notes, is_user_edited,
+      created_at, updated_at FROM meals
+     WHERE id = ? AND ${activeRecordPredicate('meals')}`,
+    [mealId],
+  );
+  if (!meal) return;
+  const items = await db.getAllAsync<FoodItemRecordRow>(
+    `SELECT id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
+      carbohydrate_g, fat_g, fibre_g, source, confidence, original_source,
+      original_confidence, is_user_edited, created_at
+     FROM food_items WHERE meal_id = ? AND ${activeRecordPredicate('food_items')}`,
+    [mealId],
+  );
+  const deletedAt = new Date().toISOString();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE meals SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+      [deletedAt, deletedAt, deletedAt, mealId],
+    );
+    await enqueueUpsert(db, 'meals', mealId, tombstonePayload({
+      id: meal.id,
+      name: meal.name,
+      type: meal.type,
+      eaten_on: meal.eaten_on,
+      eaten_at: meal.eaten_at,
+      source: meal.source,
+      notes: meal.notes,
+      is_user_edited: Boolean(meal.is_user_edited),
+      created_at: meal.created_at,
+    }, deletedAt));
+    for (const item of items) {
+      await db.runAsync(
+        `UPDATE food_items SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+        [deletedAt, deletedAt, deletedAt, item.id],
+      );
+      await enqueueUpsert(db, 'food_items', item.id, tombstonePayload({
+        id: item.id,
+        meal_id: mealId,
+        sort_order: item.sort_order,
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        calories_kcal: item.calories_kcal,
+        protein_g: item.protein_g,
+        carbohydrate_g: item.carbohydrate_g,
+        fat_g: item.fat_g,
+        fibre_g: item.fibre_g,
+        source: item.source,
+        confidence: item.confidence,
+        original_source: item.original_source ?? item.source,
+        original_confidence: item.original_confidence ?? item.confidence,
+        is_user_edited: Boolean(item.is_user_edited),
+        created_at: item.created_at,
+      }, deletedAt));
+    }
+  });
 }
 
 export async function ensureStartingNutritionTarget(

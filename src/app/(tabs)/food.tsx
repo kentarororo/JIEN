@@ -1,7 +1,7 @@
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
@@ -73,10 +73,18 @@ export default function FoodScreen() {
           {data.meals.length === 0 ? <StatePanel title="No meals logged" body="Add the food and portions you know. Exact is useful, but consistent estimates count too." actionLabel="Log a meal" onAction={() => router.push('/meals/new')} /> : null}
           <View style={styles.list}>
             {data.meals.map((meal) => (
-              <Card key={meal.id}>
-                <View style={styles.row}><View style={styles.flex}><AppText style={styles.mealName}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.type ?? 'meal'} · {formatTime(meal.eatenAt)}</AppText></View><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText></View>
-                <AppText style={{ color: colors.textMuted }}>P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText>
-              </Card>
+              <Pressable
+                key={meal.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${meal.name}, ${Math.round(meal.caloriesKcal)} calories`}
+                onPress={() => router.push(`/meals/${meal.id}` as Href)}
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <Card>
+                  <View style={styles.row}><View style={styles.flex}><AppText style={styles.mealName}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.type ?? 'meal'} · {formatTime(meal.eatenAt)}</AppText></View><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText></View>
+                  <AppText style={{ color: colors.textMuted }}>P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText>
+                </Card>
+              </Pressable>
             ))}
           </View>
         </>
@@ -98,4 +106,5 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   list: { gap: spacing.sm },
   mealName: { ...typography.bodyLarge, fontWeight: '700' },
+  pressed: { opacity: 0.68 },
 });

@@ -408,4 +408,36 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.execAsync('PRAGMA user_version = 6;');
     });
   }
+
+  if (currentVersion < 7) {
+    await addColumnIfMissing(db, 'meals', 'is_user_edited', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumnIfMissing(db, 'food_items', 'original_source', 'TEXT');
+    await addColumnIfMissing(db, 'food_items', 'original_confidence', 'REAL');
+    await addColumnIfMissing(db, 'food_items', 'is_user_edited', 'INTEGER NOT NULL DEFAULT 0');
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(`UPDATE food_items
+        SET original_source = COALESCE(original_source, source),
+            original_confidence = COALESCE(original_confidence, confidence)
+        WHERE original_source IS NULL OR (original_confidence IS NULL AND confidence IS NOT NULL)`);
+      await db.execAsync('PRAGMA user_version = 7;');
+    });
+  }
+
+  if (currentVersion < 8) {
+    await addColumnIfMissing(db, 'sync_queue', 'failure_kind', 'TEXT');
+    await addColumnIfMissing(db, 'sync_queue', 'failure_code', 'TEXT');
+    await addColumnIfMissing(db, 'sync_queue', 'retry_paused', 'INTEGER NOT NULL DEFAULT 0');
+    await db.runAsync(
+      `UPDATE sync_queue
+       SET failure_kind = COALESCE(failure_kind, 'transient'),
+           failure_code = COALESCE(failure_code, 'LEGACY_RETRY'),
+           last_error = 'A previous cloud sync attempt is waiting to retry.'
+       WHERE attempt_count > 0`,
+    );
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS sync_queue_pause_retry_idx
+        ON sync_queue(retry_paused, next_attempt_at, created_at);
+      PRAGMA user_version = 8;
+    `);
+  }
 }

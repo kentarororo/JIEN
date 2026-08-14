@@ -3,9 +3,10 @@ import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { listNutritionExportRows, listWorkoutExportRows } from '@/lib/db';
+import { getCompleteExportSnapshot, listNutritionExportRows, listWorkoutExportRows } from '@/lib/db';
 
 import { nutritionToCsv, workoutsToCsv } from './csv';
+import { buildCompleteJsonExport, stringifyCompleteJsonExport } from './complete-json';
 
 type ExportKind = 'workouts' | 'nutrition' | 'all';
 
@@ -46,15 +47,14 @@ export async function exportNutritionCsv(db: SQLiteDatabase): Promise<void> {
 }
 
 export async function exportAllJson(db: SQLiteDatabase): Promise<void> {
-  const [workouts, nutrition] = await Promise.all([
-    listWorkoutExportRows(db),
-    listNutritionExportRows(db),
-  ]);
+  const generatedAt = new Date().toISOString();
+  const snapshot = await getCompleteExportSnapshot(db);
   await shareText(
     datedName('all', 'json'),
-    JSON.stringify({ exportedAt: new Date().toISOString(), workouts, nutrition }, null, 2),
+    stringifyCompleteJsonExport(buildCompleteJsonExport(snapshot, generatedAt)),
     'application/json',
   );
 }
 
 export { nutritionToCsv, workoutsToCsv } from './csv';
+export { buildCompleteJsonExport, decodeExportJson, stringifyCompleteJsonExport } from './complete-json';

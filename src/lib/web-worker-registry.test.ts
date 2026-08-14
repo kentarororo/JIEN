@@ -39,3 +39,30 @@ test('tracks workers created after installation and terminates them once', () =>
   assert.equal(otherWorker.terminated, true);
   assert.equal(registry.size, 0);
 });
+
+test('shutdown also terminates workers created during a late provider mount', () => {
+  const scope = { Worker: FakeWorker };
+  const registry = new WebWorkerRegistry<FakeWorker>();
+  registry.install(scope);
+
+  const currentWorker = new scope.Worker('/worker-current.js');
+  registry.shutdown();
+  const lateWorker = new scope.Worker('/worker-late.js');
+
+  assert.equal(currentWorker.terminated, true);
+  assert.equal(lateWorker.terminated, true);
+  assert.equal(registry.size, 0);
+});
+
+test('a deliberate gate remount starts a new ownership cycle', () => {
+  const scope = { Worker: FakeWorker };
+  const registry = new WebWorkerRegistry<FakeWorker>();
+  registry.install(scope);
+  registry.shutdown();
+
+  registry.install(scope);
+  const replacementWorker = new scope.Worker('/worker-replacement.js');
+
+  assert.equal(replacementWorker.terminated, false);
+  assert.equal(registry.size, 1);
+});

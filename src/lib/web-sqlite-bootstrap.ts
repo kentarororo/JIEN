@@ -38,7 +38,7 @@ export function describeWebSQLiteStartupFailure(cause: unknown): WebSQLiteStartu
   ) {
     return {
       code: 'LOCAL_STORAGE_BUSY',
-      message: 'Another JIEN tab or a previous refresh still has local storage open. Close other JIEN tabs, then retry.',
+      message: 'JIEN could not finish handing local storage over from a previous page. Wait a moment and retry. Your data is safe.',
       detail,
       retryWithReload: true,
     };

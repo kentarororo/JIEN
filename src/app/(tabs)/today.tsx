@@ -1,4 +1,4 @@
-import { Link, useRouter } from 'expo-router';
+import { Link, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, moveMonthSelection } from '@/lib/calendar';
-import { getDashboardSummary, listCalendarActivity, listWorkoutsForDate } from '@/lib/db';
+import { getDashboardSummary, listCalendarActivity, listMealsForDate, listWorkoutsForDate } from '@/lib/db';
 import { formatShortDate, formatTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -21,12 +21,13 @@ export default function TodayScreen() {
   const loader = useCallback(async () => {
     const rangeStart = cells[0]?.dateKey ?? todayKey;
     const rangeEnd = cells.at(-1)?.dateKey ?? todayKey;
-    const [summary, activity, selectedWorkouts] = await Promise.all([
+    const [summary, activity, selectedWorkouts, selectedMeals] = await Promise.all([
       getDashboardSummary(db),
       listCalendarActivity(db, rangeStart, rangeEnd),
       listWorkoutsForDate(db, selectedDate),
+      listMealsForDate(db, selectedDate),
     ]);
-    return { summary, activity, selectedWorkouts, selectedDate };
+    return { summary, activity, selectedWorkouts, selectedMeals, selectedDate };
   }, [cells, db, selectedDate, todayKey]);
   const { data, error, loading, reload } = useScreenData(loader);
 
@@ -39,6 +40,7 @@ export default function TodayScreen() {
   const activityByDate = new Map(data.activity.map((day) => [day.date, day]));
   const selectedActivity = activityByDate.get(selectedDate);
   const selectedWorkouts = data.selectedDate === selectedDate ? data.selectedWorkouts : [];
+  const selectedMeals = data.selectedDate === selectedDate ? data.selectedMeals : [];
   const selectedInFuture = selectedDate > todayKey;
   const changeMonth = (delta: number) => {
     const next = moveMonthSelection(visibleMonth, selectedDate, delta);
@@ -114,6 +116,14 @@ export default function TodayScreen() {
               </Pressable>
             </Link>
           ))}</View> : null}
+          {selectedMeals.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged meals</AppText>{selectedMeals.map((meal) => (
+            <Link key={meal.id} href={`/meals/${meal.id}` as Href} asChild>
+              <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border }, pressed && styles.pressed]}>
+                <View style={styles.flex}><AppText style={styles.value}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.itemCount} item{meal.itemCount === 1 ? '' : 's'} · P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText></View>
+                <View style={styles.recordEnd}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)}</AppText></View>
+              </Pressable>
+            </Link>
+          ))}</View> : null}
         </View>
       </Card>
 
@@ -162,6 +172,14 @@ export default function TodayScreen() {
         <View style={styles.macroRow}><AppText>Protein</AppText><AppText style={styles.value}>{Math.round(summary.nutrition.totals.proteinG)}{proteinTarget ? ` / ${Math.round(proteinTarget)}` : ''} g</AppText></View>
         <ProgressBar value={proteinTarget ? summary.nutrition.totals.proteinG / proteinTarget : 0} color={colors.success} />
         {!summary.nutrition.target ? <Button label="Set macro targets" onPress={() => router.push('/settings/macros')} variant="secondary" /> : null}
+        {summary.nutrition.meals.length ? <View style={styles.todayMeals}>{summary.nutrition.meals.map((meal) => (
+          <Link key={meal.id} href={`/meals/${meal.id}` as Href} asChild>
+            <Pressable accessibilityLabel={`Open ${meal.name}`} style={({ pressed }) => [styles.todayMeal, { borderColor: colors.border }, pressed && styles.pressed]}>
+              <View style={styles.flex}><AppText style={styles.value}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)} · {meal.itemCount} item{meal.itemCount === 1 ? '' : 's'}</AppText></View>
+              <AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText>
+            </Pressable>
+          </Link>
+        ))}</View> : null}
       </Card>
 
       <SectionHeading title="Last session" />
@@ -205,6 +223,9 @@ const styles = StyleSheet.create({
   selectedRecords: { gap: spacing.xs },
   selectedRecordsTitle: { ...typography.label, fontWeight: '800' },
   selectedRecord: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },
+  recordEnd: { alignItems: 'flex-end' },
+  todayMeals: { gap: spacing.xs, marginTop: spacing.xs },
+  todayMeal: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },
   pressed: { opacity: 0.68 },
 });
 

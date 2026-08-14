@@ -4,6 +4,7 @@ import { hasAccountConflict, needsFullReconciliation, preserveLocalAiMetadata, s
 import { getSetting, setSetting } from './settings';
 import { getSupabaseClient } from './supabase';
 import { syncPendingChanges, type SyncResult } from './sync-queue';
+import { classifySyncFailure, type SyncRetryTrigger } from './sync-policy';
 import type { FitnessGoal, LoadUnit, TrainingExperience } from './types';
 
 const ACCOUNT_OWNER_KEY = 'cloud_owner_user_id';
@@ -73,6 +74,7 @@ export type AccountSyncResult =
   | { state: 'synced'; pushed: number; pulled: number; profileRestored: boolean }
   | { state: 'offline' | 'not_configured' | 'signed_out'; pushed: 0; pulled: 0; profileRestored: false }
   | { state: 'partial'; pushed: number; pulled: number; profileRestored: boolean; error: string }
+  | { state: 'action_required'; pushed: number; pulled: number; profileRestored: boolean; error: string; code: string }
   | { state: 'account_conflict'; pushed: 0; pulled: 0; profileRestored: false };
 
 let activeAccountSync: Promise<AccountSyncResult> | null = null;
@@ -233,10 +235,23 @@ function mapPushFailure(result: Exclude<SyncResult, { state: 'synced' }>): Accou
   if (result.state === 'partial') {
     return { state: 'partial', pushed: result.processed, pulled: 0, profileRestored: false, error: result.error };
   }
+  if (result.state === 'action_required') {
+    return {
+      state: 'action_required',
+      pushed: result.processed,
+      pulled: 0,
+      profileRestored: false,
+      error: result.error,
+      code: result.code,
+    };
+  }
   return { state: result.state, pushed: 0, pulled: 0, profileRestored: false };
 }
 
-async function runAccountSync(db: SQLiteDatabase): Promise<AccountSyncResult> {
+async function runAccountSync(
+  db: SQLiteDatabase,
+  options: { trigger?: SyncRetryTrigger } = {},
+): Promise<AccountSyncResult> {
   let supabase;
   try {
     supabase = getSupabaseClient();
@@ -246,7 +261,10 @@ async function runAccountSync(db: SQLiteDatabase): Promise<AccountSyncResult> {
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
-    return { state: 'partial', pushed: 0, pulled: 0, profileRestored: false, error: sessionError.message };
+    const failure = classifySyncFailure(sessionError);
+    return failure.disposition === 'action_required'
+      ? { state: 'action_required', pushed: 0, pulled: 0, profileRestored: false, error: failure.safeMessage, code: failure.code }
+      : { state: 'partial', pushed: 0, pulled: 0, profileRestored: false, error: failure.safeMessage };
   }
   const userId = sessionData.session?.user.id;
   if (!userId) return { state: 'signed_out', pushed: 0, pulled: 0, profileRestored: false };
@@ -258,7 +276,7 @@ async function runAccountSync(db: SQLiteDatabase): Promise<AccountSyncResult> {
   }
   if (!ownerId) await setSetting(db, ACCOUNT_OWNER_KEY, userId);
 
-  const pushResult = await syncPendingChanges(db);
+  const pushResult = await syncPendingChanges(db, options);
   if (pushResult.state !== 'synced') return mapPushFailure(pushResult);
 
   try {
@@ -274,19 +292,32 @@ async function runAccountSync(db: SQLiteDatabase): Promise<AccountSyncResult> {
     if (fullReconcile) await setSetting(db, LAST_FULL_RECONCILE_KEY, new Date().toISOString());
     return { state: 'synced', pushed: pushResult.processed, pulled, profileRestored };
   } catch (cause) {
-    return {
-      state: 'partial',
-      pushed: pushResult.processed,
-      pulled: 0,
-      profileRestored: false,
-      error: cause instanceof Error ? cause.message : 'Cloud restore failed',
-    };
+    const failure = classifySyncFailure(cause);
+    return failure.disposition === 'action_required'
+      ? {
+        state: 'action_required',
+        pushed: pushResult.processed,
+        pulled: 0,
+        profileRestored: false,
+        error: failure.safeMessage,
+        code: failure.code,
+      }
+      : {
+        state: 'partial',
+        pushed: pushResult.processed,
+        pulled: 0,
+        profileRestored: false,
+        error: failure.safeMessage,
+      };
   }
 }
 
-export async function syncAccountData(db: SQLiteDatabase): Promise<AccountSyncResult> {
+export async function syncAccountData(
+  db: SQLiteDatabase,
+  options: { trigger?: SyncRetryTrigger } = {},
+): Promise<AccountSyncResult> {
   if (activeAccountSync) return activeAccountSync;
-  activeAccountSync = runAccountSync(db);
+  activeAccountSync = runAccountSync(db, options);
   try {
     return await activeAccountSync;
   } finally {

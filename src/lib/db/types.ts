@@ -2,6 +2,7 @@ export type LoadUnit = 'kg' | 'lb';
 export type SetKind = 'working' | 'warmup' | 'drop' | 'failure';
 export type WorkoutStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
+export type MealSource = 'manual' | 'ai_photo' | 'imported';
 export type NotificationType = 'meal_gap' | 'workout_plan' | 'sync_issue';
 export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
 export type FitnessGoal = 'composition' | 'strength' | 'both' | 'general_wellness';
@@ -188,7 +189,7 @@ export type FoodItemInput = {
   carbohydrateG: number;
   fatG: number;
   fibreG?: number | null;
-  source?: 'manual' | 'ai_photo' | 'imported';
+  source?: MealSource;
   confidence?: number | null;
 };
 
@@ -234,6 +235,36 @@ export type MealSummary = MacroTotals & {
   itemCount: number;
 };
 
+export type MealItemSnapshot = Omit<FoodItemInput, 'fibreG' | 'source' | 'confidence'> & {
+  id: string;
+  sortOrder: number;
+  fibreG: number | null;
+  source: MealSource;
+  confidence: number | null;
+  originalSource: MealSource;
+  originalConfidence: number | null;
+  isUserEdited: boolean;
+};
+
+export type MealDetail = MealSummary & {
+  eatenOn: string;
+  source: MealSource;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isUserEdited: boolean;
+  items: MealItemSnapshot[];
+};
+
+export type UpdateMealInput = {
+  name: string;
+  eatenAt: string;
+  items: Array<Pick<
+    MealItemSnapshot,
+    'id' | 'name' | 'quantity' | 'unit' | 'caloriesKcal' | 'proteinG' | 'carbohydrateG' | 'fatG' | 'fibreG'
+  >>;
+};
+
 export type NutritionTarget = MacroTotals & {
   id: string;
   effectiveFrom: string;
@@ -271,6 +302,7 @@ export type NotificationPreference = {
 export type SyncStatus = {
   pendingCount: number;
   failedCount: number;
+  actionRequiredCount: number;
   lastError: string | null;
 };
 

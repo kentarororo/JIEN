@@ -28,7 +28,7 @@ export function GlobalTabBar() {
   const pathname = usePathname();
   const router = useRouter();
   const { colors } = useJienTheme();
-  if (pathname === '/onboarding' || pathname.startsWith('/auth/')) return null;
+  if (pathname === '/' || pathname === '/onboarding' || pathname.startsWith('/auth/')) return null;
 
   return (
     <SafeAreaView edges={['bottom']} style={[styles.safeArea, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>

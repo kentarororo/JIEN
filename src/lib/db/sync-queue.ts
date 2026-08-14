@@ -4,6 +4,11 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getSupabaseClient } from './supabase';
 import { hasAccountConflict } from './cloud-sync-mappers';
+import {
+  buildSyncQueueFailureUpdate,
+  shouldResetPausedSyncFailures,
+  type SyncRetryTrigger,
+} from './sync-policy';
 import type { SyncStatus } from './types';
 
 export type RemoteTable =
@@ -58,7 +63,10 @@ export async function enqueueUpsert(
       payload_json = excluded.payload_json,
       attempt_count = 0,
       next_attempt_at = NULL,
-      last_error = NULL`,
+      last_error = NULL,
+      failure_kind = NULL,
+      failure_code = NULL,
+      retry_paused = 0`,
     [Crypto.randomUUID(), table, entityId, JSON.stringify(payload), now],
   );
 }
@@ -67,16 +75,19 @@ export async function getSyncStatus(db: SQLiteDatabase): Promise<SyncStatus> {
   const row = await db.getFirstAsync<{
     pending_count: number;
     failed_count: number;
+    action_required_count: number;
     last_error: string | null;
   }>(`SELECT
       COUNT(*) AS pending_count,
       SUM(CASE WHEN attempt_count > 0 THEN 1 ELSE 0 END) AS failed_count,
+      SUM(CASE WHEN retry_paused = 1 THEN 1 ELSE 0 END) AS action_required_count,
       MAX(last_error) AS last_error
     FROM sync_queue`);
 
   return {
     pendingCount: row?.pending_count ?? 0,
     failedCount: row?.failed_count ?? 0,
+    actionRequiredCount: row?.action_required_count ?? 0,
     lastError: row?.last_error ?? null,
   };
 }
@@ -84,9 +95,13 @@ export async function getSyncStatus(db: SQLiteDatabase): Promise<SyncStatus> {
 export type SyncResult =
   | { state: 'synced'; processed: number }
   | { state: 'offline' | 'not_configured' | 'signed_out' | 'account_conflict'; processed: 0 }
-  | { state: 'partial'; processed: number; error: string };
+  | { state: 'partial'; processed: number; error: string; retryAt: string }
+  | { state: 'action_required'; processed: number; error: string; code: string };
 
-export async function syncPendingChanges(db: SQLiteDatabase): Promise<SyncResult> {
+export async function syncPendingChanges(
+  db: SQLiteDatabase,
+  options: { trigger?: SyncRetryTrigger; now?: () => number; random?: () => number } = {},
+): Promise<SyncResult> {
   const network = await Network.getNetworkStateAsync();
   if (!network.isConnected || network.isInternetReachable === false) {
     return { state: 'offline', processed: 0 };
@@ -113,12 +128,58 @@ export async function syncPendingChanges(db: SQLiteDatabase): Promise<SyncResult
     return { state: 'account_conflict', processed: 0 };
   }
 
+  if (shouldResetPausedSyncFailures(options.trigger ?? 'background')) {
+    await db.runAsync(
+      `UPDATE sync_queue
+       SET retry_paused = 0, next_attempt_at = NULL
+       WHERE retry_paused = 1`,
+    );
+  }
+
+  const nowMs = options.now?.() ?? Date.now();
+
+  const blockedBeforePush = await db.getFirstAsync<{
+    paused_count: number;
+    paused_error: string | null;
+    paused_code: string | null;
+    delayed_count: number;
+    retry_at: string | null;
+    delayed_error: string | null;
+  }>(
+    `SELECT
+       SUM(CASE WHEN retry_paused = 1 THEN 1 ELSE 0 END) AS paused_count,
+       MAX(CASE WHEN retry_paused = 1 THEN last_error END) AS paused_error,
+       MAX(CASE WHEN retry_paused = 1 THEN failure_code END) AS paused_code,
+       SUM(CASE WHEN retry_paused = 0 AND next_attempt_at > ? THEN 1 ELSE 0 END) AS delayed_count,
+       MIN(CASE WHEN retry_paused = 0 AND next_attempt_at > ? THEN next_attempt_at END) AS retry_at,
+       MAX(CASE WHEN retry_paused = 0 AND next_attempt_at > ? THEN last_error END) AS delayed_error
+     FROM sync_queue`,
+    [new Date(nowMs).toISOString(), new Date(nowMs).toISOString(), new Date(nowMs).toISOString()],
+  );
+  if ((blockedBeforePush?.paused_count ?? 0) > 0) {
+    return {
+      state: 'action_required',
+      processed: 0,
+      error: blockedBeforePush?.paused_error ?? 'Cloud sync needs attention before queued records can continue.',
+      code: blockedBeforePush?.paused_code ?? 'UNKNOWN',
+    };
+  }
+  if ((blockedBeforePush?.delayed_count ?? 0) > 0) {
+    return {
+      state: 'partial',
+      processed: 0,
+      error: blockedBeforePush?.delayed_error ?? 'Queued records are waiting for their next automatic retry.',
+      retryAt: blockedBeforePush?.retry_at ?? new Date(nowMs + 60_000).toISOString(),
+    };
+  }
+
   const rows = await db.getAllAsync<QueueRow>(
     `SELECT id, table_name, entity_id, operation, payload_json, attempt_count
      FROM sync_queue
-     WHERE next_attempt_at IS NULL OR next_attempt_at <= ?
+     WHERE retry_paused = 0
+       AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
      ORDER BY created_at ASC`,
-    [new Date().toISOString()],
+    [new Date(nowMs).toISOString()],
   );
   rows.sort((a, b) => TABLE_PRIORITY[a.table_name] - TABLE_PRIORITY[b.table_name]);
 
@@ -140,18 +201,57 @@ export async function syncPendingChanges(db: SQLiteDatabase): Promise<SyncResult
       await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
       processed += 1;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Sync failed';
-      const attempt = row.attempt_count + 1;
-      const delayMinutes = Math.min(60, 2 ** Math.min(attempt, 5));
-      const nextAttempt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+      const update = buildSyncQueueFailureUpdate(
+        row.attempt_count,
+        error,
+        nowMs,
+        options.random,
+      );
       await db.runAsync(
         `UPDATE sync_queue
-         SET attempt_count = ?, next_attempt_at = ?, last_error = ?
+         SET attempt_count = ?, next_attempt_at = ?, last_error = ?,
+             failure_kind = ?, failure_code = ?, retry_paused = ?
          WHERE id = ?`,
-        [attempt, nextAttempt, message.slice(0, 300), row.id],
+        [
+          update.attemptCount,
+          update.nextAttemptAt,
+          update.safeMessage,
+          update.failureKind,
+          update.failureCode,
+          update.retryPaused ? 1 : 0,
+          row.id,
+        ],
       );
-      return { state: 'partial', processed, error: message };
+      return update.retryPaused
+        ? { state: 'action_required', processed, error: update.safeMessage, code: update.failureCode }
+        : { state: 'partial', processed, error: update.safeMessage, retryAt: update.nextAttemptAt! };
     }
+  }
+
+  const paused = await db.getFirstAsync<{ count: number; last_error: string | null; failure_code: string | null }>(
+    `SELECT COUNT(*) AS count, MAX(last_error) AS last_error, MAX(failure_code) AS failure_code
+     FROM sync_queue WHERE retry_paused = 1`,
+  );
+  if ((paused?.count ?? 0) > 0) {
+    return {
+      state: 'action_required',
+      processed,
+      error: paused?.last_error ?? 'Cloud sync needs attention before queued records can continue.',
+      code: paused?.failure_code ?? 'UNKNOWN',
+    };
+  }
+
+  const delayed = await db.getFirstAsync<{ count: number; retry_at: string | null; last_error: string | null }>(
+    `SELECT COUNT(*) AS count, MIN(next_attempt_at) AS retry_at, MAX(last_error) AS last_error
+     FROM sync_queue WHERE retry_paused = 0`,
+  );
+  if ((delayed?.count ?? 0) > 0) {
+    return {
+      state: 'partial',
+      processed,
+      error: delayed?.last_error ?? 'Queued records are waiting for their next automatic retry.',
+      retryAt: delayed?.retry_at ?? new Date(nowMs + 60_000).toISOString(),
+    };
   }
 
   return { state: 'synced', processed };

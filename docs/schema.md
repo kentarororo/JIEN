@@ -3,7 +3,8 @@
 This document is the source of truth for the remote Postgres model. The initial
 implementation is in `supabase/migrations/20260811000100_initial_schema.sql`, with
 account-safe starter exercise ownership in
-`supabase/migrations/20260814000100_account_ownership.sql`.
+`supabase/migrations/20260814000100_account_ownership.sql` and editable meal
+provenance in `supabase/migrations/20260814000200_meal_edit_provenance.sql`.
 
 ## Conventions
 
@@ -145,6 +146,7 @@ path in this table is not public access authorization.
 | `photo_storage_path` | `text` | Optional private Storage object path |
 | `ai_context` | `text` | Optional typed context accompanying a photo |
 | `ai_status`, `ai_error_code` | enum, `text` | Queue state and machine-readable failure code |
+| `is_user_edited` | `boolean` | True after the user changes the saved meal header or an item snapshot |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
 
 ### `food_items`
@@ -165,7 +167,16 @@ stored total cannot drift.
 | `fibre_g` | `numeric(10,2)` | Optional non-negative fibre |
 | `source` | `meal_source` | Entry provenance |
 | `confidence` | `numeric(4,3)` | Optional AI confidence from 0 through 1 |
+| `original_source`, `original_confidence` | `meal_source`, `numeric(4,3)` | Immutable origin snapshot retained when a user edits provider/AI values |
+| `is_user_edited` | `boolean` | True when the current item values have been manually changed; edited values use `source = manual` |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
+
+Meal edits and removals are local-first. The meal row and each affected food-item
+snapshot are updated with the same `client_updated_at` inside one SQLite
+transaction, and their idempotent upserts are enqueued in that transaction. A
+removal sets `deleted_at` on the meal and all active items; history queries exclude
+those tombstones, while sync retains them long enough to remove the records on
+other devices.
 
 ### `nutrition_targets`
 
