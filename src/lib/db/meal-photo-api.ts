@@ -13,6 +13,7 @@ export type MealPhotoCapability = {
   status: MealPhotoCapabilityStatus;
   message: string;
   retryable: boolean;
+  requestId: string | null;
 };
 
 export type MealPhotoAnalysisFailure = {
@@ -20,6 +21,7 @@ export type MealPhotoAnalysisFailure = {
   message: string;
   retryable: boolean;
   status: Exclude<MealPhotoCapabilityStatus, 'ready'>;
+  requestId: string | null;
 };
 
 export type ParsedMealPhotoAnalysis = {
@@ -50,14 +52,18 @@ export function parseMealPhotoCapabilityData(value: unknown): boolean {
 export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysisFailure {
   const error = cause instanceof Error ? cause : null;
   const details = cause != null && typeof cause === 'object'
-    ? cause as { code?: unknown; retryable?: unknown }
+    ? cause as { code?: unknown; retryable?: unknown; requestId?: unknown }
     : null;
   const code = typeof details?.code === 'string' ? details.code : 'INVALID_ANALYSIS_RESPONSE';
+  const requestId = typeof details?.requestId === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(details.requestId)
+    ? details.requestId
+    : null;
   if (code === 'AUTH_REQUIRED') {
     return {
       code,
       status: 'auth_required',
       retryable: false,
+      requestId,
       message: 'Sign in from Account to analyze this photo. Your selected photo and context are retained.',
     };
   }
@@ -66,15 +72,23 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       code,
       status: 'consent_required',
       retryable: false,
+      requestId,
       message: 'Review and allow contextual AI in your profile before sending this photo. The photo stays on this device until then.',
     };
   }
-  if (code === 'PHOTO_AI_NOT_CONFIGURED' || code === 'NOT_CONFIGURED') {
+  if (
+    code === 'PHOTO_AI_NOT_CONFIGURED'
+    || code === 'PROVIDER_CONFIGURATION_INVALID'
+    || code === 'SERVICE_NOT_CONFIGURED'
+    || code === 'NOT_CONFIGURED'
+    || code === 'HTTP_404'
+  ) {
     return {
       code,
       status: 'not_configured',
       retryable: false,
-      message: 'AI photo analysis is not configured for this build. Keep the photo here or enter the meal manually.',
+      requestId,
+      message: 'JIEN photo analysis is not configured or deployed for this build. The deployment owner needs to enable it; you can keep this photo here or enter the meal manually.',
     };
   }
   if (code === 'NETWORK_REQUIRED' || code === 'REQUEST_TIMEOUT') {
@@ -82,6 +96,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       code,
       status: 'offline',
       retryable: true,
+      requestId,
       message: 'AI photo analysis needs a connection. Your photo and context are retained so you can retry.',
     };
   }
@@ -89,6 +104,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
     code,
     status: 'unavailable',
     retryable: typeof details?.retryable === 'boolean' ? details.retryable : true,
+    requestId,
     message: error?.message.trim()
       ? error.message
       : 'The photo could not be analyzed. Your photo and context are retained.',

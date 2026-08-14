@@ -2,6 +2,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 import { parseProviderPhotoItems } from '../_shared/photo-contract.ts';
+import {
+  PhotoProviderError,
+  requestPhotoEstimate,
+  resolvePhotoProvider,
+} from '../_shared/photo-provider.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,7 +14,6 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 const allowedMediaTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const providerTimeoutMs = 22_000;
 
 Deno.serve(async (request) => {
   const requestId = safeRequestId(request.headers.get('x-request-id'));
@@ -69,9 +73,14 @@ Deno.serve(async (request) => {
       return failure(requestId, 'INVALID_REQUEST', 'Choose a supported photo-analysis action.', false, 400);
     }
 
-    const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-    const model = Deno.env.get('ANTHROPIC_MODEL');
-    if (!apiKey || !model) {
+    const provider = resolvePhotoProvider({
+      PHOTO_AI_PROVIDER: Deno.env.get('PHOTO_AI_PROVIDER'),
+      GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
+      GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
+      ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
+      ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
+    });
+    if (!provider.ok) {
       return failure(
         requestId,
         'PHOTO_AI_NOT_CONFIGURED',
@@ -95,60 +104,29 @@ Deno.serve(async (request) => {
       return failure(requestId, 'PHOTO_TYPE_UNSUPPORTED', 'Use a JPEG, PNG, or WebP meal photo.', false, 415);
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), providerTimeoutMs);
-    let providerResponse;
+    let providerText;
     try {
-      providerResponse = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 1200,
-          temperature: 0,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-              {
-                type: 'text',
-                text: `Estimate the visible meal as editable food line items. User description: ${description || 'none provided'}\nReturn JSON only: {"items":[{"name":string,"quantity":number,"unit":string,"caloriesKcal":number,"proteinG":number,"carbohydrateG":number,"fatG":number,"fibreG":number|null,"confidence":number}]}. Confidence must be 0..1. Use realistic portions. Do not provide medical advice.`,
-              },
-            ],
-          }],
-        }),
+      providerText = await requestPhotoEstimate(provider.configuration, {
+        imageBase64,
+        mediaType,
+        description,
       });
     } catch (cause) {
-      if (cause instanceof Error && cause.name === 'AbortError') {
-        return failure(requestId, 'PROVIDER_TIMEOUT', 'Photo analysis took too long. Try again.', true, 504);
+      if (cause instanceof PhotoProviderError) {
+        return failure(
+          requestId,
+          cause.code,
+          cause.message,
+          cause.retryable,
+          cause.httpStatus,
+        );
       }
-      return failure(requestId, 'PROVIDER_UNAVAILABLE', 'The photo service could not be reached.', true, 502);
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (!providerResponse.ok) {
-      return failure(requestId, 'PROVIDER_UNAVAILABLE', 'The photo service could not analyze this image.', providerResponse.status >= 500 || providerResponse.status === 429, 502);
-    }
-
-    let providerPayload;
-    try {
-      providerPayload = await providerResponse.json();
-    } catch {
-      return failure(requestId, 'PROVIDER_OUTPUT_INVALID', 'The photo result could not be read. Try again.', true, 502);
-    }
-    const text = providerPayload?.content?.find((part) => part?.type === 'text')?.text;
-    if (typeof text !== 'string') {
-      return failure(requestId, 'PROVIDER_OUTPUT_INVALID', 'The photo result could not be read. Try again.', true, 502);
+      return failure(requestId, 'PROVIDER_UNAVAILABLE', 'The photo service could not be reached. Try again.', true, 502);
     }
 
     let items;
     try {
-      items = parseProviderPhotoItems(text);
+      items = parseProviderPhotoItems(providerText);
     } catch (cause) {
       const noFood = cause instanceof Error && cause.message === 'NO_FOOD_DETECTED';
       return failure(
@@ -157,7 +135,7 @@ Deno.serve(async (request) => {
         noFood
           ? 'No food was identified. Try a clearer photo or add a short description.'
           : 'The photo result was incomplete. Try the analysis again.',
-        !noFood,
+        true,
         noFood ? 422 : 502,
       );
     }

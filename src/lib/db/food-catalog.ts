@@ -193,8 +193,9 @@ export async function getMealPhotoAnalysisCapability(): Promise<MealPhotoCapabil
     return {
       available: true,
       status: 'ready',
-      message: 'Ready. The photo is sent for analysis only after you choose Analyze photo.',
+      message: 'Ready. JIEN uses its server-side AI only after you choose Analyze photo. Google sign-in is used only to identify your JIEN account.',
       retryable: false,
+      requestId: response.requestId,
     };
   } catch (cause) {
     const failure = classifyMealPhotoAnalysisError(cause);

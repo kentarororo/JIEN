@@ -54,9 +54,13 @@ export function reduceMealPhotoFlow(
     case 'description_changed':
       return state.selection ? { ...state, description: event.description } : state;
     case 'capability_checking':
-      return state.selection ? { ...state, capability: null } : state;
+      return state.selection
+        ? { ...state, phase: 'ready', capability: null, failure: null }
+        : state;
     case 'capability_resolved':
-      return state.selection ? { ...state, capability: event.capability } : state;
+      return state.selection
+        ? { ...state, phase: 'ready', capability: event.capability, failure: null }
+        : state;
     case 'analysis_started':
       return state.selection && state.phase !== 'analyzing'
         ? { ...state, phase: 'analyzing', failure: null, result: null }

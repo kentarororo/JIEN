@@ -4,30 +4,59 @@ Deploy `food-search`, `food-barcode`, `analyze-food-photo`, and `wellness-chat` 
 Supabase's normal JWT verification enabled. Configure these server-only secrets:
 
 - `USDA_FDC_API_KEY` from USDA FoodData Central.
-- `ANTHROPIC_API_KEY` for photo analysis.
-- `ANTHROPIC_MODEL` set to the approved Claude vision-capable model for the environment.
+- `PHOTO_AI_PROVIDER` set to `gemini`, `anthropic`, or `auto`.
+- `GEMINI_API_KEY` and `GEMINI_MODEL` for JIEN-owned Gemini photo inference.
+- `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` when Anthropic is selected or retained as
+  the `auto` fallback.
 
-The client never receives these secrets. Food search normalizes USDA results to a
-100 g portion. Barcode lookup uses Open Food Facts and returns its attribution.
-Photo analysis additionally checks the signed-in user's `ai_data_consent` flag.
-Its client contract is versioned (`{ version: 1, data: ... }`) and always returns a
-request ID in either the stable success or error envelope. A short authenticated
-`capability` action checks consent and server-side provider configuration before the
-browser uploads a selected photo. Provider calls have a finite timeout, and provider
-output is rejected unless every food item passes strict numeric and text validation.
+An explicit provider never falls through when its key or model is missing. `auto` is
+deterministic: it uses a complete Gemini configuration first, then a complete
+Anthropic configuration. Model secrets contain bare model names, not URLs.
 
-Deploy the photo function after changing its contract:
+The client never receives provider secrets. Photo analysis checks the authenticated
+user's `ai_data_consent` flag before checking provider configuration. Its version 1
+contract always returns a request ID in the stable success or error envelope. The
+`capability` action checks auth, consent, and selected-provider configuration before
+the browser uploads a photo. Provider calls have a finite timeout, and output is
+rejected unless every food item passes strict numeric and text validation.
+
+Gemini uses Google's official `generateContent` API with inline base64 image data and
+a structured JSON response schema. See the official
+[image input](https://ai.google.dev/gemini-api/docs/generate-content/image-understanding)
+and [structured output](https://ai.google.dev/gemini-api/docs/generate-content/structured-output)
+documentation.
+
+## Configure Gemini photo analysis
+
+From the repository, replace the quoted placeholders with JIEN-owned server values:
 
 ```powershell
+supabase secrets set PHOTO_AI_PROVIDER="gemini" GEMINI_API_KEY="<JIEN-owned-Gemini-key>" GEMINI_MODEL="<approved-Gemini-model>" --project-ref vrgkkcunbngjgqfmlcuh
+supabase functions deploy analyze-food-photo --project-ref vrgkkcunbngjgqfmlcuh
+supabase secrets list --project-ref vrgkkcunbngjgqfmlcuh
+```
+
+One JIEN-owned Gemini key serves all authenticated testers through the Edge Function.
+Configure quotas, budget alerts, and key restrictions on that JIEN Google AI project.
+Normal Google sign-in is identity only: JIEN does not request or forward the user's
+Google access token, and a tester's Gemini consumer subscription does not fund JIEN
+inference.
+
+For an Anthropic-only deployment:
+
+```powershell
+supabase secrets set PHOTO_AI_PROVIDER="anthropic" ANTHROPIC_API_KEY="<JIEN-owned-Anthropic-key>" ANTHROPIC_MODEL="<approved-Claude-vision-model>" --project-ref vrgkkcunbngjgqfmlcuh
 supabase functions deploy analyze-food-photo --project-ref vrgkkcunbngjgqfmlcuh
 ```
 
-`supabase secrets list --project-ref vrgkkcunbngjgqfmlcuh` can confirm the two
-Anthropic secret names without displaying their values. Never place provider keys in
-Expo or GitHub Pages environment variables.
+Never place provider keys in Expo, GitHub Pages variables, browser storage, or Google
+OAuth configuration. Supabase secrets are the only supported location.
+
+Food search normalizes USDA results to a 100 g portion. Barcode lookup uses Open Food
+Facts and returns its attribution.
 
 `wellness-chat` verifies AI consent and the first-use medical disclaimer, reads the
 signed-in user's recent training, food, wellness, and conversation rows through RLS,
 and writes assistant messages with the service role. The deterministic plan brief is
-provided by the client progression engine and is treated as immutable numeric input;
-Claude explains it but does not replace its load, rep, or deload decisions.
+treated as immutable numeric input; Claude explains it but does not replace its load,
+rep, or deload decisions.

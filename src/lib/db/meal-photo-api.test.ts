@@ -42,4 +42,10 @@ test('maps stable service errors to explicit user-action states', () => {
   const offline = classifyMealPhotoAnalysisError(Object.assign(new Error('Offline.'), { code: 'NETWORK_REQUIRED', retryable: true }));
   assert.equal(offline.status, 'offline');
   assert.equal(offline.retryable, true);
+  const deployment = classifyMealPhotoAnalysisError(Object.assign(new Error('Raw provider detail.'), {
+    code: 'PROVIDER_CONFIGURATION_INVALID', requestId: 'request-123', retryable: false,
+  }));
+  assert.equal(deployment.status, 'not_configured');
+  assert.equal(deployment.requestId, 'request-123');
+  assert.doesNotMatch(deployment.message, /raw provider detail/i);
 });

@@ -4,18 +4,7 @@ import { Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'rea
 
 import {
   describeWebSQLiteStartupFailure,
-  type WebSQLiteStartupFailure,
 } from '@/lib/web-sqlite-bootstrap';
-import {
-  createWebSQLiteHandoffRequest,
-  createWebSQLitePageLifecycle,
-  requestWebSQLiteLease,
-  shouldYieldWebSQLiteOwnership,
-  WEB_SQLITE_HANDOFF_CHANNEL_NAME,
-  WEB_SQLITE_HANDOFF_SETTLE_MS,
-  type WebSQLiteLease,
-  type WebSQLitePageLifecycle,
-} from '@/lib/web-sqlite-lifecycle';
 import {
   evaluateWebSQLiteReadiness,
   type WebSQLiteReadiness,
@@ -26,24 +15,11 @@ import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 const ISOLATION_RELOAD_KEY = 'jien:sqlite-isolation-reload';
 const BOOT_RELOAD_KEY = 'jien:sqlite-bootstrap-reload';
 
-type LeaseReadiness =
-  | { state: 'preparing' }
-  | { state: 'ready' }
-  | { state: 'displaced' }
-  | ({ state: 'unsupported' } & WebSQLiteStartupFailure);
-
 type WebSQLiteOwnershipContextValue = {
   registerDatabaseCloser: (closeDatabaseSync: () => void) => () => void;
 };
 
 const WebSQLiteOwnershipContext = createContext<WebSQLiteOwnershipContextValue | null>(null);
-
-function createPageId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
 
 function readEnvironment(): WebSQLiteReadiness {
   const storage = navigator.storage as StorageManager & { getDirectory?: () => Promise<unknown> };
@@ -54,7 +30,7 @@ function readEnvironment(): WebSQLiteReadiness {
     hasServiceWorker: 'serviceWorker' in navigator,
     hasStorageDirectory: typeof storage?.getDirectory === 'function',
     hasWorker: typeof globalThis.Worker !== 'undefined',
-  });
+  }, 'memory');
 }
 
 export function WebSQLiteGate({ children }: PropsWithChildren) {
@@ -67,14 +43,11 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
     state: 'preparing',
     code: 'WAITING_FOR_ISOLATION',
   });
-  const [leaseReadiness, setLeaseReadiness] = useState<LeaseReadiness>({
-    state: 'preparing',
-  });
-  const leaseRef = useRef<WebSQLiteLease | null>(null);
-  const lifecycleRef = useRef<WebSQLitePageLifecycle | null>(null);
+  const closers = useRef(new Set<() => void>());
 
   const registerDatabaseCloser = useCallback((closeDatabaseSync: () => void) => {
-    return lifecycleRef.current?.registerDatabaseCloser(closeDatabaseSync) ?? (() => undefined);
+    closers.current.add(closeDatabaseSync);
+    return () => closers.current.delete(closeDatabaseSync);
   }, []);
 
   useEffect(() => {
@@ -134,92 +107,22 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (readiness.state !== 'ready') return;
-
-    let active = true;
-    let yielded = false;
-    let channel: BroadcastChannel | null = null;
     webSQLiteWorkerRegistry.install(window);
-    const requestLock = 'locks' in navigator
-      ? (name: string, callback: (lock: unknown) => Promise<void>) =>
-          navigator.locks.request(name, callback)
-      : null;
-    const lease = requestWebSQLiteLease(requestLock);
-    leaseRef.current = lease;
-    const lifecycle = createWebSQLitePageLifecycle({
-      terminateWorkers: () => webSQLiteWorkerRegistry.shutdown(),
-      releaseLease: () => lease.release(),
-      reload: () => window.location.reload(),
-    });
-    lifecycleRef.current = lifecycle;
-    const owner = { startedAt: Date.now(), pageId: createPageId() };
-
-    const closeOwnership = () => {
-      try {
-        lifecycle.closeForPageTransition();
-      } catch (error) {
-        console.error('Failed to close the web SQLite owner', error);
+    const closeMemoryDatabase = () => {
+      for (const close of [...closers.current]) {
+        try { close(); } catch (error) { console.error('Failed to close web SQLite memory database', error); }
       }
+      webSQLiteWorkerRegistry.shutdown();
     };
-    const handlePageHide = () => {
-      yielded = true;
-      closeOwnership();
-    };
-    const handlePageShow = () => lifecycle.restoreAfterPageTransition();
-
-    // iOS Safari does not reliably finish React/pagehide cleanup before the
-    // replacement document starts. Ask the existing same-origin JIEN page to
-    // close SQLite proactively, then let the Web Lock serialize the handoff.
-    if (typeof globalThis.BroadcastChannel === 'function') {
-      try {
-        channel = new BroadcastChannel(WEB_SQLITE_HANDOFF_CHANNEL_NAME);
-        channel.addEventListener('message', (event) => {
-          if (!shouldYieldWebSQLiteOwnership(owner, event.data)) return;
-          yielded = true;
-          closeOwnership();
-          if (active) setLeaseReadiness({ state: 'displaced' });
-        });
-        channel.postMessage(createWebSQLiteHandoffRequest(owner));
-      } catch (error) {
-        console.warn('Web SQLite ownership channel is unavailable', error);
-        channel?.close();
-        channel = null;
-      }
-    }
-
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('pageshow', handlePageShow);
-
-    void lease.acquired.then(async () => {
-      // Give WebKit time to release the previous worker's OPFS handles after
-      // the ownership lock changes hands. Opening immediately is the refresh
-      // race that produced NoModificationAllowedError on iPhone.
-      await new Promise((resolve) => setTimeout(resolve, WEB_SQLITE_HANDOFF_SETTLE_MS));
-      if (active && !yielded) setLeaseReadiness({ state: 'ready' });
-    }).catch((cause) => {
-        if (active) {
-          setLeaseReadiness({
-            state: 'unsupported',
-            ...describeWebSQLiteStartupFailure(cause),
-          });
-        }
-      });
-    // The lease normally finishes only during pagehide/unmount. Its rejection
-    // is already surfaced through `acquired` when startup fails.
-    void lease.finished.catch(() => undefined);
+    window.addEventListener('pagehide', closeMemoryDatabase);
 
     return () => {
-      active = false;
-      yielded = true;
-      window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('pageshow', handlePageShow);
-      channel?.close();
-      closeOwnership();
-      if (lifecycleRef.current === lifecycle) lifecycleRef.current = null;
-      if (leaseRef.current === lease) leaseRef.current = null;
+      window.removeEventListener('pagehide', closeMemoryDatabase);
+      closeMemoryDatabase();
     };
   }, [readiness.state]);
 
-  if (readiness.state === 'ready' && leaseReadiness.state === 'ready') {
+  if (readiness.state === 'ready') {
     return (
       <WebSQLiteOwnershipContext.Provider value={{ registerDatabaseCloser }}>
         {children}
@@ -237,18 +140,11 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
     window.location.reload();
   };
   const environmentFailure = readiness.state === 'unsupported' ? readiness : null;
-  const leaseFailure = leaseReadiness.state === 'unsupported' ? leaseReadiness : null;
-  const handoffFailure = leaseReadiness.state === 'displaced'
-    ? {
-        code: 'LOCAL_STORAGE_HANDED_OFF',
-        message: 'JIEN is open in a newer tab. Your local data is safe. Use this tab to move JIEN back here.',
-      }
-    : null;
-  const failure = handoffFailure ?? leaseFailure ?? environmentFailure;
+  const failure = environmentFailure;
 
   return (
     <WebSQLiteStartupPanel
-      actionLabel={handoffFailure ? 'Use this tab' : 'Try again'}
+      actionLabel="Try again"
       failure={failure}
       onRetry={retry}
     />
@@ -351,13 +247,13 @@ function WebSQLiteStartupPanel({
   return (
     <View style={[styles.screen, { backgroundColor: colors.canvas }]}>
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.eyebrow, { color: colors.accent }]}>LOCAL-FIRST STARTUP</Text>
+        <Text style={[styles.eyebrow, { color: colors.accent }]}>WEB TESTER STARTUP</Text>
         <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
-          {isPreparing ? 'Preparing JIEN...' : 'Local storage needs attention'}
+          {isPreparing ? 'Preparing JIEN...' : 'JIEN could not start'}
         </Text>
         <Text style={[styles.body, { color: colors.textMuted }]}>
           {isPreparing
-            ? 'Opening your private on-device database. JIEN may retry once automatically.'
+            ? 'Starting your secure session. JIEN may retry once automatically.'
             : failure?.message}
         </Text>
         {failure ? (

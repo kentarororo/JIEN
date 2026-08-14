@@ -77,7 +77,7 @@ export type AccountSyncResult =
   | { state: 'action_required'; pushed: number; pulled: number; profileRestored: boolean; error: string; code: string }
   | { state: 'account_conflict'; pushed: 0; pulled: 0; profileRestored: false };
 
-let activeAccountSync: Promise<AccountSyncResult> | null = null;
+const activeAccountSyncs = new WeakMap<SQLiteDatabase, Promise<AccountSyncResult>>();
 
 function isCompleteProfile(row: RemoteProfile | null): row is RemoteProfile & {
   training_experience: TrainingExperience;
@@ -316,11 +316,15 @@ export async function syncAccountData(
   db: SQLiteDatabase,
   options: { trigger?: SyncRetryTrigger } = {},
 ): Promise<AccountSyncResult> {
+  const activeAccountSync = activeAccountSyncs.get(db);
   if (activeAccountSync) return activeAccountSync;
-  activeAccountSync = runAccountSync(db, options);
+  const nextAccountSync = runAccountSync(db, options);
+  activeAccountSyncs.set(db, nextAccountSync);
   try {
-    return await activeAccountSync;
+    return await nextAccountSync;
   } finally {
-    activeAccountSync = null;
+    if (activeAccountSyncs.get(db) === nextAccountSync) {
+      activeAccountSyncs.delete(db);
+    }
   }
 }

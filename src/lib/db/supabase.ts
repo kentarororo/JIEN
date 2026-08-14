@@ -105,9 +105,9 @@ export async function invokeEdgeFunctionEnvelope<T>(
   } catch (error) {
     if (error instanceof EdgeFunctionError) throw error;
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new EdgeFunctionError('The AI request timed out. You can retry it.', 'REQUEST_TIMEOUT', true);
+      throw new EdgeFunctionError('The AI request timed out. You can retry it.', 'REQUEST_TIMEOUT', true, requestId);
     }
-    throw new EdgeFunctionError('AI needs a working connection. Your message is cached for retry.', 'NETWORK_REQUIRED', true);
+    throw new EdgeFunctionError('AI needs a working connection. Your message is cached for retry.', 'NETWORK_REQUIRED', true, requestId);
   } finally {
     clearTimeout(timeout);
   }

@@ -27,3 +27,10 @@ test('reports unsupported persistent storage after isolation', () => {
     message: 'This browser does not provide persistent private file storage.',
   });
 });
+
+test('memory mode never requires OPFS storage', () => {
+  assert.deepEqual(
+    evaluateWebSQLiteReadiness({ ...ready, hasStorageDirectory: false }, 'memory'),
+    { state: 'ready' },
+  );
+});

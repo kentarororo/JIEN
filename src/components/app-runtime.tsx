@@ -1,23 +1,31 @@
 import * as Network from 'expo-network';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useRef } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { getSupabaseClient, syncAccountData } from '@/lib/db';
+import { subscribeToQueuedLocalWrites } from '@/lib/db/write-sync-signal';
 import { reconcileMealGapNotification } from '@/lib/notifications';
 
 export function AppRuntime() {
   const db = useSQLiteContext();
   const syncing = useRef(false);
+  const rerunRequested = useRef(false);
 
   const reconcile = useCallback(async (trigger: 'background' | 'auth_state_change' = 'background') => {
-    if (syncing.current) return;
+    if (syncing.current) {
+      rerunRequested.current = true;
+      return;
+    }
     syncing.current = true;
     try {
-      await Promise.allSettled([
-        syncAccountData(db, { trigger }),
-        reconcileMealGapNotification(db),
-      ]);
+      do {
+        rerunRequested.current = false;
+        await Promise.allSettled([
+          syncAccountData(db, { trigger }),
+          reconcileMealGapNotification(db),
+        ]);
+      } while (rerunRequested.current);
     } finally {
       syncing.current = false;
     }
@@ -34,6 +42,19 @@ export function AppRuntime() {
     return () => {
       networkSubscription.remove();
       appStateSubscription.remove();
+    };
+  }, [reconcile]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = subscribeToQueuedLocalWrites(() => {
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => void reconcile(), 100);
+    });
+    return () => {
+      if (timeout) clearTimeout(timeout);
+      unsubscribe();
     };
   }, [reconcile]);
 

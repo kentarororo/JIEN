@@ -106,6 +106,11 @@ export default function NewMealScreen() {
   const [toolMessage, setToolMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const photoAccessStatus = photoFlow.failure?.status ?? photoFlow.capability?.status ?? null;
+  const photoReference = photoFlow.failure?.requestId ?? photoFlow.capability?.requestId ?? null;
+  const photoCanAnalyze = photoFlow.phase === 'failed'
+    ? photoFlow.failure?.retryable === true
+    : photoFlow.capability?.available === true;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -648,6 +653,7 @@ export default function NewMealScreen() {
                 style={[styles.message, { backgroundColor: photoFlow.capability.available ? colors.successSoft : colors.warningSoft }]}
               >
                 <AppText>{photoFlow.capability.message}</AppText>
+                {!photoFlow.capability.available && photoReference ? <AppText style={{ color: colors.textMuted }}>Support reference: {photoReference}</AppText> : null}
               </View>
             ) : photoFlow.phase === 'ready' ? (
               <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.accentSoft }]}>
@@ -665,6 +671,7 @@ export default function NewMealScreen() {
               <View accessibilityRole="alert" style={[styles.message, { backgroundColor: photoFlow.failure.status === 'offline' ? colors.warningSoft : colors.dangerSoft }]}>
                 <AppText style={{ color: photoFlow.failure.status === 'offline' ? colors.warning : colors.danger }}>{photoFlow.failure.message}</AppText>
                 <AppText style={{ color: colors.textMuted }}>Status: {photoFlow.failure.code}</AppText>
+                {photoReference ? <AppText style={{ color: colors.textMuted }}>Support reference: {photoReference}</AppText> : null}
               </View>
             ) : null}
             {photoFlow.phase === 'succeeded' && photoFlow.result ? (
@@ -684,12 +691,20 @@ export default function NewMealScreen() {
             ) : (
               <View style={styles.photoReviewActions}>
                 <Button
-                  label={photoFlow.phase === 'failed' ? 'Try analysis again' : 'Analyze photo'}
+                  label={photoFlow.phase === 'failed'
+                    ? photoFlow.failure?.retryable ? 'Try analysis again' : 'Analysis unavailable'
+                    : photoFlow.capability ? 'Analyze photo' : 'Checking availability...'}
                   onPress={() => void analyzePendingPhoto()}
                   busy={cameraBusy}
-                  disabled={!photoFlow.capability?.available}
+                  disabled={!photoCanAnalyze}
                 />
-                {!photoFlow.capability?.available && photoFlow.capability ? (
+                {photoAccessStatus === 'auth_required' ? (
+                  <Button label="Open Account" onPress={() => router.push('/settings/account')} variant="secondary" disabled={cameraBusy} />
+                ) : null}
+                {photoAccessStatus === 'consent_required' ? (
+                  <Button label="Review AI consent" onPress={() => router.push({ pathname: '/onboarding', params: { edit: '1' } })} variant="secondary" disabled={cameraBusy} />
+                ) : null}
+                {!photoCanAnalyze && (photoFlow.capability || photoFlow.failure) ? (
                   <Button label="Check availability again" onPress={() => void refreshPhotoCapability()} variant="quiet" disabled={cameraBusy} />
                 ) : null}
                 <Button label="Enter manually instead" onPress={() => dismissPendingPhoto(true)} variant="secondary" disabled={cameraBusy} />

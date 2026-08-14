@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 
 import { completeOAuthSignIn } from '@/lib/auth';
-import { buildCleanWebAppUrl, type OAuthCallbackRequest } from '@/lib/auth/oauth';
+import { buildCleanWebAppUrl, planOAuthCallback, type OAuthCallbackRequest } from '@/lib/auth/oauth';
 import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 
 export function OAuthCallbackCompletion({ request }: { request: OAuthCallbackRequest }) {
@@ -27,9 +27,9 @@ export function OAuthCallbackCompletion({ request }: { request: OAuthCallbackReq
     started.current = true;
     void (async () => {
       try {
-        if (request.errorDescription) throw new Error(request.errorDescription);
-        if (!request.code) throw new Error('Google did not return a sign-in code.');
-        await completeOAuthSignIn(request.code);
+        const plan = planOAuthCallback(request);
+        if (plan.kind === 'error') throw new Error(plan.message);
+        await completeOAuthSignIn(plan.code);
 
         if (Platform.OS === 'web' && typeof globalThis.location !== 'undefined') {
           globalThis.location.replace(buildCleanWebAppUrl(

@@ -8,6 +8,8 @@ import { AppErrorBoundary } from '@/components/app-error-boundary';
 import { AppRuntime } from '@/components/app-runtime';
 import { GlobalTabBar } from '@/components/global-tab-bar';
 import { OAuthCallbackCompletion } from '@/components/oauth-callback-completion';
+import { WebAuthGate } from '@/components/web-auth-gate';
+import { WebCloudHydrationGate } from '@/components/web-cloud-hydration-gate';
 import {
   reportWebSQLiteProviderError,
   WebSQLiteDatabaseLifecycle,
@@ -62,14 +64,16 @@ function firstParam(value: string | string[] | undefined): string | null {
 function DatabaseApp() {
   const database = (
     <SQLiteProvider
-      databaseName="jien.db"
+      databaseName={Platform.OS === 'web' ? ':memory:' : 'jien.db'}
       onError={Platform.OS === 'web' ? reportWebSQLiteProviderError : undefined}
       onInit={migrateDatabase}
     >
       <JienThemeProvider>
         <WebSQLiteDatabaseLifecycle />
-        <AppRuntime />
-        <AppNavigator />
+        <WebCloudHydrationGate>
+          <AppRuntime />
+          <AppNavigator />
+        </WebCloudHydrationGate>
       </JienThemeProvider>
     </SQLiteProvider>
   );
@@ -87,6 +91,7 @@ export default function RootLayout() {
   const pathname = usePathname();
   const params = useGlobalSearchParams<{
     code?: string | string[];
+    error?: string | string[];
     error_description?: string | string[];
   }>();
   // Match the static server render on web and, critically, do not let SQLite
@@ -108,6 +113,7 @@ export default function RootLayout() {
   if (!callbackRequest && isNativeOAuthCallbackPath(pathname)) {
     callbackRequest = {
       code: firstParam(params.code),
+      errorCode: firstParam(params.error),
       errorDescription: firstParam(params.error_description),
     };
   }
@@ -116,7 +122,7 @@ export default function RootLayout() {
     <AppErrorBoundary>
       {callbackRequest
         ? <OAuthCallbackCompletion request={callbackRequest} />
-        : <DatabaseApp />}
+        : <WebAuthGate><DatabaseApp /></WebAuthGate>}
     </AppErrorBoundary>
   );
 }

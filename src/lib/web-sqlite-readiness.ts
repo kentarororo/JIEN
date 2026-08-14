@@ -7,6 +7,8 @@ export type WebSQLiteEnvironment = {
   hasWorker: boolean;
 };
 
+export type WebSQLiteMode = 'persistent' | 'memory';
+
 export type WebSQLiteReadiness =
   | { state: 'ready' }
   | { state: 'preparing'; code: 'WAITING_FOR_ISOLATION' }
@@ -18,6 +20,7 @@ export type WebSQLiteReadiness =
 
 export function evaluateWebSQLiteReadiness(
   environment: WebSQLiteEnvironment,
+  mode: WebSQLiteMode = 'persistent',
 ): WebSQLiteReadiness {
   if (!environment.isSecureContext) {
     return { state: 'unsupported', code: 'INSECURE_CONTEXT', message: 'Open JIEN over HTTPS to use local storage.' };
@@ -31,7 +34,7 @@ export function evaluateWebSQLiteReadiness(
   if (!environment.hasSharedArrayBuffer) {
     return { state: 'unsupported', code: 'SHARED_MEMORY_UNAVAILABLE', message: 'This browser does not provide the shared memory required by local SQLite.' };
   }
-  if (!environment.hasStorageDirectory) {
+  if (mode === 'persistent' && !environment.hasStorageDirectory) {
     return { state: 'unsupported', code: 'OPFS_UNAVAILABLE', message: 'This browser does not provide persistent private file storage.' };
   }
   if (!environment.hasWorker) {

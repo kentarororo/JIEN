@@ -10,6 +10,7 @@ import {
   type SyncRetryTrigger,
 } from './sync-policy';
 import type { SyncStatus } from './types';
+import { announceQueuedLocalWrite } from './write-sync-signal';
 
 export type RemoteTable =
   | 'users'
@@ -69,6 +70,7 @@ export async function enqueueUpsert(
       retry_paused = 0`,
     [Crypto.randomUUID(), table, entityId, JSON.stringify(payload), now],
   );
+  announceQueuedLocalWrite();
 }
 
 export async function getSyncStatus(db: SQLiteDatabase): Promise<SyncStatus> {

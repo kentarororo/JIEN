@@ -14,7 +14,8 @@ a network service.
   supplies global community-contributed search and barcode matches. Its values can be
   incomplete, so JIEN displays the source and keeps every portion and macro editable.
 - Meal-photo estimates use the authenticated, consent-gated `analyze-food-photo` Edge
-  Function. The image stays in temporary client memory for review/retry and is not
+  Function through a JIEN-owned Gemini or Anthropic provider key. The image stays in
+  temporary client memory for review/retry and is not
   added to the durable meal log by capture alone. Capture or selection opens a review
   sheet immediately; a successful analysis inserts every normalized result into the
   editable meal draft exactly once. Retryable failures retain the photo and context,
@@ -38,7 +39,14 @@ must remain attributed and logically distinguishable from proprietary datasets.
 ## Server configuration
 
 The client contains no provider secret. Deployment owners configure `USDA_FDC_API_KEY`,
-`ANTHROPIC_API_KEY`, and `ANTHROPIC_MODEL` as Supabase secrets and deploy the functions
-listed in `supabase/functions/README.md`. Without those secrets, local/manual logging
-and Open Food Facts lookup remain available; the photo review sheet reports that AI
-analysis is unavailable instead of discarding the selected image.
+`PHOTO_AI_PROVIDER`, and the selected provider pair (`GEMINI_API_KEY` plus
+`GEMINI_MODEL`, or `ANTHROPIC_API_KEY` plus `ANTHROPIC_MODEL`) as Supabase secrets and
+deploy the functions listed in `supabase/functions/README.md`. `auto` prefers a
+complete Gemini pair and then a complete Anthropic pair. Without those secrets,
+local/manual logging and Open Food Facts lookup remain available; the photo review
+sheet names the deployment action required instead of leaving a selected photo inert.
+
+Google sign-in supplies only the Supabase identity used for authentication and RLS.
+No Google provider access token is sent to Gemini, and the user's Gemini consumer
+subscription is unrelated to inference. One JIEN-owned server key serves testers,
+subject to the deployment owner's quotas and budget controls.
