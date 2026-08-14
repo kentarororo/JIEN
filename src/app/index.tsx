@@ -1,14 +1,12 @@
-import { Redirect, useLocalSearchParams } from 'expo-router';
+import { Redirect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Screen, StatePanel } from '@/components/ui';
-import { completeOAuthSignIn } from '@/lib/auth';
 import { hasCompletedOnboarding, syncAccountData } from '@/lib/db';
 
 export default function IndexRoute() {
   const db = useSQLiteContext();
-  const params = useLocalSearchParams<{ auth_callback?: string; code?: string; error_description?: string }>();
   const [complete, setComplete] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restoreBlocked, setRestoreBlocked] = useState<string | null>(null);
@@ -17,11 +15,6 @@ export default function IndexRoute() {
     setError(null);
     setRestoreBlocked(null);
     try {
-      if (params.error_description) throw new Error(params.error_description);
-      if (params.auth_callback === '1') {
-        if (!params.code) throw new Error('Google did not return a sign-in code.');
-        await completeOAuthSignIn(params.code);
-      }
       const sync = await syncAccountData(db);
       if (sync.state === 'account_conflict') {
         throw new Error('This device is linked to a different JIEN account. Sign back in with the original account; JIEN will not merge two people\'s local records.');
@@ -37,7 +30,7 @@ export default function IndexRoute() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not read onboarding status.');
     }
-  }, [db, params.auth_callback, params.code, params.error_description]);
+  }, [db]);
 
   useEffect(() => { void load(); }, [load]);
 

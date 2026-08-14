@@ -2,7 +2,7 @@ import type { User } from '@supabase/supabase-js';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 
-import { getSupabaseClient } from '@/lib/db';
+import { getSupabaseClient } from '@/lib/db/supabase';
 
 import { buildWebOAuthRedirectUrl } from './oauth';
 
@@ -64,9 +64,24 @@ export async function signInWithGoogle(): Promise<void> {
   }
 }
 
-export async function completeOAuthSignIn(code: string): Promise<void> {
-  const { error } = await getSupabaseClient().auth.exchangeCodeForSession(code);
-  if (error) throw error;
+let completedOAuthCode: string | null = null;
+let activeOAuthExchange: { code: string; promise: Promise<void> } | null = null;
+
+export function completeOAuthSignIn(code: string): Promise<void> {
+  if (completedOAuthCode === code) return Promise.resolve();
+  if (activeOAuthExchange?.code === code) return activeOAuthExchange.promise;
+
+  const promise = (async () => {
+    const { error } = await getSupabaseClient().auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    completedOAuthCode = code;
+  })();
+  activeOAuthExchange = { code, promise };
+  const clearActiveExchange = () => {
+    if (activeOAuthExchange?.promise === promise) activeOAuthExchange = null;
+  };
+  void promise.then(clearActiveExchange, clearActiveExchange);
+  return promise;
 }
 
 export async function signOut(): Promise<void> {

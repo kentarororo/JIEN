@@ -1,13 +1,19 @@
-import { Stack } from 'expo-router';
+import { Stack, useGlobalSearchParams, usePathname } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
-import { Suspense } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Suspense, useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/app-error-boundary';
 import { AppRuntime } from '@/components/app-runtime';
 import { GlobalTabBar } from '@/components/global-tab-bar';
+import { OAuthCallbackCompletion } from '@/components/oauth-callback-completion';
 import { WebSQLiteGate } from '@/components/web-sqlite-gate';
+import {
+  isNativeOAuthCallbackPath,
+  parseWebOAuthCallbackUrl,
+  type OAuthCallbackRequest,
+} from '@/lib/auth/oauth';
 import { migrateDatabase } from '@/lib/db';
 import { configureNotificationHandling } from '@/lib/notifications';
 import { JienThemeProvider, useJienTheme } from '@/theme';
@@ -42,19 +48,59 @@ function AppNavigator() {
   );
 }
 
+function firstParam(value: string | string[] | undefined): string | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function DatabaseApp() {
+  return (
+    <WebSQLiteGate>
+      <Suspense fallback={<View style={styles.boot}><ActivityIndicator color="#71452F" /></View>}>
+        <SQLiteProvider databaseName="jien.db" onInit={migrateDatabase} useSuspense>
+          <JienThemeProvider>
+            <AppRuntime />
+            <AppNavigator />
+          </JienThemeProvider>
+        </SQLiteProvider>
+      </Suspense>
+    </WebSQLiteGate>
+  );
+}
+
 export default function RootLayout() {
+  const pathname = usePathname();
+  const params = useGlobalSearchParams<{
+    code?: string | string[];
+    error_description?: string | string[];
+  }>();
+  // Match the static server render on web and, critically, do not let SQLite
+  // begin loading until the browser URL has been checked for an OAuth return.
+  const [webUrlReady, setWebUrlReady] = useState(Platform.OS !== 'web');
+
+  useEffect(() => {
+    if (Platform.OS === 'web') setWebUrlReady(true);
+  }, []);
+
+  if (!webUrlReady) {
+    return <View style={styles.boot}><ActivityIndicator color="#71452F" /></View>;
+  }
+
+  let callbackRequest: OAuthCallbackRequest | null = null;
+  if (Platform.OS === 'web' && typeof globalThis.location !== 'undefined') {
+    callbackRequest = parseWebOAuthCallbackUrl(globalThis.location.href);
+  }
+  if (!callbackRequest && isNativeOAuthCallbackPath(pathname)) {
+    callbackRequest = {
+      code: firstParam(params.code),
+      errorDescription: firstParam(params.error_description),
+    };
+  }
+
   return (
     <AppErrorBoundary>
-      <WebSQLiteGate>
-        <Suspense fallback={<View style={styles.boot}><ActivityIndicator color="#71452F" /></View>}>
-          <SQLiteProvider databaseName="jien.db" onInit={migrateDatabase} useSuspense>
-            <JienThemeProvider>
-              <AppRuntime />
-              <AppNavigator />
-            </JienThemeProvider>
-          </SQLiteProvider>
-        </Suspense>
-      </WebSQLiteGate>
+      {callbackRequest
+        ? <OAuthCallbackCompletion request={callbackRequest} />
+        : <DatabaseApp />}
     </AppErrorBoundary>
   );
 }
