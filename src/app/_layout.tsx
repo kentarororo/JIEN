@@ -1,14 +1,19 @@
 import { Stack, useGlobalSearchParams, usePathname } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
-import { Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/app-error-boundary';
 import { AppRuntime } from '@/components/app-runtime';
 import { GlobalTabBar } from '@/components/global-tab-bar';
 import { OAuthCallbackCompletion } from '@/components/oauth-callback-completion';
-import { WebSQLiteGate } from '@/components/web-sqlite-gate';
+import {
+  reportWebSQLiteProviderError,
+  WebSQLiteDatabaseLifecycle,
+  WebSQLiteGate,
+  WebSQLiteProviderErrorBoundary,
+} from '@/components/web-sqlite-gate';
 import {
   isNativeOAuthCallbackPath,
   parseWebOAuthCallbackUrl,
@@ -53,16 +58,25 @@ function firstParam(value: string | string[] | undefined): string | null {
 }
 
 function DatabaseApp() {
+  const database = (
+    <SQLiteProvider
+      databaseName="jien.db"
+      onError={Platform.OS === 'web' ? reportWebSQLiteProviderError : undefined}
+      onInit={migrateDatabase}
+    >
+      <JienThemeProvider>
+        <WebSQLiteDatabaseLifecycle />
+        <AppRuntime />
+        <AppNavigator />
+      </JienThemeProvider>
+    </SQLiteProvider>
+  );
+
   return (
     <WebSQLiteGate>
-      <Suspense fallback={<View style={styles.boot}><ActivityIndicator color="#71452F" /></View>}>
-        <SQLiteProvider databaseName="jien.db" onInit={migrateDatabase} useSuspense>
-          <JienThemeProvider>
-            <AppRuntime />
-            <AppNavigator />
-          </JienThemeProvider>
-        </SQLiteProvider>
-      </Suspense>
+      {Platform.OS === 'web'
+        ? <WebSQLiteProviderErrorBoundary>{database}</WebSQLiteProviderErrorBoundary>
+        : database}
     </WebSQLiteGate>
   );
 }

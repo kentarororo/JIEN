@@ -1,28 +1,32 @@
-import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
-import type { PropsWithChildren } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useSQLiteContext } from 'expo-sqlite';
+import { Component, createContext, type ErrorInfo, type PropsWithChildren, useContext, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
-import { migrateDatabase } from '@/lib/db/migrate';
 import {
   describeWebSQLiteStartupFailure,
   type WebSQLiteStartupFailure,
-  withWebSQLiteStartupTimeout,
 } from '@/lib/web-sqlite-bootstrap';
+import {
+  createWebSQLitePageLifecycle,
+  requestWebSQLiteLease,
+  type WebSQLiteLease,
+} from '@/lib/web-sqlite-lifecycle';
 import {
   evaluateWebSQLiteReadiness,
   type WebSQLiteReadiness,
 } from '@/lib/web-sqlite-readiness';
+import { webSQLiteWorkerRegistry } from '@/lib/web-worker-registry';
 import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 
 const ISOLATION_RELOAD_KEY = 'jien:sqlite-isolation-reload';
 const BOOT_RELOAD_KEY = 'jien:sqlite-bootstrap-reload';
-const STARTUP_TIMEOUT_MS = 12_000;
 
-type DatabaseReadiness =
+type LeaseReadiness =
   | { state: 'preparing' }
   | { state: 'ready' }
   | ({ state: 'unsupported' } & WebSQLiteStartupFailure);
+
+const WebSQLiteLeaseReleaseContext = createContext<(() => void) | null>(null);
 
 function readEnvironment(): WebSQLiteReadiness {
   const storage = navigator.storage as StorageManager & { getDirectory?: () => Promise<unknown> };
@@ -42,17 +46,14 @@ export function WebSQLiteGate({ children }: PropsWithChildren) {
 }
 
 function WebSQLiteGateContent({ children }: PropsWithChildren) {
-  const colorScheme = useColorScheme();
-  const { colors } = resolveTheme(colorScheme);
   const [readiness, setReadiness] = useState<WebSQLiteReadiness>({
     state: 'preparing',
     code: 'WAITING_FOR_ISOLATION',
   });
-  const [databaseReadiness, setDatabaseReadiness] = useState<DatabaseReadiness>({
+  const [leaseReadiness, setLeaseReadiness] = useState<LeaseReadiness>({
     state: 'preparing',
   });
-  const preflightDatabase = useRef<SQLiteDatabase | null>(null);
-  const preflightPromise = useRef<Promise<SQLiteDatabase> | null>(null);
+  const leaseRef = useRef<WebSQLiteLease | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -113,54 +114,45 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
     if (readiness.state !== 'ready') return;
 
     let active = true;
-    const prepareDatabase = async () => {
-      try {
-        preflightPromise.current ??= (async () => {
-          const database = await withWebSQLiteStartupTimeout(
-            openDatabaseAsync('jien.db'),
-            STARTUP_TIMEOUT_MS,
-          );
-          await withWebSQLiteStartupTimeout(
-            migrateDatabase(database),
-            STARTUP_TIMEOUT_MS,
-          );
-          return database;
-        })();
-        const database = await preflightPromise.current;
-        if (!active) return;
-        preflightDatabase.current = database;
-        try {
-          window.sessionStorage.removeItem(BOOT_RELOAD_KEY);
-        } catch {
-          // Successful database access is authoritative when storage is restricted.
-        }
-        setDatabaseReadiness({ state: 'ready' });
-      } catch (cause) {
-        if (!active) return;
-        const failure = describeWebSQLiteStartupFailure(cause);
-        let shouldReload = false;
-        try {
-          const hasReloaded = window.sessionStorage.getItem(BOOT_RELOAD_KEY) === '1';
-          shouldReload = !hasReloaded && failure.retryWithReload;
-          if (shouldReload) window.sessionStorage.setItem(BOOT_RELOAD_KEY, '1');
-        } catch {
-          // Without a marker, show recovery controls instead of risking a loop.
-        }
-        if (shouldReload) {
-          setTimeout(() => window.location.reload(), 600);
-          return;
-        }
-        setDatabaseReadiness({ state: 'unsupported', ...failure });
-      }
-    };
+    webSQLiteWorkerRegistry.install(window);
+    const requestLock = 'locks' in navigator
+      ? (name: string, callback: (lock: unknown) => Promise<void>) =>
+          navigator.locks.request(name, callback)
+      : null;
+    const lease = requestWebSQLiteLease(requestLock);
+    leaseRef.current = lease;
 
-    void prepareDatabase();
+    void lease.acquired.then(
+      () => {
+        if (active) setLeaseReadiness({ state: 'ready' });
+      },
+      (cause) => {
+        if (active) {
+          setLeaseReadiness({
+            state: 'unsupported',
+            ...describeWebSQLiteStartupFailure(cause),
+          });
+        }
+      },
+    );
+    // The lease normally finishes only during pagehide/unmount. Its rejection
+    // is already surfaced through `acquired` when startup fails.
+    void lease.finished.catch(() => undefined);
+
     return () => {
       active = false;
+      lease.release();
+      if (leaseRef.current === lease) leaseRef.current = null;
     };
   }, [readiness.state]);
 
-  if (readiness.state === 'ready' && databaseReadiness.state === 'ready') return children;
+  if (readiness.state === 'ready' && leaseReadiness.state === 'ready') {
+    return (
+      <WebSQLiteLeaseReleaseContext.Provider value={() => leaseRef.current?.release()}>
+        {children}
+      </WebSQLiteLeaseReleaseContext.Provider>
+    );
+  }
 
   const retry = () => {
     try {
@@ -172,8 +164,121 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
     window.location.reload();
   };
   const environmentFailure = readiness.state === 'unsupported' ? readiness : null;
-  const databaseFailure = databaseReadiness.state === 'unsupported' ? databaseReadiness : null;
-  const failure = databaseFailure ?? environmentFailure;
+  const leaseFailure = leaseReadiness.state === 'unsupported' ? leaseReadiness : null;
+  const failure = leaseFailure ?? environmentFailure;
+
+  return <WebSQLiteStartupPanel failure={failure} onRetry={retry} />;
+}
+
+export function WebSQLiteDatabaseLifecycle() {
+  if (Platform.OS !== 'web') return null;
+  return <WebSQLiteDatabaseLifecycleContent />;
+}
+
+function WebSQLiteDatabaseLifecycleContent() {
+  const database = useSQLiteContext();
+  const releaseLease = useContext(WebSQLiteLeaseReleaseContext);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.removeItem(BOOT_RELOAD_KEY);
+    } catch {
+      // A successfully opened database is authoritative when storage is restricted.
+    }
+
+    const lifecycle = createWebSQLitePageLifecycle({
+      closeDatabaseSync: () => database.closeSync(),
+      terminateWorkers: () => webSQLiteWorkerRegistry.terminateAll(),
+      releaseLease: () => releaseLease?.(),
+      reload: () => window.location.reload(),
+    });
+    const closeForPageTransition = () => {
+      try {
+        lifecycle.closeForPageTransition();
+      } catch (error) {
+        console.error('Failed to close the web SQLite connection during pagehide', error);
+      }
+    };
+
+    window.addEventListener('pagehide', closeForPageTransition);
+    window.addEventListener('pageshow', lifecycle.restoreAfterPageTransition);
+    return () => {
+      window.removeEventListener('pagehide', closeForPageTransition);
+      window.removeEventListener('pageshow', lifecycle.restoreAfterPageTransition);
+      closeForPageTransition();
+    };
+  }, [database, releaseLease]);
+
+  return null;
+}
+
+export class WebSQLiteProviderStartupError extends Error {
+  constructor(readonly cause: unknown) {
+    super('Web SQLite provider failed to start.');
+    this.name = 'WebSQLiteProviderStartupError';
+  }
+}
+
+export function reportWebSQLiteProviderError(cause: Error): never {
+  throw new WebSQLiteProviderStartupError(cause);
+}
+
+type BoundaryState = { error: Error | null };
+
+export class WebSQLiteProviderErrorBoundary extends Component<PropsWithChildren, BoundaryState> {
+  state: BoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): BoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    if (!(error instanceof WebSQLiteProviderStartupError)) return;
+    console.error('Web SQLite provider startup failed', error.cause, info.componentStack);
+    const failure = describeWebSQLiteStartupFailure(error.cause);
+    let shouldReload = false;
+    try {
+      const hasReloaded = window.sessionStorage.getItem(BOOT_RELOAD_KEY) === '1';
+      shouldReload = !hasReloaded && failure.retryWithReload;
+      if (shouldReload) window.sessionStorage.setItem(BOOT_RELOAD_KEY, '1');
+    } catch {
+      // Without a marker, show recovery controls instead of risking a loop.
+    }
+    if (shouldReload) setTimeout(() => window.location.reload(), 600);
+  }
+
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    if (!(error instanceof WebSQLiteProviderStartupError)) throw error;
+
+    const retry = () => {
+      try {
+        window.sessionStorage.removeItem(BOOT_RELOAD_KEY);
+      } catch {
+        // Reload remains a non-destructive retry when session storage is restricted.
+      }
+      window.location.reload();
+    };
+
+    return (
+      <WebSQLiteStartupPanel
+        failure={describeWebSQLiteStartupFailure(error.cause)}
+        onRetry={retry}
+      />
+    );
+  }
+}
+
+function WebSQLiteStartupPanel({
+  failure,
+  onRetry,
+}: {
+  failure: { code: string; message: string; detail?: string } | null;
+  onRetry: () => void;
+}) {
+  const colorScheme = useColorScheme();
+  const { colors } = resolveTheme(colorScheme);
   const isPreparing = failure == null;
 
   return (
@@ -191,12 +296,12 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
         {failure ? (
           <>
             <Text selectable style={[styles.code, { color: colors.warning }]}>Startup code: {failure.code}</Text>
-            {'detail' in failure ? (
+            {failure.detail ? (
               <Text selectable style={[styles.detail, { color: colors.textMuted }]}>{failure.detail}</Text>
             ) : null}
             <Pressable
               accessibilityRole="button"
-              onPress={retry}
+              onPress={onRetry}
               style={({ pressed }) => [
                 styles.button,
                 { backgroundColor: colors.accent },
