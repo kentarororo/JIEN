@@ -28,6 +28,14 @@
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow JIEN to choose a meal photo for optional AI analysis.",
+          "cameraPermission": "Allow JIEN to photograph meals for optional AI analysis.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

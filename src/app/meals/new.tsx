@@ -1,6 +1,8 @@
 import * as Crypto from 'expo-crypto';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { File as ExpoFile } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { createElement, useEffect, useRef, useState } from 'react';
@@ -28,6 +30,7 @@ import {
 } from '@/lib/nutrition/serving';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
+import { resolveMealPhotoPickerResult } from '@/lib/media/image-picker';
 
 type DraftFood = {
   key: string;
@@ -66,6 +69,7 @@ export default function NewMealScreen() {
   const { colors } = useJienTheme();
   const cameraRef = useRef<CameraView>(null);
   const barcodeLockRef = useRef(false);
+  const pendingPickerResultRef = useRef<ReturnType<typeof ImagePicker.getPendingResultAsync> | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const now = new Date();
   const inferred: MealType = now.getHours() < 11 ? 'breakfast' : now.getHours() < 15 ? 'lunch' : now.getHours() < 19 ? 'dinner' : 'snack';
@@ -231,6 +235,23 @@ export default function NewMealScreen() {
     setToolMessage(`Added ${items.length} AI-estimated item${items.length === 1 ? '' : 's'}. Review every portion and macro before saving. Not medical advice.`);
   };
 
+  const prepareAndAnalyzePhoto = async (uri: string, width?: number) => {
+    const context = ImageManipulator.manipulate(uri);
+    if (width != null && width > 1280) context.resize({ width: 1280, height: null });
+    const rendered = await context.renderAsync();
+    const resized = await rendered.saveAsync({ compress: 0.68, format: SaveFormat.JPEG, base64: true });
+    if (!resized.base64) throw new Error('The meal photo could not be prepared for analysis.');
+    try {
+      await addAnalyzedPhoto(resized.base64, 'image/jpeg');
+    } finally {
+      try {
+        new ExpoFile(resized.uri).delete();
+      } catch {
+        // Cache cleanup is best-effort and must not hide the analysis result.
+      }
+    }
+  };
+
   const analyzePhoto = async () => {
     if (!cameraRef.current || cameraBusy) return;
     setCameraBusy(true);
@@ -238,18 +259,79 @@ export default function NewMealScreen() {
     try {
       const picture = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (!picture?.uri) throw new Error('The camera did not return an image to analyze.');
-      const context = ImageManipulator.manipulate(picture.uri);
-      if (picture.width > 1280) context.resize({ width: 1280, height: null });
-      const rendered = await context.renderAsync();
-      const resized = await rendered.saveAsync({ compress: 0.68, format: SaveFormat.JPEG, base64: true });
-      if (!resized.base64) throw new Error('The meal photo could not be prepared for analysis.');
-      await addAnalyzedPhoto(resized.base64);
+      await prepareAndAnalyzePhoto(picture.uri, picture.width);
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
     } finally {
       setCameraBusy(false);
     }
   };
+
+  const chooseNativePhoto = async () => {
+    if (Platform.OS === 'web' || cameraBusy) return;
+    setCameraBusy(true);
+    setToolMessage('Opening your photo library…');
+    try {
+      if (Platform.OS === 'ios') {
+        const existing = await ImagePicker.getMediaLibraryPermissionsAsync();
+        const permission = existing.granted ? existing : await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          throw new Error(permission.canAskAgain
+            ? 'Photo library permission is needed to choose a meal photo.'
+            : 'Photo library access is blocked. Enable Photos access for JIEN in device settings.');
+        }
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        allowsMultipleSelection: false,
+        selectionLimit: 1,
+        quality: 1,
+        base64: false,
+        shouldDownloadFromNetwork: true,
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+      });
+      const resolution = resolveMealPhotoPickerResult(result);
+      if (resolution.kind === 'canceled' || resolution.kind === 'empty') {
+        setToolMessage(null);
+        return;
+      }
+      if (resolution.kind === 'error') throw new Error(resolution.message);
+      setToolMessage('Preparing the selected meal photo…');
+      await prepareAndAnalyzePhoto(resolution.asset.uri, resolution.asset.width);
+    } catch (cause) {
+      setToolMessage(cause instanceof Error ? cause.message : 'The selected meal photo could not be analyzed.');
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    pendingPickerResultRef.current ??= ImagePicker.getPendingResultAsync();
+    let active = true;
+    void pendingPickerResultRef.current.then(async (result) => {
+      if (!active) return;
+      const resolution = resolveMealPhotoPickerResult(result);
+      if (resolution.kind === 'empty' || resolution.kind === 'canceled') return;
+      if (resolution.kind === 'error') {
+        setToolMessage(resolution.message);
+        return;
+      }
+      setCameraBusy(true);
+      setToolMessage('Resuming your selected meal photo…');
+      try {
+        await prepareAndAnalyzePhoto(resolution.asset.uri, resolution.asset.width);
+      } catch (cause) {
+        if (active) setToolMessage(cause instanceof Error ? cause.message : 'The selected meal photo could not be analyzed.');
+      } finally {
+        if (active) setCameraBusy(false);
+      }
+    }).catch((cause) => {
+      if (active) setToolMessage(cause instanceof Error ? cause.message : 'The photo picker could not recover its last result.');
+    });
+    return () => { active = false; };
+  }, []);
 
   const handleWebPhoto = async (event: { target: { files?: FileList | null; value?: string } }) => {
     const file = event.target.files?.[0];
@@ -339,7 +421,12 @@ export default function NewMealScreen() {
                 })}
               </View>
             </>
-          ) : <Button label="Take meal photo" onPress={() => void openCamera('photo')} variant="secondary" />}
+          ) : (
+            <>
+              <Button label="Take photo" onPress={() => void openCamera('photo')} disabled={cameraBusy} variant="secondary" />
+              <Button label="Choose photo" onPress={() => void chooseNativePhoto()} busy={cameraBusy} variant="secondary" />
+            </>
+          )}
         </View>
         <Field label="Meal photo context (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" />
         <View style={styles.barcodeRow}>

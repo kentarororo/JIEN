@@ -9,7 +9,7 @@ and restored from a Supabase backend with row-level security.
 - Expo Router tabs for Today, Training, Food, and Settings
 - responsive multi-exercise workout logging, custom exercises, and optional RPE
 - deterministic session-over-session overload and weekly volume summaries (no 1RM flows)
-- searchable offline food starters, editable database/barcode results, and AI meal-photo scaffolding
+- searchable offline food starters, editable database/barcode results, and camera/library meal-photo analysis
 - meal, food-item, macro-total, and versioned nutrition-target logging
 - native share / web download for workout CSV, nutrition CSV, and complete JSON
 - opt-in, context-aware missing-meal notification scaffolding
