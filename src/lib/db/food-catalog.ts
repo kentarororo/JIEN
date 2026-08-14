@@ -1,7 +1,12 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { getSupabaseClient } from './supabase';
+import {
+  type MealPhotoCapability,
+  classifyMealPhotoAnalysisError,
+  parseMealPhotoAnalysisData,
+  parseMealPhotoCapabilityData,
+} from './meal-photo-api';
 import {
   mapOpenFoodFactsProduct,
   OPEN_FOOD_FACTS_FIELDS,
@@ -9,6 +14,10 @@ import {
   type OpenFoodFactsSearchResponse,
 } from './open-food-facts';
 import type { FoodCatalogItem } from './types';
+import {
+  getSupabaseClient,
+  invokeEdgeFunctionEnvelope,
+} from './supabase';
 
 type FoodCatalogRow = {
   id: string;
@@ -162,24 +171,34 @@ export async function analyzeMealPhoto(
   base64: string,
   description: string,
   mediaType = 'image/jpeg',
-): Promise<FoodCatalogItem[]> {
-  return invokeFoodFunction('analyze-food-photo', { imageBase64: base64, mediaType, description });
+): Promise<{ items: FoodCatalogItem[]; disclaimer: string; requestId: string }> {
+  const response = await invokeEdgeFunctionEnvelope<unknown>('analyze-food-photo', {
+    action: 'analyze',
+    imageBase64: base64,
+    mediaType,
+    description: description.trim().slice(0, 500),
+  }, 30_000);
+  const parsed = parseMealPhotoAnalysisData(response.data);
+  return { ...parsed, requestId: response.requestId };
 }
 
-export async function getMealPhotoAnalysisCapability(): Promise<{ available: boolean; message: string }> {
-  let supabase;
+export async function getMealPhotoAnalysisCapability(): Promise<MealPhotoCapability> {
   try {
-    supabase = getSupabaseClient();
-  } catch {
-    return { available: false, message: 'AI photo analysis is not configured. You can still log this meal manually.' };
-  }
-  try {
-    const { data } = await supabase.auth.getSession();
-    return data.session
-      ? { available: true, message: 'Signed in. The photo will be sent for AI analysis only when you press Analyze photo.' }
-      : { available: false, message: 'Sign in from Account to analyze photos. The selected photo stays here so you can enter the meal manually.' };
-  } catch {
-    return { available: false, message: 'AI availability could not be checked. You can keep logging manually.' };
+    const response = await invokeEdgeFunctionEnvelope<unknown>(
+      'analyze-food-photo',
+      { action: 'capability' },
+      8_000,
+    );
+    parseMealPhotoCapabilityData(response.data);
+    return {
+      available: true,
+      status: 'ready',
+      message: 'Ready. The photo is sent for analysis only after you choose Analyze photo.',
+      retryable: false,
+    };
+  } catch (cause) {
+    const failure = classifyMealPhotoAnalysisError(cause);
+    return { ...failure, available: false };
   }
 }
 

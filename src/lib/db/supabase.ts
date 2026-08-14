@@ -5,6 +5,8 @@ import * as Crypto from 'expo-crypto';
 
 import { getAuthStorage } from '@/lib/auth/storage';
 
+import { parseApiEnvelope } from './api-contract';
+
 let client: SupabaseClient | undefined;
 
 export function getSupabaseClient(): SupabaseClient {
@@ -33,20 +35,17 @@ export function getSupabaseClient(): SupabaseClient {
   return client;
 }
 
-type EdgeFunctionFailure = {
-  error?: { code?: string; message?: string; retryable?: boolean };
-  requestId?: string;
-};
-
 export class EdgeFunctionError extends Error {
   code: string;
   retryable: boolean;
+  requestId: string | null;
 
-  constructor(message: string, code = 'EDGE_FUNCTION_FAILED', retryable = false) {
+  constructor(message: string, code = 'EDGE_FUNCTION_FAILED', retryable = false, requestId: string | null = null) {
     super(message);
     this.name = 'EdgeFunctionError';
     this.code = code;
     this.retryable = retryable;
+    this.requestId = requestId;
   }
 }
 
@@ -55,6 +54,15 @@ export async function invokeEdgeFunction<T>(
   data: Record<string, unknown>,
   timeoutMs = 25_000,
 ): Promise<T> {
+  const result = await invokeEdgeFunctionEnvelope<T>(name, data, timeoutMs);
+  return result.data;
+}
+
+export async function invokeEdgeFunctionEnvelope<T>(
+  name: string,
+  data: Record<string, unknown>,
+  timeoutMs = 25_000,
+): Promise<{ data: T; requestId: string }> {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !publishableKey) {
@@ -83,15 +91,17 @@ export async function invokeEdgeFunction<T>(
       },
       body: JSON.stringify({ version: 1, data }),
     });
-    const payload = await response.json().catch(() => ({})) as EdgeFunctionFailure & { data?: T };
-    if (!response.ok || payload.error || payload.data == null) {
+    const payload = await response.json().catch(() => ({}));
+    const envelope = parseApiEnvelope<T>(payload, response.status, requestId);
+    if (!envelope.ok) {
       throw new EdgeFunctionError(
-        payload.error?.message ?? 'The AI service is unavailable right now.',
-        payload.error?.code ?? `HTTP_${response.status}`,
-        payload.error?.retryable ?? response.status >= 500,
+        envelope.error.message,
+        envelope.error.code,
+        envelope.error.retryable,
+        envelope.requestId,
       );
     }
-    return payload.data;
+    return { data: envelope.data, requestId: envelope.requestId };
   } catch (error) {
     if (error instanceof EdgeFunctionError) throw error;
     if (error instanceof Error && error.name === 'AbortError') {

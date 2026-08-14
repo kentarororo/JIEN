@@ -5,13 +5,14 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { createElement, useEffect, useRef, useState } from 'react';
-import { Image, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { createElement, useEffect, useReducer, useRef, useState } from 'react';
+import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
 import {
   analyzeMealPhoto,
   cacheFoodCatalogItems,
+  classifyMealPhotoAnalysisError,
   getMealPhotoAnalysisCapability,
   lookupFoodBarcode,
   markFoodCatalogItemUsed,
@@ -32,6 +33,13 @@ import {
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
 import { resolveMealPhotoPickerResult } from '@/lib/media/image-picker';
+import {
+  applyPhotoAnalysisDrafts,
+  initialMealPhotoFlowState,
+  reduceMealPhotoFlow,
+  serializeMealPhotoProvenance,
+  type PendingMealPhoto,
+} from '@/lib/meal-photo-flow';
 
 type DraftFood = {
   key: string;
@@ -53,12 +61,6 @@ type DraftFood = {
 };
 
 type CameraMode = 'barcode' | 'photo' | null;
-type PendingPhoto = {
-  base64: string;
-  mediaType: string;
-  sourceLabel: string;
-};
-
 const emptyFood = (): DraftFood => ({
   key: Crypto.randomUUID(), catalogId: null, name: '', quantity: '1', unit: 'serving',
   calories: '', protein: '', carbs: '', fat: '', fibre: '', source: 'manual', sourceLabel: null, confidence: null,
@@ -74,6 +76,9 @@ export default function NewMealScreen() {
   const { date } = useLocalSearchParams<{ date?: string }>();
   const { colors } = useJienTheme();
   const cameraRef = useRef<CameraView>(null);
+  const screenRef = useRef<ScrollView>(null);
+  const mealItemsYRef = useRef(0);
+  const photoAnalysisLockRef = useRef(false);
   const barcodeLockRef = useRef(false);
   const pendingPickerResultRef = useRef<ReturnType<typeof ImagePicker.getPendingResultAsync> | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -90,11 +95,13 @@ export default function NewMealScreen() {
   const [cameraBusy, setCameraBusy] = useState(false);
   const [barcodeCaptured, setBarcodeCaptured] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
-  const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const [photoCapability, setPhotoCapability] = useState<{ available: boolean; message: string } | null>(null);
-  const [photoDescription, setPhotoDescription] = useState('');
-  const [mealAiContext, setMealAiContext] = useState<string | null>(null);
+  const [photoFlow, dispatchPhoto] = useReducer(reduceMealPhotoFlow, initialMealPhotoFlowState);
+  const [appliedPhotoRequestIds, setAppliedPhotoRequestIds] = useState<string[]>([]);
+  const [photoAnalyses, setPhotoAnalyses] = useState<Array<{
+    requestId: string;
+    description: string;
+    itemKeys: string[];
+  }>>([]);
   const [barcodeValue, setBarcodeValue] = useState('');
   const [toolMessage, setToolMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -110,16 +117,13 @@ export default function NewMealScreen() {
   }, [db, query]);
 
   useEffect(() => {
-    if (!pendingPhoto) {
-      setPhotoCapability(null);
-      return;
-    }
+    if (!photoFlow.selection) return;
     let active = true;
     void getMealPhotoAnalysisCapability().then((capability) => {
-      if (active) setPhotoCapability(capability);
+      if (active) dispatchPhoto({ type: 'capability_resolved', capability });
     });
     return () => { active = false; };
-  }, [pendingPhoto]);
+  }, [photoFlow.selection]);
 
   const update = (key: string, field: 'name', value: string) => {
     setFormError(null);
@@ -287,14 +291,6 @@ export default function NewMealScreen() {
     }
   };
 
-  const addAnalyzedPhoto = async (base64: string, mediaType = 'image/jpeg') => {
-    const items = await analyzeMealPhoto(base64, photoDescription, mediaType);
-    if (!items.length) throw new Error('No food items were identified. Try a clearer photo or add a description.');
-    const drafts = items.map(toDraftFood);
-    setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? drafts : [...current, ...drafts]);
-    setToolMessage(`Added ${items.length} AI-estimated item${items.length === 1 ? '' : 's'}. Review every portion and macro before saving. Not medical advice.`);
-  };
-
   const preparePhoto = async (uri: string, sourceLabel: string, width?: number) => {
     const context = ImageManipulator.manipulate(uri);
     if (width != null && width > 1280) context.resize({ width: 1280, height: null });
@@ -302,8 +298,10 @@ export default function NewMealScreen() {
     const resized = await rendered.saveAsync({ compress: 0.68, format: SaveFormat.JPEG, base64: true });
     if (!resized.base64) throw new Error('The meal photo could not be prepared for analysis.');
     try {
-      setPhotoError(null);
-      setPendingPhoto({ base64: resized.base64, mediaType: 'image/jpeg', sourceLabel });
+      dispatchPhoto({
+        type: 'selected',
+        selection: { base64: resized.base64, mediaType: 'image/jpeg', sourceLabel },
+      });
     } finally {
       try {
         new ExpoFile(resized.uri).delete();
@@ -405,8 +403,7 @@ export default function NewMealScreen() {
     setToolMessage('Preparing the selected photo...');
     try {
       const prepared = await prepareWebPhoto(file);
-      setPhotoError(null);
-      setPendingPhoto(prepared);
+      dispatchPhoto({ type: 'selected', selection: prepared });
       setToolMessage(null);
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
@@ -417,36 +414,72 @@ export default function NewMealScreen() {
   };
 
   const analyzePendingPhoto = async () => {
-    if (!pendingPhoto || cameraBusy) return;
+    const selection = photoFlow.selection;
+    if (!selection || cameraBusy || photoAnalysisLockRef.current || !photoFlow.capability?.available) return;
+    photoAnalysisLockRef.current = true;
     setCameraBusy(true);
-    setPhotoError(null);
+    dispatchPhoto({ type: 'analysis_started' });
     try {
-      const context = photoDescription.trim();
-      await addAnalyzedPhoto(pendingPhoto.base64, pendingPhoto.mediaType);
-      if (context) setMealAiContext((current) => current ? `${current}\n${context}` : context);
-      setPendingPhoto(null);
-      setPhotoDescription('');
+      const context = photoFlow.description.trim();
+      const analysis = await analyzeMealPhoto(selection.base64, context, selection.mediaType);
+      const drafts = analysis.items.map(toDraftFood);
+      const merged = applyPhotoAnalysisDrafts(
+        foods,
+        drafts,
+        analysis.requestId,
+        appliedPhotoRequestIds,
+        isBlankFood,
+      );
+      setFoods(merged.items);
+      setAppliedPhotoRequestIds(merged.appliedRequestIds);
+      if (merged.insertedItems.length) {
+        const itemKeys = merged.insertedItems.map((item) => item.key);
+        setPhotoAnalyses((current) => current.some((item) => item.requestId === analysis.requestId)
+          ? current
+          : [...current, { requestId: analysis.requestId, description: context, itemKeys }]);
+        dispatchPhoto({ type: 'analysis_succeeded', requestId: analysis.requestId, itemKeys });
+        setToolMessage(`${itemKeys.length} AI-estimated item${itemKeys.length === 1 ? '' : 's'} added to this meal draft.`);
+      } else {
+        dispatchPhoto({
+          type: 'analysis_succeeded',
+          requestId: analysis.requestId,
+          itemKeys: photoFlow.result?.itemKeys ?? [],
+        });
+      }
     } catch (cause) {
-      setPhotoError(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
+      dispatchPhoto({ type: 'analysis_failed', failure: classifyMealPhotoAnalysisError(cause) });
     } finally {
+      photoAnalysisLockRef.current = false;
       setCameraBusy(false);
     }
   };
 
   const dismissPendingPhoto = (manual = false) => {
     if (cameraBusy) return;
-    const description = photoDescription.trim();
+    const description = photoFlow.description.trim();
     if (manual && description) {
       setFoods((current) => current.length === 1 && isBlankFood(current[0]!)
         ? [{ ...current[0]!, name: description }]
         : [...current, { ...emptyFood(), name: description }]);
     }
-    setPendingPhoto(null);
-    setPhotoError(null);
-    setPhotoDescription('');
+    dispatchPhoto({ type: 'dismissed' });
     if (manual) setToolMessage(description
       ? 'Photo analysis skipped. The description is in a new food item; add its portion and macros below.'
       : 'Photo analysis skipped. Enter the food and macros manually below.');
+  };
+
+  const refreshPhotoCapability = async () => {
+    if (!photoFlow.selection || cameraBusy) return;
+    dispatchPhoto({ type: 'capability_checking' });
+    const capability = await getMealPhotoAnalysisCapability();
+    dispatchPhoto({ type: 'capability_resolved', capability });
+  };
+
+  const reviewAnalyzedItems = () => {
+    dispatchPhoto({ type: 'dismissed' });
+    setTimeout(() => {
+      screenRef.current?.scrollTo({ y: Math.max(0, mealItemsYRef.current - spacing.md), animated: true });
+    }, 80);
   };
 
   const submit = async () => {
@@ -471,7 +504,11 @@ export default function NewMealScreen() {
         throw new Error('Enter a valid portion and macro estimate for every food.');
       }
       const eatenAt = date ? localTimestampForDate(date) : new Date().toISOString();
-      await saveMeal(db, { name, type, eatenAt, aiContext: mealAiContext, items });
+      const activeAiItemKeys = completedFoods
+        .filter((food) => food.source === 'ai_photo')
+        .map((food) => food.key);
+      const aiContext = serializeMealPhotoProvenance(photoAnalyses, activeAiItemKeys);
+      await saveMeal(db, { name, type, eatenAt, aiContext, items });
       await reconcileMealGapNotification(db);
       router.back();
     } catch (cause) {
@@ -482,7 +519,7 @@ export default function NewMealScreen() {
   };
 
   return (
-    <Screen contentContainerStyle={styles.screenContent}>
+    <Screen scrollViewRef={screenRef} contentContainerStyle={styles.screenContent}>
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
       <Field label="Meal name" value={name} onChangeText={setName} placeholder="Dinner" />
       <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>
@@ -578,25 +615,87 @@ export default function NewMealScreen() {
         </View>
       </Modal>
 
-      <Modal visible={pendingPhoto != null} animationType="slide" transparent onRequestClose={() => { if (!cameraBusy) dismissPendingPhoto(); }}>
+      <Modal visible={photoFlow.selection != null} animationType="slide" transparent onRequestClose={() => {}}>
         <View style={[styles.cameraOverlay, { backgroundColor: colors.overlay }]}>
           <Card style={[styles.cameraSheet, { backgroundColor: colors.surface }]}>
+            <ScrollView
+              style={styles.photoSheetScroll}
+              contentContainerStyle={styles.photoSheetContent}
+              keyboardShouldPersistTaps="handled"
+            >
             <View style={styles.header}>
               <View style={styles.flex}>
-                <AppText style={styles.sectionTitle}>Add context, then analyze</AppText>
-                <AppText style={{ color: colors.textMuted }}>{pendingPhoto?.sourceLabel} is ready. Nothing is uploaded until you choose Analyze photo.</AppText>
+                <AppText style={styles.sectionTitle}>{photoFlow.phase === 'succeeded' ? 'Food items added' : 'Add context, then analyze'}</AppText>
+                <AppText style={{ color: colors.textMuted }}>
+                  {photoFlow.phase === 'succeeded'
+                    ? 'Analysis is complete. The preview stays here until you open the editable items.'
+                    : `${photoFlow.selection?.sourceLabel} is ready. Nothing is uploaded until you choose Analyze photo.`}
+                </AppText>
               </View>
-              <Button label="Remove" onPress={() => dismissPendingPhoto()} variant="quiet" disabled={cameraBusy} />
+              {photoFlow.phase !== 'succeeded' ? <Button label="Remove photo" onPress={() => dismissPendingPhoto()} variant="quiet" disabled={cameraBusy} /> : null}
             </View>
-            {pendingPhoto ? <Image accessibilityLabel="Selected meal photo preview" source={{ uri: `data:${pendingPhoto.mediaType};base64,${pendingPhoto.base64}` }} resizeMode="cover" style={[styles.photoPreview, { backgroundColor: colors.surfaceMuted }]} /> : null}
-            <Field label="What is in this meal? (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" />
-            {photoCapability ? <View style={[styles.message, { backgroundColor: photoCapability.available ? colors.successSoft : colors.warningSoft }]}><AppText>{photoCapability.message}</AppText></View> : null}
+            {photoFlow.selection ? <Image accessibilityLabel="Selected meal photo preview" source={{ uri: `data:${photoFlow.selection.mediaType};base64,${photoFlow.selection.base64}` }} resizeMode="cover" style={[styles.photoPreview, { backgroundColor: colors.surfaceMuted }]} /> : null}
+            <Field
+              label="What is in this meal? (optional)"
+              value={photoFlow.description}
+              onChangeText={(description) => dispatchPhoto({ type: 'description_changed', description })}
+              placeholder="e.g. grilled chicken, rice, sauce on the side"
+              editable={!cameraBusy && photoFlow.phase !== 'succeeded'}
+            />
+            {photoFlow.phase === 'ready' && photoFlow.capability ? (
+              <View
+                accessibilityLiveRegion="polite"
+                style={[styles.message, { backgroundColor: photoFlow.capability.available ? colors.successSoft : colors.warningSoft }]}
+              >
+                <AppText>{photoFlow.capability.message}</AppText>
+              </View>
+            ) : photoFlow.phase === 'ready' ? (
+              <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.accentSoft }]}>
+                <AppText>Checking secure photo-analysis availability…</AppText>
+              </View>
+            ) : null}
             <AppText style={[styles.attribution, { color: colors.textMuted }]}>AI estimates can be wrong. You will review and edit every portion and macro before saving.</AppText>
-            {photoError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{photoError}</AppText></View> : null}
-            <View style={styles.photoReviewActions}>
-              <Button label={photoError ? 'Try analysis again' : 'Analyze photo'} onPress={() => void analyzePendingPhoto()} busy={cameraBusy} />
-              <Button label="Enter manually instead" onPress={() => dismissPendingPhoto(true)} variant="secondary" disabled={cameraBusy} />
-            </View>
+            {photoFlow.phase === 'analyzing' ? (
+              <View accessibilityLiveRegion="assertive" style={[styles.message, { backgroundColor: colors.accentSoft }]}>
+                <AppText style={{ fontWeight: '700' }}>Analyzing the visible food…</AppText>
+                <AppText style={{ color: colors.textMuted }}>The photo and your context stay here if the connection drops.</AppText>
+              </View>
+            ) : null}
+            {photoFlow.failure ? (
+              <View accessibilityRole="alert" style={[styles.message, { backgroundColor: photoFlow.failure.status === 'offline' ? colors.warningSoft : colors.dangerSoft }]}>
+                <AppText style={{ color: photoFlow.failure.status === 'offline' ? colors.warning : colors.danger }}>{photoFlow.failure.message}</AppText>
+                <AppText style={{ color: colors.textMuted }}>Status: {photoFlow.failure.code}</AppText>
+              </View>
+            ) : null}
+            {photoFlow.phase === 'succeeded' && photoFlow.result ? (
+              <View accessibilityLiveRegion="assertive" style={[styles.photoSuccess, { backgroundColor: colors.successSoft, borderColor: colors.success }]}>
+                <AppText style={[styles.photoSuccessCount, { color: colors.success }]}>{photoFlow.result.itemCount}</AppText>
+                <View style={styles.flex}>
+                  <AppText style={styles.foodTitle}>editable item{photoFlow.result.itemCount === 1 ? '' : 's'} added</AppText>
+                  <AppText style={{ color: colors.textMuted }}>Review the estimated portions and macros before saving this meal.</AppText>
+                </View>
+              </View>
+            ) : null}
+            {photoFlow.phase === 'succeeded' ? (
+              <Button
+                label={`Review ${photoFlow.result?.itemCount ?? 0} added item${photoFlow.result?.itemCount === 1 ? '' : 's'}`}
+                onPress={reviewAnalyzedItems}
+              />
+            ) : (
+              <View style={styles.photoReviewActions}>
+                <Button
+                  label={photoFlow.phase === 'failed' ? 'Try analysis again' : 'Analyze photo'}
+                  onPress={() => void analyzePendingPhoto()}
+                  busy={cameraBusy}
+                  disabled={!photoFlow.capability?.available}
+                />
+                {!photoFlow.capability?.available && photoFlow.capability ? (
+                  <Button label="Check availability again" onPress={() => void refreshPhotoCapability()} variant="quiet" disabled={cameraBusy} />
+                ) : null}
+                <Button label="Enter manually instead" onPress={() => dismissPendingPhoto(true)} variant="secondary" disabled={cameraBusy} />
+              </View>
+            )}
+            </ScrollView>
           </Card>
         </View>
       </Modal>
@@ -604,6 +703,7 @@ export default function NewMealScreen() {
       {toolMessage ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.accentSoft }]}><AppText>{toolMessage}</AppText></View> : null}
       {formError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
 
+      <View onLayout={(event) => { mealItemsYRef.current = event.nativeEvent.layout.y; }} style={styles.mealItemsSection}>
       <SectionHeading title="Meal items" detail="Database and AI values stay editable" />
       {foods.map((food, index) => (
         <Card key={food.key}>
@@ -628,6 +728,7 @@ export default function NewMealScreen() {
         </Card>
       ))}
       <Button label="Add a blank food" onPress={() => setFoods((current) => [...current, emptyFood()])} variant="secondary" />
+      </View>
       <SectionHeading title="Finish" detail="Saved locally, even without a connection" />
       <Button label="Save meal" onPress={() => void submit()} busy={saving} />
     </Screen>
@@ -693,7 +794,7 @@ function formatFoodNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
-async function prepareWebPhoto(file: File): Promise<PendingPhoto> {
+async function prepareWebPhoto(file: File): Promise<PendingMealPhoto> {
   if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') {
     if (file.size > 10_000_000) throw new Error('That photo is too large. Choose a photo under 10 MB.');
     const dataUrl = await readFileAsDataUrl(file);
@@ -771,7 +872,11 @@ const styles = StyleSheet.create({
   scannerStatus: { gap: spacing.xs },
   detectedBarcode: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
   photoPreview: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, borderRadius: radii.card },
+  photoSheetScroll: { width: '100%' },
+  photoSheetContent: { gap: spacing.sm, paddingBottom: spacing.xs },
   photoReviewActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  photoSuccess: { minHeight: 72, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  photoSuccessCount: { ...typography.title, fontWeight: '800', minWidth: 36, textAlign: 'center', fontVariant: ['tabular-nums'] },
   message: { padding: spacing.md, borderRadius: radii.control },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },
@@ -781,6 +886,7 @@ const styles = StyleSheet.create({
   unitSection: { flex: 1, minWidth: 220, gap: spacing.xs },
   unitLabel: { ...typography.label, fontWeight: '700' },
   autoNote: { ...typography.caption },
+  mealItemsSection: { gap: spacing.lg },
   gridField: { flexGrow: 1, flexBasis: 240, minWidth: 140 },
   macroField: { flexGrow: 1, flexBasis: 150, minWidth: 118 },
   flex: { flex: 1 },

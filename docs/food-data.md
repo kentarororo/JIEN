@@ -15,7 +15,10 @@ a network service.
   incomplete, so JIEN displays the source and keeps every portion and macro editable.
 - Meal-photo estimates use the authenticated, consent-gated `analyze-food-photo` Edge
   Function. The image stays in temporary client memory for review/retry and is not
-  added to the durable meal log by capture alone.
+  added to the durable meal log by capture alone. Capture or selection opens a review
+  sheet immediately; a successful analysis inserts every normalized result into the
+  editable meal draft exactly once. Retryable failures retain the photo and context,
+  and saved AI-derived items carry request provenance plus a completed AI status.
 
 USDA and Open Food Facts enrichment are best-effort. Search results remain usable if
 the local cache write fails, and barcode digits remain visible if no product matches.

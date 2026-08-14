@@ -12,6 +12,12 @@ export {
   searchFoodDatabase,
   searchLocalFoodCatalog,
 } from './food-catalog';
+export { classifyMealPhotoAnalysisError } from './meal-photo-api';
+export type {
+  MealPhotoAnalysisFailure,
+  MealPhotoCapability,
+  MealPhotoCapabilityStatus,
+} from './meal-photo-api';
 export { migrateDatabase } from './migrate';
 export { getUserProfile, hasCompletedOnboarding, saveUserProfile } from './profile';
 export {

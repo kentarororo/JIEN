@@ -1,4 +1,4 @@
-import type { PropsWithChildren, ReactNode } from 'react';
+import type { PropsWithChildren, ReactNode, Ref } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -22,11 +22,16 @@ export function AppText({ style, ...props }: TextProps) {
   return <Text {...props} style={[styles.body, { color: colors.text }, style]} />;
 }
 
-export function Screen({ children, contentContainerStyle }: PropsWithChildren<{ contentContainerStyle?: ViewProps['style'] }>) {
+export function Screen({
+  children,
+  contentContainerStyle,
+  scrollViewRef,
+}: PropsWithChildren<{ contentContainerStyle?: ViewProps['style']; scrollViewRef?: Ref<ScrollView> }>) {
   const { colors } = useJienTheme();
   return (
     <SafeAreaView edges={['left', 'right']} style={[styles.screen, { backgroundColor: colors.canvas }]}>
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={[styles.screenContent, contentContainerStyle]}
         keyboardShouldPersistTaps="handled"
       >
