@@ -6,9 +6,9 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, Screen, ScreenHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getWorkoutProgressComparison, listRecentWorkouts, listVolumeHistory } from '@/lib/db';
-import { aggregateWeeklyVolume, detectDeloadSignal } from '@/lib/progression';
+import { aggregateWeeklyVolume, detectDeloadSignal, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate } from '@/lib/time';
-import { spacing, typography, useJienTheme } from '@/theme';
+import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function TrainScreen() {
   const db = useSQLiteContext();
@@ -41,16 +41,33 @@ export default function TrainScreen() {
             </>
           ) : (
             <>
-              <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}>
+              <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}> 
                 {formatPercent(data.progress.overallChangePercent)}
               </AppText>
               <AppText style={{ color: colors.textMuted }}>work performed vs each exercise's previous matching session · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} exercises up</AppText>
+              <View style={styles.comparisonGrid}>
+                <View style={[styles.comparisonMetric, { backgroundColor: colors.surfaceRaised }]}> 
+                  <AppText style={[styles.comparisonLabel, { color: colors.textMuted }]}>Previous matching work</AppText>
+                  <AppText style={styles.comparisonValue}>{formatWork(data.progress.previousComparableVolumeKg)}</AppText>
+                </View>
+                <View style={[styles.comparisonMetric, { backgroundColor: colors.surfaceRaised }]}> 
+                  <AppText style={[styles.comparisonLabel, { color: colors.textMuted }]}>This session</AppText>
+                  <AppText style={styles.comparisonValue}>{formatWork(data.progress.currentComparableVolumeKg)}</AppText>
+                </View>
+              </View>
             </>
           )}
           <View style={styles.exerciseProgressList}>
-            {data.progress.exercises.slice(0, 4).map((exercise) => (
+            {data.progress.exercises.slice(0, 6).map((exercise) => (
               <View key={exercise.exerciseId} style={styles.row}>
-                <AppText style={styles.flex}>{exercise.exerciseName}</AppText>
+                <View style={styles.flex}>
+                  <AppText>{exercise.exerciseName}</AppText>
+                  <AppText style={[styles.exerciseWork, { color: colors.textMuted }]}> 
+                    {exercise.previousVolumeKg == null
+                      ? `${formatWork(exercise.currentVolumeKg)} baseline`
+                      : `${formatWork(exercise.previousVolumeKg)} → ${formatWork(exercise.currentVolumeKg)}`}
+                  </AppText>
+                </View>
                 <AppText style={{ color: exercise.changePercent == null ? colors.textMuted : exercise.changePercent >= 0 ? colors.success : colors.warning, fontWeight: '700' }}>
                   {exercise.changePercent == null ? 'baseline' : formatPercent(exercise.changePercent)}
                 </AppText>
@@ -62,9 +79,11 @@ export default function TrainScreen() {
       ) : null}
       {data?.weeks.at(-1) ? (
         <Card>
-          <View style={styles.row}><View><AppText style={styles.title}>Weekly training work</AppText><AppText style={{ color: colors.textMuted }}>{Math.round(data.weeks.at(-1)!.totalKg).toLocaleString()} kg load × reps</AppText></View></View>
-          {Object.entries(data.weeks.at(-1)!.muscleGroups).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([group, volume]) => <View key={group} style={styles.row}><AppText>{group.replaceAll('_', ' ')}</AppText><AppText style={{ fontWeight: '700' }}>{Math.round(volume).toLocaleString()} kg</AppText></View>)}
+          <View style={styles.row}><View><AppText style={styles.title}>Weekly training work</AppText><AppText style={{ color: colors.textMuted }}>{formatWork(data.weeks.at(-1)!.totalKg)} this logged week</AppText></View></View>
+          <WeeklyWorkTrend weeks={data.weeks} />
+          {Object.entries(data.weeks.at(-1)!.muscleGroups).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([group, volume]) => <View key={group} style={styles.row}><AppText>{group.replaceAll('_', ' ')}</AppText><AppText style={{ fontWeight: '700' }}>{formatWork(volume)}</AppText></View>)}
           {data.signal.kind !== 'none' ? <AppText style={{ color: colors.warning }}>{data.signal.message}</AppText> : null}
+          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>This is completed working-set load × reps, not a strength or muscle-growth score.</AppText>
         </Card>
       ) : null}
       <View style={styles.list}>
@@ -92,9 +111,59 @@ const styles = StyleSheet.create({
   kicker: { ...typography.caption, fontWeight: '800', letterSpacing: 0.6 },
   progressValue: { ...typography.display, fontWeight: '800', letterSpacing: -0.7 },
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
+  comparisonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
+  comparisonMetric: { flexGrow: 1, flexBasis: 220, minWidth: 180, borderRadius: radii.control, padding: spacing.md },
+  comparisonLabel: { ...typography.caption, fontWeight: '700' },
+  comparisonValue: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  exerciseWork: { ...typography.caption, fontVariant: ['tabular-nums'] },
+  trendPlot: { minHeight: 172, flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs, paddingTop: spacing.lg },
+  trendColumn: { flex: 1, minWidth: 36, alignItems: 'center', justifyContent: 'flex-end', gap: spacing.xs },
+  trendValue: { ...typography.caption, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  trendTrack: { width: '72%', maxWidth: 56, minWidth: 20, height: 112, borderRadius: radii.compact, justifyContent: 'flex-end', overflow: 'hidden' },
+  trendBar: { width: '100%', minHeight: spacing.xs, borderRadius: radii.compact },
+  trendWeek: { ...typography.caption, fontVariant: ['tabular-nums'] },
+  chartNote: { ...typography.caption },
 });
 
 function formatPercent(value: number): string {
   const rounded = Math.abs(value) < 10 ? value.toFixed(1) : Math.round(value).toString();
   return `${value > 0 ? '+' : ''}${rounded}%`;
+}
+
+function formatWork(value: number): string {
+  return `${Math.round(value).toLocaleString()} kg·reps`;
+}
+
+function WeeklyWorkTrend({ weeks }: { weeks: WeeklyVolume[] }) {
+  const { colors } = useJienTheme();
+  const recent = weeks.slice(-6);
+  const maximum = Math.max(...recent.map((week) => week.totalKg), 1);
+  return (
+    <View accessibilityLabel={`Training work over ${recent.length} logged week${recent.length === 1 ? '' : 's'}`} style={styles.trendPlot}>
+      {recent.map((week, index) => {
+        const ratio = week.totalKg / maximum;
+        const active = index === recent.length - 1;
+        return (
+          <View key={week.week} style={styles.trendColumn}>
+            <AppText style={[styles.trendValue, { color: active ? colors.accent : colors.textMuted }]}>{formatCompactWork(week.totalKg)}</AppText>
+            <View style={[styles.trendTrack, { backgroundColor: colors.surfaceRaised }]}>
+              <View style={[styles.trendBar, { height: `${Math.max(8, ratio * 100)}%`, backgroundColor: active ? colors.accent : colors.accentSoft }]} />
+            </View>
+            <AppText style={[styles.trendWeek, { color: active ? colors.text : colors.textMuted }]}>{formatWeek(week.week)}</AppText>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function formatCompactWork(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+  return String(Math.round(value));
+}
+
+function formatWeek(value: string): string {
+  const week = value.split('-W')[1];
+  return week ? `W${Number(week)}` : value;
 }

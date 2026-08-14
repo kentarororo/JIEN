@@ -36,3 +36,6 @@ yarn-error.log*
 .pnpm-state/
 .pnpm-store/
 .skill-tools/
+
+# Supabase CLI project-link cache
+supabase/.temp/
