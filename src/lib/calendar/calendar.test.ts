@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildMonthGrid, moveMonth } from './index.ts';
+import { buildMonthGrid, moveMonth, moveMonthSelection } from './index.ts';
 
 test('builds a stable six-week Monday-first month grid', () => {
   const cells = buildMonthGrid(new Date(2026, 7, 1), new Date(2026, 7, 14));
@@ -16,4 +16,12 @@ test('moves across year boundaries without date overflow', () => {
   assert.equal(next.getFullYear(), 2027);
   assert.equal(next.getMonth(), 0);
   assert.equal(next.getDate(), 1);
+});
+
+test('keeps calendar selection inside the newly visible month', () => {
+  const september = moveMonthSelection(new Date(2026, 7, 1), '2026-08-31', 1);
+  assert.equal(september.dateKey, '2026-09-30');
+
+  const january = moveMonthSelection(new Date(2026, 11, 1), '2026-12-14', 1);
+  assert.equal(january.dateKey, '2027-01-14');
 });

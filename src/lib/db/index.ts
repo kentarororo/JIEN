@@ -6,6 +6,7 @@ export { createCustomExercise, listExercises } from './exercises';
 export {
   analyzeMealPhoto,
   cacheFoodCatalogItems,
+  getMealPhotoAnalysisCapability,
   lookupFoodBarcode,
   markFoodCatalogItemUsed,
   searchFoodDatabase,
@@ -42,11 +43,13 @@ export {
 export { getSupabaseClient } from './supabase';
 export { getSyncStatus, syncPendingChanges } from './sync-queue';
 export {
+  deleteWorkout,
   getExerciseHistory,
   getLastExerciseSessionSets,
   getWorkoutProgressComparison,
   getWorkoutDetail,
   listRecentWorkouts,
+  listWorkoutsForDate,
   listVolumeHistory,
   listWorkoutExportRows,
   saveWorkout,

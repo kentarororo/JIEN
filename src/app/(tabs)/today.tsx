@@ -5,9 +5,9 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { buildMonthGrid, moveMonth } from '@/lib/calendar';
-import { getDashboardSummary, listCalendarActivity } from '@/lib/db';
-import { formatShortDate, toLocalDateKey } from '@/lib/time';
+import { buildMonthGrid, moveMonthSelection } from '@/lib/calendar';
+import { getDashboardSummary, listCalendarActivity, listWorkoutsForDate } from '@/lib/db';
+import { formatShortDate, formatTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function TodayScreen() {
@@ -21,12 +21,13 @@ export default function TodayScreen() {
   const loader = useCallback(async () => {
     const rangeStart = cells[0]?.dateKey ?? todayKey;
     const rangeEnd = cells.at(-1)?.dateKey ?? todayKey;
-    const [summary, activity] = await Promise.all([
+    const [summary, activity, selectedWorkouts] = await Promise.all([
       getDashboardSummary(db),
       listCalendarActivity(db, rangeStart, rangeEnd),
+      listWorkoutsForDate(db, selectedDate),
     ]);
-    return { summary, activity };
-  }, [cells, db, todayKey]);
+    return { summary, activity, selectedWorkouts, selectedDate };
+  }, [cells, db, selectedDate, todayKey]);
   const { data, error, loading, reload } = useScreenData(loader);
 
   if (loading && !data) return <Screen><StatePanel title="Opening your day" body="Loading your local training and nutrition log." loading /></Screen>;
@@ -37,7 +38,13 @@ export default function TodayScreen() {
   const proteinTarget = summary.nutrition.target?.proteinG ?? 0;
   const activityByDate = new Map(data.activity.map((day) => [day.date, day]));
   const selectedActivity = activityByDate.get(selectedDate);
+  const selectedWorkouts = data.selectedDate === selectedDate ? data.selectedWorkouts : [];
   const selectedInFuture = selectedDate > todayKey;
+  const changeMonth = (delta: number) => {
+    const next = moveMonthSelection(visibleMonth, selectedDate, delta);
+    setVisibleMonth(next.month);
+    setSelectedDate(next.dateKey);
+  };
   return (
     <Screen>
       <ScreenHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())} title="Keep the day honest." />
@@ -50,12 +57,12 @@ export default function TodayScreen() {
       <SectionHeading title="Calendar" detail="Training and food, together" />
       <Card style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
-          <Button label="‹" onPress={() => setVisibleMonth((month) => moveMonth(month, -1))} variant="quiet" />
+          <Button label="‹" onPress={() => changeMonth(-1)} variant="quiet" />
           <View style={styles.calendarTitleWrap}>
             <AppText style={styles.calendarTitle}>{new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(visibleMonth)}</AppText>
             <Button label="Today" onPress={() => { const now = new Date(); setVisibleMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelectedDate(todayKey); }} variant="quiet" />
           </View>
-          <Button label="›" onPress={() => setVisibleMonth((month) => moveMonth(month, 1))} variant="quiet" />
+          <Button label="›" onPress={() => changeMonth(1)} variant="quiet" />
         </View>
         <View style={styles.weekRow}>{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => <AppText key={`${day}-${index}`} style={[styles.weekday, { color: colors.textMuted }]}>{day}</AppText>)}</View>
         <View style={styles.monthGrid}>
@@ -85,18 +92,28 @@ export default function TodayScreen() {
           })}
         </View>
         <View style={[styles.selectedDay, { backgroundColor: colors.surfaceMuted }]}>
-          <View style={styles.flex}>
-            <AppText style={styles.value}>{new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${selectedDate}T12:00:00`))}</AppText>
-            <AppText style={{ color: colors.textMuted }}>{selectedInFuture
-              ? 'Future-day planning will arrive with routines; completed logs stay on today or earlier.'
-              : selectedActivity
-                ? `${selectedActivity.workoutCount} workout · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${Math.round(selectedActivity.caloriesKcal)} kcal`
-                : 'No activity logged'}</AppText>
+          <View style={styles.selectedDayHeader}>
+            <View style={styles.flex}>
+              <AppText style={styles.value}>{new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${selectedDate}T12:00:00`))}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{selectedInFuture
+                ? 'Future-day planning will arrive with routines; completed logs stay on today or earlier.'
+                : selectedActivity
+                  ? `${selectedActivity.workoutCount} workout · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${Math.round(selectedActivity.caloriesKcal)} kcal`
+                  : 'No activity logged'}</AppText>
+            </View>
+            <View style={styles.selectedDayActions}>
+              <Button label={selectedWorkouts.length ? 'Log another workout' : 'Log workout'} onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
+              <Button label={selectedActivity?.mealCount ? 'Log another meal' : 'Log meal'} onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
+            </View>
           </View>
-          <View style={styles.selectedDayActions}>
-            <Button label="Workout" onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
-            <Button label="Meal" onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
-          </View>
+          {selectedWorkouts.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged workouts</AppText>{selectedWorkouts.map((workout) => (
+            <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
+              <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border }, pressed && styles.pressed]}>
+                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg</AppText></View>
+                <AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText>
+              </Pressable>
+            </Link>
+          ))}</View> : null}
         </View>
       </Card>
 
@@ -182,8 +199,12 @@ const styles = StyleSheet.create({
   dayNumber: { ...typography.label },
   dayDots: { height: 5, flexDirection: 'row', gap: 3 },
   dot: { width: 5, height: 5, borderRadius: radii.pill },
-  selectedDay: { padding: spacing.sm, borderRadius: radii.control, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  selectedDay: { padding: spacing.sm, borderRadius: radii.control, gap: spacing.sm },
+  selectedDayHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   selectedDayActions: { flexDirection: 'row', flexWrap: 'wrap' },
+  selectedRecords: { gap: spacing.xs },
+  selectedRecordsTitle: { ...typography.label, fontWeight: '800' },
+  selectedRecord: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },
   pressed: { opacity: 0.68 },
 });
 

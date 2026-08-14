@@ -1,11 +1,11 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { getWorkoutDetail, getWorkoutProgressComparison } from '@/lib/db';
+import { deleteWorkout, getWorkoutDetail, getWorkoutProgressComparison } from '@/lib/db';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { spacing, typography, useJienTheme } from '@/theme';
 
@@ -14,6 +14,9 @@ export default function WorkoutDetailScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { colors } = useJienTheme();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const loader = useCallback(async () => {
     const [detail, progress] = await Promise.all([
       getWorkoutDetail(db, id),
@@ -28,6 +31,19 @@ export default function WorkoutDetailScreen() {
     detail?.sets.forEach((set) => result.set(set.exerciseName, [...(result.get(set.exerciseName) ?? []), set]));
     return [...result.entries()];
   }, [detail]);
+
+  const removeWorkout = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteWorkout(db, id);
+      router.replace('/train');
+    } catch (cause) {
+      setDeleteError(cause instanceof Error ? cause.message : 'The workout could not be removed.');
+      setDeleting(false);
+    }
+  };
 
   if (loading && !data) return <Screen><StatePanel title="Loading workout" body="Reading this session from your device." loading /></Screen>;
   if (error) return <Screen><StatePanel title="Workout unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /></Screen>;
@@ -90,6 +106,19 @@ export default function WorkoutDetailScreen() {
           <Button label="Use as template" onPress={() => router.replace({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
           <Button label="Back to training" onPress={() => router.replace('/train')} variant="secondary" />
         </View>
+      </Card>
+      <Card style={confirmDelete ? { backgroundColor: colors.dangerSoft, borderColor: colors.danger } : undefined}>
+        {confirmDelete ? (
+          <>
+            <AppText style={styles.progressName}>Remove this workout?</AppText>
+            <AppText style={{ color: colors.textMuted }}>It will disappear from Training, Calendar, and progression totals. This action syncs to your account.</AppText>
+            {deleteError ? <AppText style={{ color: colors.danger }}>{deleteError}</AppText> : null}
+            <View style={styles.actions}>
+              <Button label="Remove workout" onPress={() => void removeWorkout()} busy={deleting} />
+              <Button label="Keep it" onPress={() => { setConfirmDelete(false); setDeleteError(null); }} disabled={deleting} variant="secondary" />
+            </View>
+          </>
+        ) : <Button label="Remove this workout" onPress={() => setConfirmDelete(true)} variant="quiet" />}
       </Card>
     </Screen>
   );

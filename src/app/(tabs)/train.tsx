@@ -3,11 +3,11 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, Screen, ScreenHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getWorkoutProgressComparison, listRecentWorkouts, listVolumeHistory } from '@/lib/db';
 import { aggregateWeeklyVolume, detectDeloadSignal, type WeeklyVolume } from '@/lib/progression';
-import { formatShortDate } from '@/lib/time';
+import { formatShortDate, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function TrainScreen() {
@@ -86,12 +86,13 @@ export default function TrainScreen() {
           <AppText style={[styles.chartNote, { color: colors.textMuted }]}>This is completed working-set load × reps, not a strength or muscle-growth score.</AppText>
         </Card>
       ) : null}
+      {data?.workouts.length ? <SectionHeading title="Workout history" detail="Each card is one saved session" /> : null}
       <View style={styles.list}>
         {data?.workouts.map((workout) => (
           <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
             <Pressable>
               <Card>
-                <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(workout.completedAt ?? workout.performedOn)}</AppText></View>
+                <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(workout.completedAt ?? workout.performedOn)}{workout.completedAt ? ` · ${formatTime(workout.completedAt)}` : ''}</AppText></View>
                 <AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg</AppText>
               </Card>
             </Pressable>

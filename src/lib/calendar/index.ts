@@ -29,3 +29,14 @@ export function buildMonthGrid(month: Date, today = new Date()): MonthCell[] {
 export function moveMonth(month: Date, delta: number): Date {
   return new Date(month.getFullYear(), month.getMonth() + delta, 1);
 }
+
+export function moveMonthSelection(month: Date, selectedDate: string, delta: number): { month: Date; dateKey: string } {
+  const nextMonth = moveMonth(month, delta);
+  const requestedDay = Number(selectedDate.slice(-2));
+  const lastDay = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
+  const safeDay = Number.isInteger(requestedDay) && requestedDay > 0 ? Math.min(requestedDay, lastDay) : 1;
+  return {
+    month: nextMonth,
+    dateKey: toLocalDateKey(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), safeDay)),
+  };
+}

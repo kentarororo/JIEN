@@ -72,6 +72,20 @@ export async function listRecentWorkouts(
   return rows.map(mapWorkoutSummary);
 }
 
+export async function listWorkoutsForDate(
+  db: SQLiteDatabase,
+  date: string,
+): Promise<WorkoutSummary[]> {
+  const rows = await db.getAllAsync<WorkoutSummaryRow>(
+    `${WORKOUT_SUMMARY_SELECT}
+     WHERE w.performed_on = ? AND w.status = 'completed' AND w.deleted_at IS NULL
+     GROUP BY w.id
+     ORDER BY w.started_at DESC, w.created_at DESC`,
+    [date],
+  );
+  return rows.map(mapWorkoutSummary);
+}
+
 export async function getWorkoutDetail(
   db: SQLiteDatabase,
   workoutId: string,
@@ -148,7 +162,7 @@ export async function saveWorkout(
     throw new Error('Completed workouts must use today or an earlier calendar date.');
   }
 
-  const id = Crypto.randomUUID();
+  const id = input.id ?? Crypto.randomUUID();
   const completedAt = input.startedAt;
   const performedOn = toLocalDateKey(startedAt);
   const workoutPayload = {
@@ -165,8 +179,8 @@ export async function saveWorkout(
   };
 
   await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `INSERT INTO workouts (
+    const insertResult = await db.runAsync(
+      `INSERT OR IGNORE INTO workouts (
         id, title, status, performed_on, started_at, completed_at, notes,
         created_at, updated_at, client_updated_at
       ) VALUES (?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)`,
@@ -182,6 +196,7 @@ export async function saveWorkout(
         completedAt,
       ],
     );
+    if (insertResult.changes === 0) return;
     await enqueueUpsert(db, 'workouts', id, workoutPayload);
 
     let sortOrder = 0;
@@ -233,6 +248,69 @@ export async function saveWorkout(
   });
 
   return id;
+}
+
+export async function deleteWorkout(db: SQLiteDatabase, workoutId: string): Promise<void> {
+  const workout = await db.getFirstAsync<{
+    id: string;
+    title: string;
+    status: WorkoutStatus;
+    performed_on: string;
+    started_at: string | null;
+    completed_at: string | null;
+    notes: string | null;
+    created_at: string;
+  }>(
+    `SELECT id, title, status, performed_on, started_at, completed_at, notes, created_at
+     FROM workouts WHERE id = ? AND deleted_at IS NULL`,
+    [workoutId],
+  );
+  if (!workout) return;
+
+  const sets = await db.getAllAsync<{
+    id: string;
+    workout_id: string;
+    exercise_id: string;
+    sort_order: number;
+    kind: SetKind;
+    reps: number;
+    load_value: number;
+    load_unit: LoadUnit;
+    rpe: number | null;
+    completed_at: string;
+    notes: string | null;
+    created_at: string;
+  }>(
+    `SELECT id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
+      rpe, completed_at, notes, created_at
+     FROM workout_sets WHERE workout_id = ? AND deleted_at IS NULL`,
+    [workoutId],
+  );
+  const deletedAt = new Date().toISOString();
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE workouts SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+      [deletedAt, deletedAt, deletedAt, workoutId],
+    );
+    await enqueueUpsert(db, 'workouts', workoutId, {
+      ...workout,
+      client_updated_at: deletedAt,
+      deleted_at: deletedAt,
+    });
+
+    for (const set of sets) {
+      await db.runAsync(
+        `UPDATE workout_sets SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+        [deletedAt, deletedAt, deletedAt, set.id],
+      );
+      await enqueueUpsert(db, 'sets', set.id, {
+        ...set,
+        client_updated_at: deletedAt,
+        deleted_at: deletedAt,
+      });
+    }
+  });
 }
 
 export async function getExerciseHistory(

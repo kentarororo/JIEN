@@ -6,12 +6,13 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { createElement, useEffect, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
 import {
   analyzeMealPhoto,
   cacheFoodCatalogItems,
+  getMealPhotoAnalysisCapability,
   lookupFoodBarcode,
   markFoodCatalogItemUsed,
   saveMeal,
@@ -52,6 +53,11 @@ type DraftFood = {
 };
 
 type CameraMode = 'barcode' | 'photo' | null;
+type PendingPhoto = {
+  base64: string;
+  mediaType: string;
+  sourceLabel: string;
+};
 
 const emptyFood = (): DraftFood => ({
   key: Crypto.randomUUID(), catalogId: null, name: '', quantity: '1', unit: 'serving',
@@ -82,7 +88,13 @@ export default function NewMealScreen() {
   const [cameraMode, setCameraMode] = useState<CameraMode>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
+  const [barcodeCaptured, setBarcodeCaptured] = useState(false);
+  const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
+  const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoCapability, setPhotoCapability] = useState<{ available: boolean; message: string } | null>(null);
   const [photoDescription, setPhotoDescription] = useState('');
+  const [mealAiContext, setMealAiContext] = useState<string | null>(null);
   const [barcodeValue, setBarcodeValue] = useState('');
   const [toolMessage, setToolMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -96,6 +108,18 @@ export default function NewMealScreen() {
     }, 160);
     return () => clearTimeout(timer);
   }, [db, query]);
+
+  useEffect(() => {
+    if (!pendingPhoto) {
+      setPhotoCapability(null);
+      return;
+    }
+    let active = true;
+    void getMealPhotoAnalysisCapability().then((capability) => {
+      if (active) setPhotoCapability(capability);
+    });
+    return () => { active = false; };
+  }, [pendingPhoto]);
 
   const update = (key: string, field: 'name', value: string) => {
     setFormError(null);
@@ -153,7 +177,13 @@ export default function NewMealScreen() {
     setQuery('');
     setResults([]);
     setToolMessage(`${item.name} added. Adjust the portion or macros if needed.`);
-    if (item.source !== 'ai_photo') await markFoodCatalogItemUsed(db, item.id);
+    if (item.source !== 'ai_photo') {
+      try {
+        await markFoodCatalogItemUsed(db, item.id);
+      } catch {
+        // Usage ranking is best-effort and must never undo an item already added to the meal.
+      }
+    }
   };
 
   const runDatabaseSearch = async () => {
@@ -165,9 +195,13 @@ export default function NewMealScreen() {
     setToolMessage(null);
     try {
       const items = await searchFoodDatabase(query);
-      await cacheFoodCatalogItems(db, items);
       setResults(items);
-      setToolMessage(items.length ? `Found ${items.length} Open Food Facts matches.` : 'No database matches found.');
+      setToolMessage(items.length ? `Found ${items.length} online food matches.` : 'No database matches found.');
+      try {
+        await cacheFoodCatalogItems(db, items);
+      } catch {
+        // Search results remain usable if the optional local cache write fails.
+      }
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'Online food search is unavailable.');
     } finally {
@@ -177,6 +211,8 @@ export default function NewMealScreen() {
 
   const openCamera = async (mode: Exclude<CameraMode, null>) => {
     setToolMessage(null);
+    setBarcodeCaptured(false);
+    setBarcodeStatus(null);
     setCameraReady(false);
     let granted = cameraPermission?.granted ?? false;
     if (!granted) granted = (await requestCameraPermission()).granted;
@@ -190,37 +226,62 @@ export default function NewMealScreen() {
   const closeCamera = () => {
     barcodeLockRef.current = false;
     setCameraReady(false);
-    setCameraMode(null);
-  };
-
-  const hideCameraDuringLookup = () => {
-    setCameraReady(false);
+    setBarcodeCaptured(false);
+    setBarcodeStatus(null);
     setCameraMode(null);
   };
 
   const handleBarcode = async ({ data }: BarcodeScanningResult) => {
     if (cameraBusy || barcodeLockRef.current) return;
     barcodeLockRef.current = true;
-    hideCameraDuringLookup();
+    setBarcodeCaptured(true);
+    setBarcodeValue(data);
+    setBarcodeStatus('Barcode found. Looking up the food…');
     try {
-      await lookupBarcode(data);
+      const matched = await lookupBarcode(data, true);
+      if (matched) closeCamera();
     } finally {
-      barcodeLockRef.current = false;
+      // Keep scanning locked after a failed lookup until the user explicitly retries or scans another code.
     }
   };
 
-  const lookupBarcode = async (value = barcodeValue) => {
-    if (cameraBusy) return;
+  const retryScannedBarcode = async () => {
+    if (!barcodeValue || cameraBusy) return;
+    barcodeLockRef.current = true;
+    setBarcodeStatus('Trying that barcode again…');
+    const matched = await lookupBarcode(barcodeValue, true);
+    if (matched) closeCamera();
+  };
+
+  const scanAnotherBarcode = () => {
+    barcodeLockRef.current = false;
+    setBarcodeCaptured(false);
+    setBarcodeStatus(null);
+    setBarcodeValue('');
+  };
+
+  const lookupBarcode = async (value = barcodeValue, fromCamera = false): Promise<boolean> => {
+    if (cameraBusy) return false;
     setCameraBusy(true);
+    if (!fromCamera) setToolMessage(null);
     try {
       const items = await lookupFoodBarcode(value);
-      await cacheFoodCatalogItems(db, items);
-      if (!items[0]) throw new Error('No food matched that barcode.');
+      if (!items[0]) throw new Error('No food matched that barcode. Try another angle or enter it manually.');
       await addCatalogFood(items[0]);
+      try {
+        await cacheFoodCatalogItems(db, items);
+      } catch {
+        // The matched product is already in the draft; caching is only an optimization.
+      }
       setBarcodeValue('');
       setToolMessage(`${items[0].name} added from Open Food Facts. Review the serving and macros.`);
+      setBarcodeStatus(`${items[0].name} added.`);
+      return true;
     } catch (cause) {
-      setToolMessage(cause instanceof Error ? cause.message : 'Could not look up that barcode.');
+      const message = cause instanceof Error ? cause.message : 'Could not look up that barcode.';
+      setToolMessage(message);
+      if (fromCamera) setBarcodeStatus(message);
+      return false;
     } finally {
       setCameraBusy(false);
     }
@@ -231,18 +292,18 @@ export default function NewMealScreen() {
     if (!items.length) throw new Error('No food items were identified. Try a clearer photo or add a description.');
     const drafts = items.map(toDraftFood);
     setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? drafts : [...current, ...drafts]);
-    closeCamera();
     setToolMessage(`Added ${items.length} AI-estimated item${items.length === 1 ? '' : 's'}. Review every portion and macro before saving. Not medical advice.`);
   };
 
-  const prepareAndAnalyzePhoto = async (uri: string, width?: number) => {
+  const preparePhoto = async (uri: string, sourceLabel: string, width?: number) => {
     const context = ImageManipulator.manipulate(uri);
     if (width != null && width > 1280) context.resize({ width: 1280, height: null });
     const rendered = await context.renderAsync();
     const resized = await rendered.saveAsync({ compress: 0.68, format: SaveFormat.JPEG, base64: true });
     if (!resized.base64) throw new Error('The meal photo could not be prepared for analysis.');
     try {
-      await addAnalyzedPhoto(resized.base64, 'image/jpeg');
+      setPhotoError(null);
+      setPendingPhoto({ base64: resized.base64, mediaType: 'image/jpeg', sourceLabel });
     } finally {
       try {
         new ExpoFile(resized.uri).delete();
@@ -255,13 +316,15 @@ export default function NewMealScreen() {
   const analyzePhoto = async () => {
     if (!cameraRef.current || cameraBusy) return;
     setCameraBusy(true);
-    setToolMessage('Analyzing the visible meal…');
+    setToolMessage('Capturing the visible meal…');
     try {
       const picture = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-      if (!picture?.uri) throw new Error('The camera did not return an image to analyze.');
-      await prepareAndAnalyzePhoto(picture.uri, picture.width);
+      if (!picture?.uri) throw new Error('The camera did not return an image.');
+      await preparePhoto(picture.uri, 'Camera photo', picture.width);
+      closeCamera();
+      setToolMessage(null);
     } catch (cause) {
-      setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
+      setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be prepared.');
     } finally {
       setCameraBusy(false);
     }
@@ -298,7 +361,8 @@ export default function NewMealScreen() {
       }
       if (resolution.kind === 'error') throw new Error(resolution.message);
       setToolMessage('Preparing the selected meal photo…');
-      await prepareAndAnalyzePhoto(resolution.asset.uri, resolution.asset.width);
+      await preparePhoto(resolution.asset.uri, 'Photo library', resolution.asset.width);
+      setToolMessage(null);
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'The selected meal photo could not be analyzed.');
     } finally {
@@ -321,7 +385,8 @@ export default function NewMealScreen() {
       setCameraBusy(true);
       setToolMessage('Resuming your selected meal photo…');
       try {
-        await prepareAndAnalyzePhoto(resolution.asset.uri, resolution.asset.width);
+        await preparePhoto(resolution.asset.uri, 'Photo library', resolution.asset.width);
+        if (active) setToolMessage(null);
       } catch (cause) {
         if (active) setToolMessage(cause instanceof Error ? cause.message : 'The selected meal photo could not be analyzed.');
       } finally {
@@ -337,18 +402,51 @@ export default function NewMealScreen() {
     const file = event.target.files?.[0];
     if (!file || cameraBusy) return;
     setCameraBusy(true);
-    setToolMessage('Uploading the selected photo for analysis...');
+    setToolMessage('Preparing the selected photo...');
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      const base64 = dataUrl.split(',')[1];
-      if (!base64) throw new Error('The selected photo could not be read.');
-      await addAnalyzedPhoto(base64, file.type || 'image/jpeg');
+      const prepared = await prepareWebPhoto(file);
+      setPhotoError(null);
+      setPendingPhoto(prepared);
+      setToolMessage(null);
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
     } finally {
       if (event.target) event.target.value = '';
       setCameraBusy(false);
     }
+  };
+
+  const analyzePendingPhoto = async () => {
+    if (!pendingPhoto || cameraBusy) return;
+    setCameraBusy(true);
+    setPhotoError(null);
+    try {
+      const context = photoDescription.trim();
+      await addAnalyzedPhoto(pendingPhoto.base64, pendingPhoto.mediaType);
+      if (context) setMealAiContext((current) => current ? `${current}\n${context}` : context);
+      setPendingPhoto(null);
+      setPhotoDescription('');
+    } catch (cause) {
+      setPhotoError(cause instanceof Error ? cause.message : 'The meal photo could not be analyzed.');
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  const dismissPendingPhoto = (manual = false) => {
+    if (cameraBusy) return;
+    const description = photoDescription.trim();
+    if (manual && description) {
+      setFoods((current) => current.length === 1 && isBlankFood(current[0]!)
+        ? [{ ...current[0]!, name: description }]
+        : [...current, { ...emptyFood(), name: description }]);
+    }
+    setPendingPhoto(null);
+    setPhotoError(null);
+    setPhotoDescription('');
+    if (manual) setToolMessage(description
+      ? 'Photo analysis skipped. The description is in a new food item; add its portion and macros below.'
+      : 'Photo analysis skipped. Enter the food and macros manually below.');
   };
 
   const submit = async () => {
@@ -373,7 +471,7 @@ export default function NewMealScreen() {
         throw new Error('Enter a valid portion and macro estimate for every food.');
       }
       const eatenAt = date ? localTimestampForDate(date) : new Date().toISOString();
-      await saveMeal(db, { name, type, eatenAt, items });
+      await saveMeal(db, { name, type, eatenAt, aiContext: mealAiContext, items });
       await reconcileMealGapNotification(db);
       router.back();
     } catch (cause) {
@@ -428,7 +526,6 @@ export default function NewMealScreen() {
             </>
           )}
         </View>
-        <Field label="Meal photo context (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" />
         <View style={styles.barcodeRow}>
           <Field label="Barcode number" value={barcodeValue} onChangeText={setBarcodeValue} placeholder="Enter if camera scanning is unavailable" keyboardType="number-pad" returnKeyType="search" onSubmitEditing={() => void lookupBarcode()} containerStyle={styles.flex} />
           <Button label="Look up barcode" onPress={() => void lookupBarcode()} busy={cameraBusy} variant="secondary" />
@@ -446,7 +543,7 @@ export default function NewMealScreen() {
             ))}
           </View>
         ) : null}
-        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food and barcode data: Open Food Facts contributors (ODbL). Search works without a JIEN account.</AppText>
+        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food data: USDA FoodData Central and Open Food Facts contributors (ODbL). Without an account, search and barcode lookup fall back to Open Food Facts.</AppText>
       </Card>
 
       <Modal visible={cameraMode != null} animationType="slide" transparent onRequestClose={closeCamera}>
@@ -464,12 +561,42 @@ export default function NewMealScreen() {
                   closeCamera();
                   setToolMessage(`Camera could not start: ${event.message}. Enter the barcode manually below.`);
                 }}
-                onBarcodeScanned={cameraMode === 'barcode' ? handleBarcode : undefined}
+                onBarcodeScanned={cameraMode === 'barcode' && !barcodeCaptured ? handleBarcode : undefined}
               /> : null}
               {!cameraReady ? <View style={styles.cameraLoading}><AppText style={{ color: colors.textMuted }}>Starting camera…</AppText></View> : null}
             </View>
-            {cameraMode === 'photo' ? <Button label="Take photo and estimate" onPress={() => void analyzePhoto()} busy={cameraBusy} disabled={!cameraReady} /> : null}
-            {cameraMode === 'barcode' ? <AppText style={[styles.attribution, { color: colors.textMuted }]}>If camera permission is blocked, cancel and use the barcode number field.</AppText> : null}
+            {cameraMode === 'photo' ? <Button label="Take photo" onPress={() => void analyzePhoto()} busy={cameraBusy} disabled={!cameraReady} /> : null}
+            {cameraMode === 'barcode' ? (
+              <View style={styles.scannerStatus}>
+                {barcodeCaptured ? <AppText style={styles.detectedBarcode}>Detected: {barcodeValue}</AppText> : null}
+                {barcodeStatus ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: cameraBusy ? colors.accentSoft : colors.warningSoft }]}><AppText>{barcodeStatus}</AppText></View> : null}
+                {barcodeCaptured && !cameraBusy ? <View style={styles.photoReviewActions}><Button label="Retry lookup" onPress={() => void retryScannedBarcode()} variant="secondary" /><Button label="Scan another" onPress={scanAnotherBarcode} variant="quiet" /></View> : null}
+                <AppText style={[styles.attribution, { color: colors.textMuted }]}>The scanner stays open if a product is not found. Detected digits remain in the manual field.</AppText>
+              </View>
+            ) : null}
+          </Card>
+        </View>
+      </Modal>
+
+      <Modal visible={pendingPhoto != null} animationType="slide" transparent onRequestClose={() => { if (!cameraBusy) dismissPendingPhoto(); }}>
+        <View style={[styles.cameraOverlay, { backgroundColor: colors.overlay }]}>
+          <Card style={[styles.cameraSheet, { backgroundColor: colors.surface }]}>
+            <View style={styles.header}>
+              <View style={styles.flex}>
+                <AppText style={styles.sectionTitle}>Add context, then analyze</AppText>
+                <AppText style={{ color: colors.textMuted }}>{pendingPhoto?.sourceLabel} is ready. Nothing is uploaded until you choose Analyze photo.</AppText>
+              </View>
+              <Button label="Remove" onPress={() => dismissPendingPhoto()} variant="quiet" disabled={cameraBusy} />
+            </View>
+            {pendingPhoto ? <Image accessibilityLabel="Selected meal photo preview" source={{ uri: `data:${pendingPhoto.mediaType};base64,${pendingPhoto.base64}` }} resizeMode="cover" style={[styles.photoPreview, { backgroundColor: colors.surfaceMuted }]} /> : null}
+            <Field label="What is in this meal? (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" />
+            {photoCapability ? <View style={[styles.message, { backgroundColor: photoCapability.available ? colors.successSoft : colors.warningSoft }]}><AppText>{photoCapability.message}</AppText></View> : null}
+            <AppText style={[styles.attribution, { color: colors.textMuted }]}>AI estimates can be wrong. You will review and edit every portion and macro before saving.</AppText>
+            {photoError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{photoError}</AppText></View> : null}
+            <View style={styles.photoReviewActions}>
+              <Button label={photoError ? 'Try analysis again' : 'Analyze photo'} onPress={() => void analyzePendingPhoto()} busy={cameraBusy} />
+              <Button label="Enter manually instead" onPress={() => dismissPendingPhoto(true)} variant="secondary" disabled={cameraBusy} />
+            </View>
           </Card>
         </View>
       </Modal>
@@ -566,7 +693,37 @@ function formatFoodNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+async function prepareWebPhoto(file: File): Promise<PendingPhoto> {
+  if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') {
+    if (file.size > 10_000_000) throw new Error('That photo is too large. Choose a photo under 10 MB.');
+    const dataUrl = await readFileAsDataUrl(file);
+    const base64 = dataUrl.split(',')[1];
+    if (!base64) throw new Error('The selected photo could not be read.');
+    return { base64, mediaType: file.type || 'image/jpeg', sourceLabel: file.name || 'Selected photo' };
+  }
+
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, 1280 / bitmap.width);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('The browser could not prepare that photo.');
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((value) => value ? resolve(value) : reject(new Error('The browser could not compress that photo.')), 'image/jpeg', 0.68);
+    });
+    const dataUrl = await readFileAsDataUrl(blob);
+    const base64 = dataUrl.split(',')[1];
+    if (!base64 || base64.length > 14_000_000) throw new Error('That photo is still too large to analyze. Try a tighter crop.');
+    return { base64, mediaType: 'image/jpeg', sourceLabel: file.name || 'Selected photo' };
+  } finally {
+    bitmap.close();
+  }
+}
+
+function readFileAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('The selected photo could not be read.'));
@@ -611,6 +768,10 @@ const styles = StyleSheet.create({
   cameraOverlay: { flex: 1, justifyContent: 'flex-end' },
   cameraSheet: { width: '100%', maxWidth: 760, maxHeight: '96%', alignSelf: 'center', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: spacing.lg },
   cameraLoading: { position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' },
+  scannerStatus: { gap: spacing.xs },
+  detectedBarcode: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  photoPreview: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, borderRadius: radii.card },
+  photoReviewActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   message: { padding: spacing.md, borderRadius: radii.control },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },

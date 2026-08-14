@@ -126,17 +126,31 @@ export async function searchFoodDatabase(query: string): Promise<FoodCatalogItem
     sort_by: 'unique_scans_n',
     fields: OPEN_FOOD_FACTS_FIELDS,
   });
-  const response = await fetchOpenFoodFacts<OpenFoodFactsSearchResponse>(
-    `https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`,
-  );
-  return (response.products ?? [])
-    .map(mapOpenFoodFactsProduct)
-    .filter((item): item is FoodCatalogItem => item != null);
+  const [openFoodFacts, usda] = await Promise.allSettled([
+    fetchOpenFoodFacts<OpenFoodFactsSearchResponse>(
+      `https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`,
+    ).then((response) => (response.products ?? [])
+      .map(mapOpenFoodFactsProduct)
+      .filter((item): item is FoodCatalogItem => item != null)),
+    invokeOptionalFoodFunction('food-search', { query: clean }),
+  ]);
+  const items = dedupeFoods([
+    ...(usda.status === 'fulfilled' ? usda.value : []),
+    ...(openFoodFacts.status === 'fulfilled' ? openFoodFacts.value : []),
+  ]).slice(0, 20);
+  if (!items.length && openFoodFacts.status === 'rejected') {
+    throw openFoodFacts.reason instanceof Error
+      ? openFoodFacts.reason
+      : new Error('The online food database is unavailable.');
+  }
+  return items;
 }
 
 export async function lookupFoodBarcode(barcode: string): Promise<FoodCatalogItem[]> {
   const clean = barcode.replace(/\D/g, '');
   if (clean.length < 8 || clean.length > 14) throw new Error('Scan or enter a valid 8-14 digit barcode.');
+  const cloudItems = await invokeOptionalFoodFunction('food-barcode', { barcode: clean });
+  if (cloudItems[0]) return cloudItems;
   const response = await fetchOpenFoodFacts<OpenFoodFactsProductResponse>(
     `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(clean)}.json?fields=${encodeURIComponent(OPEN_FOOD_FACTS_FIELDS)}`,
   );
@@ -150,6 +164,23 @@ export async function analyzeMealPhoto(
   mediaType = 'image/jpeg',
 ): Promise<FoodCatalogItem[]> {
   return invokeFoodFunction('analyze-food-photo', { imageBase64: base64, mediaType, description });
+}
+
+export async function getMealPhotoAnalysisCapability(): Promise<{ available: boolean; message: string }> {
+  let supabase;
+  try {
+    supabase = getSupabaseClient();
+  } catch {
+    return { available: false, message: 'AI photo analysis is not configured. You can still log this meal manually.' };
+  }
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session
+      ? { available: true, message: 'Signed in. The photo will be sent for AI analysis only when you press Analyze photo.' }
+      : { available: false, message: 'Sign in from Account to analyze photos. The selected photo stays here so you can enter the meal manually.' };
+  } catch {
+    return { available: false, message: 'AI availability could not be checked. You can keep logging manually.' };
+  }
 }
 
 async function fetchOpenFoodFacts<T>(url: string): Promise<T> {
@@ -181,9 +212,62 @@ async function invokeFoodFunction(name: string, body: Record<string, unknown>): 
   }
   const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData.session) throw new Error('Sign in to use AI meal-photo analysis. Food search and barcode lookup do not require sign-in.');
-  const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) throw new Error(error.message || 'The online food service is unavailable.');
+  const { data, error } = await withTimeout(
+    supabase.functions.invoke(name, { body }),
+    30_000,
+    'The food service took too long to respond. Try again.',
+  );
+  if (error) throw new Error(await foodFunctionErrorMessage(error));
   const items = (data as { items?: FoodCatalogItem[] } | null)?.items;
   if (!Array.isArray(items)) throw new Error('The food service returned an invalid response.');
   return items;
+}
+
+async function invokeOptionalFoodFunction(name: string, body: Record<string, unknown>): Promise<FoodCatalogItem[]> {
+  try {
+    return await withTimeout(
+      invokeFoodFunction(name, body),
+      2_500,
+      'Optional food database enrichment timed out.',
+    );
+  } catch {
+    return [];
+  }
+}
+
+function dedupeFoods(items: FoodCatalogItem[]): FoodCatalogItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.barcode ? `barcode:${item.barcode}` : `${item.source}:${item.sourceRef ?? item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function foodFunctionErrorMessage(error: unknown): Promise<string> {
+  const fallback = error instanceof Error && error.message
+    ? error.message
+    : 'The online food service is unavailable.';
+  const context = (error as { context?: unknown } | null)?.context;
+  if (!context || typeof (context as { json?: unknown }).json !== 'function') return fallback;
+  try {
+    const payload = await (context as { json(): Promise<unknown> }).json();
+    const message = (payload as { error?: unknown } | null)?.error;
+    return typeof message === 'string' && message.trim() ? message : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

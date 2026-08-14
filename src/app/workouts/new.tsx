@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
@@ -49,6 +49,8 @@ const isRowEmpty = (set: DraftSet) => !set.load.trim() && !set.reps.trim() && !s
 export default function NewWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const workoutIdRef = useRef(Crypto.randomUUID());
+  const submitLockRef = useRef(false);
   const { templateWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; date?: string }>();
   const { width } = useWindowDimensions();
   const compact = width < 520;
@@ -181,7 +183,9 @@ export default function NewWorkoutScreen() {
   };
 
   const submit = async () => {
-    if (!catalog) return;
+    if (!catalog || submitLockRef.current) return;
+    submitLockRef.current = true;
+    let saved = false;
     setSaving(true);
     setFormError(null);
     try {
@@ -215,13 +219,15 @@ export default function NewWorkoutScreen() {
         throw new Error('Use a non-negative load, whole-number reps, and optional RPE from 1–10.');
       }
       const startedAt = date ? localTimestampForDate(date) : new Date().toISOString();
-      const id = await saveWorkout(db, { title, startedAt, exercises });
+      const id = await saveWorkout(db, { id: workoutIdRef.current, title, startedAt, exercises });
+      saved = true;
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Please check the sets and try again.';
       setFormError(message);
       if (process.env.EXPO_OS !== 'web') Alert.alert('Workout not saved', message);
     } finally {
+      if (!saved) submitLockRef.current = false;
       setSaving(false);
     }
   };

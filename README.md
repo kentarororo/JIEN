@@ -50,9 +50,11 @@ The first successful account on a device owns that local database. Signing out k
 the offline records, while signing into a different account is blocked instead of
 silently merging two people's health data.
 
-Online food search and barcode lookup use Open Food Facts directly and work without
-a JIEN account. Consent-gated Claude photo analysis remains a Supabase Edge Function;
-its server-only setup is in [supabase/functions/README.md](supabase/functions/README.md).
+Online food search combines Open Food Facts with USDA FoodData Central when the
+optional Supabase function is configured; barcode lookup falls back safely to Open
+Food Facts. Consent-gated meal-photo analysis remains a Supabase Edge Function. The
+provider boundaries and server-only setup are documented in [docs/food-data.md](docs/food-data.md)
+and [supabase/functions/README.md](supabase/functions/README.md).
 For GitHub Pages, add the same two public Supabase values as repository secrets when
 you are ready to enable sign-in and AI features. Local food search and manual logging
 remain available without them.

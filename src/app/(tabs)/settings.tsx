@@ -53,7 +53,7 @@ export default function SettingsScreen() {
       const result = await syncAccountData(db);
       switch (result.state) {
         case 'synced':
-          setMessage(`${result.pushed} uploaded Â· ${result.pulled} cloud row${result.pulled === 1 ? '' : 's'} checked.`);
+          setMessage(`${result.pushed} uploaded · ${result.pulled} cloud row${result.pulled === 1 ? '' : 's'} checked.`);
           break;
         case 'signed_out':
           setMessage('Your data is safe on this device. Sign in to enable cloud sync.');

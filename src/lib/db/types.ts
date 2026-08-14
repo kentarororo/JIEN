@@ -121,6 +121,7 @@ export type WorkoutSetInput = {
 };
 
 export type SaveWorkoutInput = {
+  id?: string;
   title: string;
   startedAt: string;
   notes?: string;
@@ -213,6 +214,7 @@ export type SaveMealInput = {
   type: MealType;
   eatenAt: string;
   notes?: string;
+  aiContext?: string | null;
   items: FoodItemInput[];
 };
 

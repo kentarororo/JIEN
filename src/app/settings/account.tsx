@@ -62,7 +62,7 @@ export default function AccountScreen() {
 
   return (
     <Screen>
-      <Card><AppText style={{ color: colors.textMuted }}>Logging always works without an account. Sign in once to restore your profile and history on another device. The first account used here becomes this local databaseâ€™s owner, so JIEN never merges two peopleâ€™s records silently.</AppText></Card>
+      <Card><AppText style={{ color: colors.textMuted }}>Logging always works without an account. Sign in once to restore your profile and history on another device. The first account used here becomes this local database’s owner, so JIEN never merges two people’s records silently.</AppText></Card>
       <Button label="Continue with Google" onPress={() => void continueWithGoogle()} busy={busy === 'google'} disabled={busy !== null} />
       <AppText style={{ color: colors.textMuted, textAlign: 'center' }}>or use email</AppText>
       <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" />
