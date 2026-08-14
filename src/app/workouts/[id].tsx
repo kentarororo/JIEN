@@ -39,7 +39,7 @@ export default function WorkoutDetailScreen() {
       <Card style={styles.summary}>
         <View><AppText style={styles.metric}>{detail.setCount}</AppText><AppText style={{ color: colors.textMuted }}>sets</AppText></View>
         <View><AppText style={styles.metric}>{detail.exerciseCount}</AppText><AppText style={{ color: colors.textMuted }}>exercises</AppText></View>
-        <View><AppText style={styles.metric}>{Math.round(detail.totalVolumeKg).toLocaleString()}</AppText><AppText style={{ color: colors.textMuted }}>kg volume</AppText></View>
+        <View><AppText style={styles.metric}>{Math.round(detail.totalVolumeKg).toLocaleString()}</AppText><AppText style={{ color: colors.textMuted }}>kg training work</AppText></View>
       </Card>
 
       {data?.progress ? (
@@ -53,7 +53,7 @@ export default function WorkoutDetailScreen() {
           ) : (
             <>
               <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}>{formatPercent(data.progress.overallChangePercent)}</AppText>
-              <AppText style={{ color: colors.textMuted }}>working volume across exercises with a previous session</AppText>
+              <AppText style={{ color: colors.textMuted }}>work performed versus the previous matching exposure for each exercise</AppText>
             </>
           )}
           <View style={styles.progressRows}>
@@ -84,10 +84,10 @@ export default function WorkoutDetailScreen() {
       <Card style={[styles.nextSession, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.flex}>
           <AppText style={styles.progressName}>Ready for the next session?</AppText>
-          <AppText style={{ color: colors.textMuted }}>Load this workout again with JIEN's smallest safe rep or load progression already filled in.</AppText>
+          <AppText style={{ color: colors.textMuted }}>Start from these exact set values. JIEN will show the smallest suggested change under the relevant set without altering the template.</AppText>
         </View>
         <View style={styles.actions}>
-          <Button label="Plan next session" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
+          <Button label="Use as template" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
           <Button label="Back to training" onPress={() => router.replace('/train')} variant="secondary" />
         </View>
       </Card>

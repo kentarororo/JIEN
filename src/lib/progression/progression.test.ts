@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   aggregateWeeklyVolume,
+  buildSetProgressionPlan,
   calculateOverloadChangePercent,
   calculateSetVolumeKg,
   detectDeloadSignal,
@@ -20,12 +21,12 @@ test('normalizes pounds and ignores warm-up volume', () => {
   assert.equal(calculateSetVolumeKg({ reps: 10, loadValue: 50, loadUnit: 'kg', kind: 'warmup' }), 0);
 });
 
-test('adds load only when every working set reaches the top of range', () => {
+test('adds load only when every working set reaches the top of range with effort recorded', () => {
   const result = suggestDoubleProgression({
     sets: [
       { reps: 12, loadValue: 40, loadUnit: 'kg', rpe: 8 },
       { reps: 12, loadValue: 40, loadUnit: 'kg', rpe: 9 },
-      { reps: 12, loadValue: 40, loadUnit: 'kg' },
+      { reps: 12, loadValue: 40, loadUnit: 'kg', rpe: 8 },
     ],
     repMin: 8,
     repMax: 12,
@@ -37,6 +38,51 @@ test('adds load only when every working set reaches the top of range', () => {
     targetReps: [8, 8, 8],
     reason: 'Every working set reached 12 reps; add the smallest load step.',
   });
+});
+
+test('keeps exact mixed loads and returns opt-in guidance for only the relevant set', () => {
+  const plan = buildSetProgressionPlan({
+    sets: [
+      { reps: 10, loadValue: 42.5, loadUnit: 'kg', rpe: 8 },
+      { reps: 8, loadValue: 40, loadUnit: 'kg', rpe: 9 },
+      { reps: 9, loadValue: 37.5, loadUnit: 'kg', rpe: 9 },
+    ],
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(plan.action, 'add_reps');
+  assert.deepEqual(plan.cues, [{
+    workingSetIndex: 1,
+    action: 'add_reps',
+    loadValue: 40,
+    targetReps: 9,
+    changePercent: null,
+    label: 'Try 40 kg x 9 · +1 rep',
+  }]);
+});
+
+test('increments every prior set independently and blocks a load jump without RPE', () => {
+  const progressed = buildSetProgressionPlan({
+    sets: [
+      { reps: 12, loadValue: 42.5, loadUnit: 'kg', rpe: 8 },
+      { reps: 12, loadValue: 40, loadUnit: 'kg', rpe: 9 },
+    ],
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.deepEqual(progressed.cues.map((cue) => cue.loadValue), [45, 42.5]);
+  assert.deepEqual(progressed.cues.map((cue) => cue.targetReps), [8, 8]);
+
+  const missingEffort = buildSetProgressionPlan({
+    sets: [{ reps: 12, loadValue: 40, loadUnit: 'kg' }],
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(missingEffort.action, 'hold');
+  assert.equal(missingEffort.cues.length, 0);
 });
 
 test('adds one rep to the lowest set and holds on a joint flag', () => {

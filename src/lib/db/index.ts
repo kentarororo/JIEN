@@ -1,4 +1,5 @@
 export { getDashboardSummary } from './dashboard';
+export { listCalendarActivity } from './calendar';
 export { createCustomExercise, listExercises } from './exercises';
 export {
   analyzeMealPhoto,

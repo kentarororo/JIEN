@@ -4,7 +4,7 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { createElement, useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
 import {
@@ -74,6 +74,7 @@ export default function NewMealScreen() {
   const [results, setResults] = useState<FoodCatalogItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [cameraMode, setCameraMode] = useState<CameraMode>(null);
+  const [cameraReady, setCameraReady] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [photoDescription, setPhotoDescription] = useState('');
   const [barcodeValue, setBarcodeValue] = useState('');
@@ -170,6 +171,7 @@ export default function NewMealScreen() {
 
   const openCamera = async (mode: Exclude<CameraMode, null>) => {
     setToolMessage(null);
+    setCameraReady(false);
     let granted = cameraPermission?.granted ?? false;
     if (!granted) granted = (await requestCameraPermission()).granted;
     if (!granted) {
@@ -179,10 +181,16 @@ export default function NewMealScreen() {
     setCameraMode(mode);
   };
 
+  const closeCamera = () => {
+    barcodeLockRef.current = false;
+    setCameraReady(false);
+    setCameraMode(null);
+  };
+
   const handleBarcode = async ({ data }: BarcodeScanningResult) => {
     if (cameraBusy || barcodeLockRef.current) return;
     barcodeLockRef.current = true;
-    setCameraMode(null);
+    closeCamera();
     try {
       await lookupBarcode(data);
     } finally {
@@ -212,7 +220,7 @@ export default function NewMealScreen() {
     if (!items.length) throw new Error('No food items were identified. Try a clearer photo or add a description.');
     const drafts = items.map(toDraftFood);
     setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? drafts : [...current, ...drafts]);
-    setCameraMode(null);
+    closeCamera();
     setToolMessage(`Added ${items.length} AI-estimated item${items.length === 1 ? '' : 's'}. Review every portion and macro before saving. Not medical advice.`);
   };
 
@@ -297,19 +305,32 @@ export default function NewMealScreen() {
           <Button label="Search food database" onPress={() => void runDatabaseSearch()} busy={searching} variant="secondary" />
           <Button label="Scan barcode" onPress={() => void openCamera('barcode')} variant="secondary" />
           {Platform.OS === 'web' ? (
-            <View style={[styles.webPhotoButton, { backgroundColor: colors.accentSoft, borderColor: colors.accentSoft }]}>
-              <AppText style={[styles.webPhotoLabel, { color: colors.accent }]}>{cameraBusy ? 'Preparing photo...' : 'Take or choose meal photo'}</AppText>
-              {createElement('input', {
-                'aria-label': 'Take or choose a meal photo',
-                accept: 'image/jpeg,image/png,image/webp',
-                capture: 'environment',
-                disabled: cameraBusy,
-                onChange: handleWebPhoto,
-                style: { cursor: 'pointer', inset: 0, opacity: 0, position: 'absolute', width: '100%' },
-                type: 'file',
-              })}
-            </View>
-          ) : <Button label="Analyze meal photo" onPress={() => void openCamera('photo')} variant="secondary" />}
+            <>
+              <View style={[styles.webPhotoButton, { backgroundColor: colors.accentSoft, borderColor: colors.accentSoft }]}>
+                <AppText style={[styles.webPhotoLabel, { color: colors.accent }]}>{cameraBusy ? 'Preparing photo...' : 'Take photo'}</AppText>
+                {createElement('input', {
+                  'aria-label': 'Take a meal photo',
+                  accept: 'image/jpeg,image/png,image/webp',
+                  capture: 'environment',
+                  disabled: cameraBusy,
+                  onChange: handleWebPhoto,
+                  style: { cursor: 'pointer', inset: 0, opacity: 0, position: 'absolute', width: '100%' },
+                  type: 'file',
+                })}
+              </View>
+              <View style={[styles.webPhotoButton, { backgroundColor: colors.accentSoft, borderColor: colors.accentSoft }]}>
+                <AppText style={[styles.webPhotoLabel, { color: colors.accent }]}>{cameraBusy ? 'Preparing photo...' : 'Choose photo'}</AppText>
+                {createElement('input', {
+                  'aria-label': 'Choose a meal photo from this device',
+                  accept: 'image/jpeg,image/png,image/webp',
+                  disabled: cameraBusy,
+                  onChange: handleWebPhoto,
+                  style: { cursor: 'pointer', inset: 0, opacity: 0, position: 'absolute', width: '100%' },
+                  type: 'file',
+                })}
+              </View>
+            </>
+          ) : <Button label="Take meal photo" onPress={() => void openCamera('photo')} variant="secondary" />}
         </View>
         <Field label="Meal photo context (optional)" value={photoDescription} onChangeText={setPhotoDescription} placeholder="e.g. grilled chicken, rice, sauce on the side" />
         <View style={styles.barcodeRow}>
@@ -332,21 +353,30 @@ export default function NewMealScreen() {
         <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food and barcode data: Open Food Facts contributors (ODbL). Search works without a JIEN account.</AppText>
       </Card>
 
-      {cameraMode ? (
-        <Card>
-          <View style={styles.header}><View style={styles.flex}><AppText style={styles.sectionTitle}>{cameraMode === 'barcode' ? 'Center the barcode' : 'Frame the whole meal'}</AppText><AppText style={{ color: colors.textMuted }}>{cameraMode === 'barcode' ? 'Lookup starts after a code is detected.' : 'Good light and a short description improve the estimate.'}</AppText></View><Button label="Cancel" onPress={() => setCameraMode(null)} variant="quiet" /></View>
-          <View style={[styles.cameraFrame, { backgroundColor: colors.surfaceMuted }]}>
-            <CameraView
-              ref={cameraRef}
-              style={StyleSheet.absoluteFill}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }}
-              onBarcodeScanned={cameraMode === 'barcode' ? handleBarcode : undefined}
-            />
-          </View>
-          {cameraMode === 'photo' ? <Button label="Take photo and estimate" onPress={() => void analyzePhoto()} busy={cameraBusy} /> : null}
-        </Card>
-      ) : null}
+      <Modal visible={cameraMode != null} animationType="slide" transparent onRequestClose={closeCamera}>
+        <View style={[styles.cameraOverlay, { backgroundColor: colors.overlay }]}>
+          <Card style={[styles.cameraSheet, { backgroundColor: colors.surface }]}>
+            <View style={styles.header}><View style={styles.flex}><AppText style={styles.sectionTitle}>{cameraMode === 'barcode' ? 'Center the barcode' : 'Frame the whole meal'}</AppText><AppText style={{ color: colors.textMuted }}>{cameraMode === 'barcode' ? 'Lookup starts automatically as soon as the code locks in.' : 'Good light and a short description improve the estimate.'}</AppText></View><Button label="Cancel" onPress={closeCamera} variant="quiet" /></View>
+            <View style={[styles.cameraFrame, { backgroundColor: colors.surfaceMuted }]}>
+              {cameraMode ? <CameraView
+                ref={cameraRef}
+                style={StyleSheet.absoluteFill}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }}
+                onCameraReady={() => setCameraReady(true)}
+                onMountError={(event) => {
+                  setCameraReady(false);
+                  setToolMessage(`Camera could not start: ${event.message}. Enter the barcode manually below.`);
+                }}
+                onBarcodeScanned={cameraMode === 'barcode' ? handleBarcode : undefined}
+              /> : null}
+              {!cameraReady ? <View style={styles.cameraLoading}><AppText style={{ color: colors.textMuted }}>Starting camera…</AppText></View> : null}
+            </View>
+            {cameraMode === 'photo' ? <Button label="Take photo and estimate" onPress={() => void analyzePhoto()} busy={cameraBusy} disabled={!cameraReady} /> : null}
+            {cameraMode === 'barcode' ? <AppText style={[styles.attribution, { color: colors.textMuted }]}>If camera permission is blocked, cancel and use the barcode number field.</AppText> : null}
+          </Card>
+        </View>
+      </Modal>
 
       {toolMessage ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.accentSoft }]}><AppText>{toolMessage}</AppText></View> : null}
       {formError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
@@ -482,6 +512,9 @@ const styles = StyleSheet.create({
   resultCalories: { fontWeight: '800', textAlign: 'right' },
   attribution: { ...typography.caption },
   cameraFrame: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, overflow: 'hidden', borderRadius: radii.card },
+  cameraOverlay: { flex: 1, justifyContent: 'flex-end' },
+  cameraSheet: { width: '100%', maxWidth: 760, maxHeight: '96%', alignSelf: 'center', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: spacing.lg },
+  cameraLoading: { position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' },
   message: { padding: spacing.md, borderRadius: radii.control },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },

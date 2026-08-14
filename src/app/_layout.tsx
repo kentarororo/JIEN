@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/app-error-boundary';
 import { AppRuntime } from '@/components/app-runtime';
+import { GlobalTabBar } from '@/components/global-tab-bar';
 import { WebSQLiteGate } from '@/components/web-sqlite-gate';
 import { migrateDatabase } from '@/lib/db';
 import { configureNotificationHandling } from '@/lib/notifications';
@@ -16,7 +17,7 @@ configureNotificationHandling();
 function AppNavigator() {
   const { colors, isDark } = useJienTheme();
   return (
-    <>
+    <View style={[styles.app, { backgroundColor: colors.canvas }]}>
       <Stack
         screenOptions={{
           contentStyle: { backgroundColor: colors.canvas },
@@ -34,8 +35,9 @@ function AppNavigator() {
         <Stack.Screen name="settings/macros" options={{ title: 'Macro targets', presentation: 'modal' }} />
         <Stack.Screen name="settings/account" options={{ title: 'Account', presentation: 'modal' }} />
       </Stack>
+      <GlobalTabBar />
       <StatusBar style={isDark ? 'light' : 'dark'} />
-    </>
+    </View>
   );
 }
 
@@ -57,5 +59,6 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  app: { flex: 1 },
   boot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7F1E7' },
 });

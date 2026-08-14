@@ -244,6 +244,16 @@ export type DailyNutrition = {
   meals: MealSummary[];
 };
 
+export type CalendarDayActivity = {
+  date: string;
+  workoutCount: number;
+  workingSetCount: number;
+  trainingWorkKg: number;
+  mealCount: number;
+  caloriesKcal: number;
+  proteinG: number;
+};
+
 export type NotificationPreference = {
   id: string;
   type: NotificationType;

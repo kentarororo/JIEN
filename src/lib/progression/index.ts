@@ -30,6 +30,21 @@ export type ProgressionSuggestion =
   | { action: 'add_reps'; loadValue: number; targetReps: number[]; reason: string }
   | { action: 'add_load'; loadValue: number; targetReps: number[]; reason: string };
 
+export type SetProgressionCue = {
+  workingSetIndex: number;
+  action: 'add_reps' | 'add_load';
+  loadValue: number;
+  targetReps: number;
+  changePercent: number | null;
+  label: string;
+};
+
+export type SetProgressionPlan = {
+  action: 'start' | 'hold' | 'add_reps' | 'add_load';
+  reason: string;
+  cues: SetProgressionCue[];
+};
+
 export type DeloadSignal = {
   kind: 'none' | 'stagnation' | 'volume_drop';
   message: string;
@@ -104,6 +119,14 @@ export function suggestDoubleProgression(input: {
   }
 
   const allAtTop = workingSets.every((set) => set.reps >= input.repMax);
+  const hasCompleteEffort = workingSets.every((set) => set.rpe != null && Number.isFinite(set.rpe));
+  if (allAtTop && !hasCompleteEffort) {
+    return {
+      action: 'hold',
+      loadValue,
+      reason: 'Repeat this load or add effort ratings before increasing it.',
+    };
+  }
   if (allAtTop) {
     return {
       action: 'add_load',
@@ -129,6 +152,95 @@ export function suggestDoubleProgression(input: {
     targetReps,
     reason: 'Keep the load and add one controlled rep to the lowest-rep set.',
   };
+}
+
+/**
+ * Builds an explainable, per-set overlay from the last completed exposure.
+ * It never mutates or replaces the recorded sets; callers decide whether to apply a cue.
+ */
+export function buildSetProgressionPlan(input: {
+  sets: ProgressionSet[];
+  repMin: number;
+  repMax: number;
+  loadIncrement: number;
+  jointFlag?: boolean;
+}): SetProgressionPlan {
+  const workingSets = input.sets.filter((set) => (set.kind ?? 'working') === 'working');
+  if (workingSets.length === 0) {
+    return {
+      action: 'start',
+      reason: `Start within ${input.repMin}-${input.repMax} controlled reps.`,
+      cues: [],
+    };
+  }
+  if (workingSets.some((set) => !Number.isFinite(set.loadValue) || !Number.isFinite(set.reps) || set.reps <= 0)) {
+    return { action: 'hold', reason: 'Complete every load and rep field before progressing.', cues: [] };
+  }
+  if (input.jointFlag) {
+    return { action: 'hold', reason: 'Hold the plan while the joint flag is active.', cues: [] };
+  }
+  if (workingSets.some((set) => set.rpe != null && set.rpe > 9)) {
+    return { action: 'hold', reason: 'Repeat the work: at least one set exceeded RPE 9.', cues: [] };
+  }
+
+  const allAtTop = workingSets.every((set) => set.reps >= input.repMax);
+  const hasCompleteEffort = workingSets.every((set) => set.rpe != null && Number.isFinite(set.rpe));
+  if (allAtTop && !hasCompleteEffort) {
+    return {
+      action: 'hold',
+      reason: 'All sets reached the rep ceiling. Add RPE estimates next time before increasing load.',
+      cues: [],
+    };
+  }
+  if (allAtTop) {
+    return {
+      action: 'add_load',
+      reason: `All ${workingSets.length} sets reached ${input.repMax} reps at RPE 9 or below.`,
+      cues: workingSets.map((set, workingSetIndex) => {
+        const loadValue = set.loadValue + input.loadIncrement;
+        const changePercent = set.loadValue > 0 ? (input.loadIncrement / set.loadValue) * 100 : null;
+        return {
+          workingSetIndex,
+          action: 'add_load' as const,
+          loadValue,
+          targetReps: input.repMin,
+          changePercent,
+          label: changePercent == null
+            ? `Try ${formatProgressionNumber(loadValue)} ${set.loadUnit} x ${input.repMin}`
+            : `Try ${formatProgressionNumber(loadValue)} ${set.loadUnit} x ${input.repMin} · +${formatProgressionNumber(changePercent)}% load`,
+        };
+      }),
+    };
+  }
+
+  let lowestIndex = -1;
+  let lowestReps = Number.POSITIVE_INFINITY;
+  workingSets.forEach((set, index) => {
+    if (set.reps < input.repMax && set.reps < lowestReps) {
+      lowestIndex = index;
+      lowestReps = set.reps;
+    }
+  });
+  if (lowestIndex < 0) {
+    return { action: 'hold', reason: 'Repeat the last completed sets.', cues: [] };
+  }
+  const set = workingSets[lowestIndex]!;
+  return {
+    action: 'add_reps',
+    reason: 'Keep every load the same and add one controlled rep to the lowest-rep set.',
+    cues: [{
+      workingSetIndex: lowestIndex,
+      action: 'add_reps',
+      loadValue: set.loadValue,
+      targetReps: Math.min(input.repMax, set.reps + 1),
+      changePercent: null,
+      label: `Try ${formatProgressionNumber(set.loadValue)} ${set.loadUnit} x ${Math.min(input.repMax, set.reps + 1)} · +1 rep`,
+    }],
+  };
+}
+
+function formatProgressionNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
 }
 
 export function detectDeloadSignal(weeklyVolumes: number[]): DeloadSignal {

@@ -44,7 +44,7 @@ export default function TrainScreen() {
               <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}>
                 {formatPercent(data.progress.overallChangePercent)}
               </AppText>
-              <AppText style={{ color: colors.textMuted }}>comparable working volume · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} exercises improved</AppText>
+              <AppText style={{ color: colors.textMuted }}>work performed vs each exercise's previous matching session · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} exercises up</AppText>
             </>
           )}
           <View style={styles.exerciseProgressList}>
@@ -57,12 +57,12 @@ export default function TrainScreen() {
               </View>
             ))}
           </View>
-          <Button label="Repeat with progression" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: data.progress!.workoutId } })} variant="secondary" />
+          <Button label="Use as next-session template" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: data.progress!.workoutId } })} variant="secondary" />
         </Card>
       ) : null}
       {data?.weeks.at(-1) ? (
         <Card>
-          <View style={styles.row}><View><AppText style={styles.title}>Weekly volume</AppText><AppText style={{ color: colors.textMuted }}>{Math.round(data.weeks.at(-1)!.totalKg).toLocaleString()} kg working volume</AppText></View></View>
+          <View style={styles.row}><View><AppText style={styles.title}>Weekly training work</AppText><AppText style={{ color: colors.textMuted }}>{Math.round(data.weeks.at(-1)!.totalKg).toLocaleString()} kg load × reps</AppText></View></View>
           {Object.entries(data.weeks.at(-1)!.muscleGroups).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([group, volume]) => <View key={group} style={styles.row}><AppText>{group.replaceAll('_', ' ')}</AppText><AppText style={{ fontWeight: '700' }}>{Math.round(volume).toLocaleString()} kg</AppText></View>)}
           {data.signal.kind !== 'none' ? <AppText style={{ color: colors.warning }}>{data.signal.message}</AppText> : null}
         </Card>
