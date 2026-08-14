@@ -37,6 +37,7 @@ export default function TodayScreen() {
   const proteinTarget = summary.nutrition.target?.proteinG ?? 0;
   const activityByDate = new Map(data.activity.map((day) => [day.date, day]));
   const selectedActivity = activityByDate.get(selectedDate);
+  const selectedInFuture = selectedDate > todayKey;
   return (
     <Screen>
       <ScreenHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())} title="Keep the day honest." />
@@ -86,13 +87,15 @@ export default function TodayScreen() {
         <View style={[styles.selectedDay, { backgroundColor: colors.surfaceMuted }]}>
           <View style={styles.flex}>
             <AppText style={styles.value}>{new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${selectedDate}T12:00:00`))}</AppText>
-            <AppText style={{ color: colors.textMuted }}>{selectedActivity
-              ? `${selectedActivity.workoutCount} workout · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${Math.round(selectedActivity.caloriesKcal)} kcal`
-              : 'No activity logged'}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{selectedInFuture
+              ? 'Future-day planning will arrive with routines; completed logs stay on today or earlier.'
+              : selectedActivity
+                ? `${selectedActivity.workoutCount} workout · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${Math.round(selectedActivity.caloriesKcal)} kcal`
+                : 'No activity logged'}</AppText>
           </View>
           <View style={styles.selectedDayActions}>
-            <Button label="Workout" onPress={() => router.push('/workouts/new')} variant="quiet" />
-            <Button label="Meal" onPress={() => router.push('/meals/new')} variant="quiet" />
+            <Button label="Workout" onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
+            <Button label="Meal" onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
           </View>
         </View>
       </Card>

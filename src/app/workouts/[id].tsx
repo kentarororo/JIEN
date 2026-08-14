@@ -87,7 +87,7 @@ export default function WorkoutDetailScreen() {
           <AppText style={{ color: colors.textMuted }}>Start from these exact set values. JIEN will show the smallest suggested change under the relevant set without altering the template.</AppText>
         </View>
         <View style={styles.actions}>
-          <Button label="Use as template" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
+          <Button label="Use as template" onPress={() => router.replace({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
           <Button label="Back to training" onPress={() => router.replace('/train')} variant="secondary" />
         </View>
       </Card>

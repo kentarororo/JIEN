@@ -40,10 +40,14 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
   ) {
     throw new Error('Food names, portions, and macros must be valid non-negative values.');
   }
+  const eatenAt = new Date(input.eatenAt);
+  if (!Number.isFinite(eatenAt.getTime()) || eatenAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Logged meals must use today or an earlier calendar date.');
+  }
 
   const id = Crypto.randomUUID();
   const now = new Date().toISOString();
-  const eatenOn = toLocalDateKey(new Date(input.eatenAt));
+  const eatenOn = toLocalDateKey(eatenAt);
   const mealSource = input.items.some((item) => item.source === 'ai_photo')
     ? 'ai_photo'
     : input.items.some((item) => item.source === 'imported') ? 'imported' : 'manual';

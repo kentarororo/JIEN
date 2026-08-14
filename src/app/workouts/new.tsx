@@ -23,6 +23,7 @@ import {
   type SetProgressionPlan,
 } from '@/lib/progression';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
+import { formatShortDate, localTimestampForDate } from '@/lib/time';
 
 type DraftSet = { key: string; load: string; reps: string; rpe: string };
 type DraftExercise = {
@@ -48,7 +49,7 @@ const isRowEmpty = (set: DraftSet) => !set.load.trim() && !set.reps.trim() && !s
 export default function NewWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { templateWorkoutId } = useLocalSearchParams<{ templateWorkoutId?: string }>();
+  const { templateWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; date?: string }>();
   const { width } = useWindowDimensions();
   const compact = width < 520;
   const { colors } = useJienTheme();
@@ -213,7 +214,8 @@ export default function NewWorkoutScreen() {
       ))) {
         throw new Error('Use a non-negative load, whole-number reps, and optional RPE from 1–10.');
       }
-      const id = await saveWorkout(db, { title, startedAt: new Date().toISOString(), exercises });
+      const startedAt = date ? localTimestampForDate(date) : new Date().toISOString();
+      const id = await saveWorkout(db, { title, startedAt, exercises });
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Please check the sets and try again.';
@@ -231,6 +233,7 @@ export default function NewWorkoutScreen() {
 
   return (
     <Screen contentContainerStyle={styles.screenContent}>
+      {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
       <View style={[styles.sessionFields, !compact && styles.sessionFieldsWide]}>
         <Field label="Session name" value={title} onChangeText={setTitle} returnKeyType="done" containerStyle={styles.flex} />
         <View style={styles.unitGroup}>

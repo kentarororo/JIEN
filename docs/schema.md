@@ -1,8 +1,9 @@
 # Supabase schema
 
 This document is the source of truth for the remote Postgres model. The initial
-implementation is in
-`supabase/migrations/20260811000100_initial_schema.sql`.
+implementation is in `supabase/migrations/20260811000100_initial_schema.sql`, with
+account-safe starter exercise ownership in
+`supabase/migrations/20260814000100_account_ownership.sql`.
 
 ## Conventions
 
@@ -67,9 +68,14 @@ equipment, target rep range, and load increment supply deterministic double
 progression without encoding 1RM concepts. Built-in starter exercises are copied
 into each user's catalog, rather than exposed as global RLS exceptions.
 
+Starter exercise IDs are deliberately stable so workout templates remain portable
+between a user's devices. Their primary key is `(id, user_id)`, not globally unique
+`id`, so multiple accounts can safely own the same starter ID. Set ownership uses the
+same composite foreign key.
+
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id`, `user_id` | `uuid` | Client-generated PK; owning profile FK |
+| `id`, `user_id` | `uuid` | Composite PK; stable client ID scoped to its owner |
 | `name` | `text` | Required display name |
 | `movement_pattern` | `text` | Stable app key such as `horizontal_push` |
 | `primary_muscle_group` | `text` | Primary volume bucket |
@@ -305,9 +311,9 @@ where user_id = auth.uid()
 order by client_updated_at, id;
 ```
 
-The production sync implementation should use a stable cursor containing both
-`client_updated_at` and `id`, tolerate client clock skew, and advance its cursor only
-after committing the local SQLite transaction.
+The client uses a stable cursor containing both `client_updated_at` and `id`, applies
+last-write-wins against the local logical timestamp, and advances its cursor only in
+the same transaction that commits the SQLite rows.
 
 ## Migration rules
 

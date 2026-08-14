@@ -5,6 +5,22 @@ export function toLocalDateKey(date: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+export function localTimestampForDate(dateKey: string, clock: Date = new Date()): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) throw new Error('Choose a valid calendar date.');
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    clock.getHours(),
+    clock.getMinutes(),
+    clock.getSeconds(),
+    clock.getMilliseconds(),
+  );
+  if (toLocalDateKey(date) !== dateKey) throw new Error('Choose a valid calendar date.');
+  return date.toISOString();
+}
+
 export function startOfIsoWeek(date: Date = new Date()): Date {
   const result = new Date(date);
   result.setHours(0, 0, 0, 0);

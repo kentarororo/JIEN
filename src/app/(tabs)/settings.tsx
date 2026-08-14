@@ -7,7 +7,7 @@ import { AppText, Button, Card, Pill, Screen, ScreenHeading, SectionHeading, Sta
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
 import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
-import { getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, syncPendingChanges } from '@/lib/db';
+import { getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, syncAccountData } from '@/lib/db';
 import { reconcileMealGapNotification } from '@/lib/notifications';
 import { spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
 
@@ -50,10 +50,10 @@ export default function SettingsScreen() {
 
   const performSync = async () => {
     await run('sync', async () => {
-      const result = await syncPendingChanges(db);
+      const result = await syncAccountData(db);
       switch (result.state) {
         case 'synced':
-          setMessage(`${result.processed} local change${result.processed === 1 ? '' : 's'} synced.`);
+          setMessage(`${result.pushed} uploaded Â· ${result.pulled} cloud row${result.pulled === 1 ? '' : 's'} checked.`);
           break;
         case 'signed_out':
           setMessage('Your data is safe on this device. Sign in to enable cloud sync.');
@@ -65,7 +65,10 @@ export default function SettingsScreen() {
           setMessage('You’re offline. Changes remain queued on this device.');
           break;
         case 'partial':
-          setMessage(`Synced ${result.processed}, then paused: ${result.error}`);
+          setMessage(`Uploaded ${result.pushed}, then paused: ${result.error}`);
+          break;
+        case 'account_conflict':
+          setMessage('This device belongs to a different JIEN account. Sign back in with the original account; records were not merged.');
           break;
       }
       await reload();
@@ -101,7 +104,7 @@ export default function SettingsScreen() {
 
       <SectionHeading title="Sync" detail="SQLite remains the source of truth" />
       <Card>
-        <View style={styles.row}><View style={styles.copy}><AppText style={styles.cardTitle}>{data?.account.user?.email ?? (data?.account.configured ? 'Not signed in' : 'Supabase not configured')}</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.account.user ? 'Cloud sync is available for queued changes.' : data?.account.configured ? 'Local logging stays fully available.' : 'Add the public URL and publishable key in your environment.'}</AppText></View></View>
+        <View style={styles.row}><View style={styles.copy}><AppText style={styles.cardTitle}>{data?.account.user?.email ?? (data?.account.configured ? 'Not signed in' : 'Supabase not configured')}</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.account.user ? 'This device keeps your session and restores newer cloud records in the background.' : data?.account.configured ? 'Local logging stays fully available.' : 'Add the public URL and publishable key in your environment.'}</AppText></View></View>
         {data?.account.user ? <Button label="Sign out" onPress={() => void run('account', async () => { await signOut(); await reload(); })} busy={busy === 'account'} variant="quiet" /> : data?.account.configured ? <Button label="Sign in or create account" onPress={() => router.push('/settings/account')} variant="secondary" /> : null}
         <View style={styles.row}><View><AppText style={styles.cardTitle}>{data?.sync.pendingCount ?? 0} queued</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.sync.failedCount ? `${data.sync.failedCount} waiting to retry` : 'Ready when a signed-in connection is available'}</AppText></View></View>
         <Button label="Sync now" onPress={() => void performSync()} busy={busy === 'sync'} variant="secondary" />

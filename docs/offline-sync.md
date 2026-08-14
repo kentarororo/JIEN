@@ -21,16 +21,26 @@ Parents are pushed before children and failures use bounded exponential backoff.
 | `signed_out` | No authenticated owner | Offer account entry; retain queue |
 | `partial` | Some rows synced before a retryable failure | Show the error and retry later |
 
-The app attempts sync at startup, when returning to the foreground, when connectivity
-returns, and when the user chooses **Sync now**.
+The app attempts sync at startup, after authentication, when returning to the
+foreground, when connectivity returns, and when the user chooses **Sync now**.
 
 ## Conflict rule
 
 Queued payloads carry `client_updated_at`. The Supabase update trigger keeps the
 existing row if its logical timestamp is newer, providing last-write-wins behavior
-for delayed offline writes. This is intentionally simple for the initial single-user
-scope. A future bidirectional pull pass must apply newer remote rows to SQLite before
-multi-device use is treated as complete.
+for delayed offline writes. This remains an intentionally simple conflict rule, but
+bidirectional restore now makes the profile, workouts, nutrition, wellness,
+notification preferences, and cached AI history available on another signed-in
+device.
+
+After queued writes are pushed, the client pulls owned tables into SQLite in
+parent-before-child order. Each table uses a stable `(client_updated_at, id)` cursor
+stored in `app_settings`; the cursor advances in the same transaction as the rows.
+JSON and array values are serialized for SQLite, booleans become `0/1`, tombstones
+are retained, and remote data only replaces a local row when its logical timestamp
+is at least as new. A full reconciliation runs at least daily so a late upload
+created offline with an older client clock cannot be missed permanently by the
+incremental cursor.
 
 Soft-deletion tombstones use the same queue path. Hard delete is reserved for
 privileged maintenance outside the client.
@@ -42,6 +52,11 @@ equipment, injury or joint considerations, diet pattern, and AI consent are comm
 together only when onboarding finishes. Its queued `users` operation is bound to the
 authenticated Supabase user ID at sync time, allowing onboarding to work before an
 account exists without inventing a remote owner.
+
+The first authenticated user ID is stored locally as `cloud_owner_user_id`. Signing
+out does not remove offline records. A different account is blocked from sync until
+an explicit future account-switch/reset flow exists, preventing accidental
+cross-account health-data merges.
 
 The onboarding body baseline is a normal local `wellness_logs` row and is queued in
 the same transaction as the profile. Height and optional body-fat details live in

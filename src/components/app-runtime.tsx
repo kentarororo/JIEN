@@ -3,7 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 
-import { syncPendingChanges } from '@/lib/db';
+import { getSupabaseClient, syncAccountData } from '@/lib/db';
 import { reconcileMealGapNotification } from '@/lib/notifications';
 
 export function AppRuntime() {
@@ -15,7 +15,7 @@ export function AppRuntime() {
     syncing.current = true;
     try {
       await Promise.allSettled([
-        syncPendingChanges(db),
+        syncAccountData(db),
         reconcileMealGapNotification(db),
       ]);
     } finally {
@@ -35,6 +35,17 @@ export function AppRuntime() {
       networkSubscription.remove();
       appStateSubscription.remove();
     };
+  }, [reconcile]);
+
+  useEffect(() => {
+    try {
+      const { data } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
+        if (session) setTimeout(() => void reconcile(), 0);
+      });
+      return () => data.subscription.unsubscribe();
+    } catch {
+      return undefined;
+    }
   }, [reconcile]);
 
   return null;

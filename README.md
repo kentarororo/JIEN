@@ -1,8 +1,8 @@
 # JIEN
 
 JIEN is an offline-first Expo app for sustainable lifting and nutrition tracking.
-SQLite is the on-device source of truth; authenticated changes are queued and pushed
-to a Supabase backend with row-level security.
+SQLite is the on-device source of truth; authenticated changes are queued, pushed,
+and restored from a Supabase backend with row-level security.
 
 ## Current build
 
@@ -13,7 +13,7 @@ to a Supabase backend with row-level security.
 - meal, food-item, macro-total, and versioned nutrition-target logging
 - native share / web download for workout CSV, nutrition CSV, and complete JSON
 - opt-in, context-aware missing-meal notification scaffolding
-- Supabase email/password authentication and automatic foreground/connectivity sync
+- optional Google or email authentication, persistent sessions, and two-way cloud restore
 - warm cream, royal-brown, and wood-accented light/dark themes
 - calm guided onboarding for goals, body baseline, equipment, joint considerations, diet, and AI consent
 
@@ -29,6 +29,26 @@ pnpm start
 
 Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to enable
 accounts and cloud sync. Logging and exports continue to work without them.
+
+### Google sign-in setup
+
+Google login is optional and uses Supabase Auth with PKCE. In Google Auth Platform,
+create a **Web application** OAuth client with:
+
+- authorized JavaScript origin: `https://kentarororo.github.io`
+- authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`
+
+Enable Google in **Supabase > Authentication > Providers**, then paste the client ID
+and secret there. The secret is server-side configuration and must never be placed in
+an `EXPO_PUBLIC_*` variable. Add these Supabase redirect allow-list entries:
+
+- `https://kentarororo.github.io/JIEN/`
+- `http://localhost:8081/`
+- `jien://auth/callback`
+
+The first successful account on a device owns that local database. Signing out keeps
+the offline records, while signing into a different account is blocked instead of
+silently merging two people's health data.
 
 Online food search and barcode lookup use Open Food Facts directly and work without
 a JIEN account. Consent-gated Claude photo analysis remains a Supabase Edge Function;
@@ -48,12 +68,14 @@ pnpm exec expo install --check
 ## Data flow
 
 Every user write is committed to SQLite together with its sync-queue item in one
-transaction. The runtime retries queued upserts when the app opens, returns to the
-foreground, or regains connectivity. Supabase authentication and RLS scope remote
-rows to their owner; the server rejects stale `client_updated_at` updates.
+transaction. The runtime uploads queued upserts, then incrementally restores newer
+cloud rows when the app opens, returns to the foreground, regains connectivity, or
+finishes authentication. Supabase authentication and RLS scope remote rows to their
+owner; both sides reject stale `client_updated_at` updates.
 
 The remote model and security rules are documented in [docs/schema.md](docs/schema.md)
-and implemented by [the initial migration](supabase/migrations/20260811000100_initial_schema.sql).
+and implemented by [the initial migration](supabase/migrations/20260811000100_initial_schema.sql)
+plus [the account-ownership migration](supabase/migrations/20260814000100_account_ownership.sql).
 
 ## Native builds
 

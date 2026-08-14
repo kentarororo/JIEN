@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { createElement, useEffect, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -27,6 +27,7 @@ import {
   type ServingMacros,
 } from '@/lib/nutrition/serving';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
+import { formatShortDate, localTimestampForDate } from '@/lib/time';
 
 type DraftFood = {
   key: string;
@@ -61,6 +62,7 @@ const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'
 export default function NewMealScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { date } = useLocalSearchParams<{ date?: string }>();
   const { colors } = useJienTheme();
   const cameraRef = useRef<CameraView>(null);
   const barcodeLockRef = useRef(false);
@@ -187,10 +189,15 @@ export default function NewMealScreen() {
     setCameraMode(null);
   };
 
+  const hideCameraDuringLookup = () => {
+    setCameraReady(false);
+    setCameraMode(null);
+  };
+
   const handleBarcode = async ({ data }: BarcodeScanningResult) => {
     if (cameraBusy || barcodeLockRef.current) return;
     barcodeLockRef.current = true;
-    closeCamera();
+    hideCameraDuringLookup();
     try {
       await lookupBarcode(data);
     } finally {
@@ -283,7 +290,8 @@ export default function NewMealScreen() {
       if (items.some((item) => [item.quantity, item.caloriesKcal, item.proteinG, item.carbohydrateG, item.fatG, item.fibreG ?? 0].some((value) => !Number.isFinite(value)))) {
         throw new Error('Enter a valid portion and macro estimate for every food.');
       }
-      await saveMeal(db, { name, type, eatenAt: new Date().toISOString(), items });
+      const eatenAt = date ? localTimestampForDate(date) : new Date().toISOString();
+      await saveMeal(db, { name, type, eatenAt, items });
       await reconcileMealGapNotification(db);
       router.back();
     } catch (cause) {
@@ -295,6 +303,7 @@ export default function NewMealScreen() {
 
   return (
     <Screen contentContainerStyle={styles.screenContent}>
+      {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
       <Field label="Meal name" value={name} onChangeText={setName} placeholder="Dinner" />
       <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>
 
@@ -365,7 +374,7 @@ export default function NewMealScreen() {
                 barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }}
                 onCameraReady={() => setCameraReady(true)}
                 onMountError={(event) => {
-                  setCameraReady(false);
+                  closeCamera();
                   setToolMessage(`Camera could not start: ${event.message}. Enter the barcode manually below.`);
                 }}
                 onBarcodeScanned={cameraMode === 'barcode' ? handleBarcode : undefined}

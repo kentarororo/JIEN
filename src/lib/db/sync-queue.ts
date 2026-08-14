@@ -3,6 +3,7 @@ import * as Network from 'expo-network';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getSupabaseClient } from './supabase';
+import { hasAccountConflict } from './cloud-sync-mappers';
 import type { SyncStatus } from './types';
 
 export type RemoteTable =
@@ -82,7 +83,7 @@ export async function getSyncStatus(db: SQLiteDatabase): Promise<SyncStatus> {
 
 export type SyncResult =
   | { state: 'synced'; processed: number }
-  | { state: 'offline' | 'not_configured' | 'signed_out'; processed: 0 }
+  | { state: 'offline' | 'not_configured' | 'signed_out' | 'account_conflict'; processed: 0 }
   | { state: 'partial'; processed: number; error: string };
 
 export async function syncPendingChanges(db: SQLiteDatabase): Promise<SyncResult> {
@@ -104,6 +105,14 @@ export async function syncPendingChanges(db: SQLiteDatabase): Promise<SyncResult
     return { state: 'signed_out', processed: 0 };
   }
 
+  const owner = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM app_settings WHERE key = 'cloud_owner_user_id'`,
+  );
+  if (hasAccountConflict(owner?.value, userId)) {
+    await supabase.auth.signOut();
+    return { state: 'account_conflict', processed: 0 };
+  }
+
   const rows = await db.getAllAsync<QueueRow>(
     `SELECT id, table_name, entity_id, operation, payload_json, attempt_count
      FROM sync_queue
@@ -117,9 +126,14 @@ export async function syncPendingChanges(db: SQLiteDatabase): Promise<SyncResult
   for (const row of rows) {
     try {
       const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+      const ownedPayload = { ...payload, user_id: userId };
       const { error } = row.table_name === 'users'
         ? await supabase.from('users').upsert({ ...payload, id: userId })
-        : await supabase.from(row.table_name).upsert({ ...payload, user_id: userId });
+        : row.table_name === 'exercises'
+          ? await supabase.from('exercises').upsert(ownedPayload, { onConflict: 'id,user_id' })
+          : row.table_name === 'notification_preferences'
+            ? await supabase.from('notification_preferences').upsert(ownedPayload, { onConflict: 'user_id,type' })
+            : await supabase.from(row.table_name).upsert(ownedPayload);
       if (error) {
         throw error;
       }

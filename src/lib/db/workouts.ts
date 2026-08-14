@@ -143,9 +143,14 @@ export async function saveWorkout(
     throw new Error('Reps must be positive and load cannot be negative.');
   }
 
+  const startedAt = new Date(input.startedAt);
+  if (!Number.isFinite(startedAt.getTime()) || startedAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Completed workouts must use today or an earlier calendar date.');
+  }
+
   const id = Crypto.randomUUID();
-  const completedAt = new Date().toISOString();
-  const performedOn = toLocalDateKey(new Date(input.startedAt));
+  const completedAt = input.startedAt;
+  const performedOn = toLocalDateKey(startedAt);
   const workoutPayload = {
     id,
     title: input.title.trim() || 'Workout',

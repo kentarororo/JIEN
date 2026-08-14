@@ -1,4 +1,6 @@
 export { getDashboardSummary } from './dashboard';
+export { syncAccountData } from './cloud-sync';
+export type { AccountSyncResult } from './cloud-sync';
 export { listCalendarActivity } from './calendar';
 export { createCustomExercise, listExercises } from './exercises';
 export {
