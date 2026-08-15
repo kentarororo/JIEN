@@ -18,5 +18,3 @@ minimumReleaseAgeExclude:
   - expo-dev-menu@57.0.11
   - expo-notifications@57.0.10
   - expo-sharing@57.0.11
-patchedDependencies:
-  expo-sqlite@57.0.1: patches/expo-sqlite@57.0.1.patch

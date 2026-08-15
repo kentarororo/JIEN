@@ -1,5 +1,5 @@
 import { Stack, useGlobalSearchParams, usePathname } from 'expo-router';
-import { SQLiteProvider } from 'expo-sqlite';
+import { SQLiteProvider } from '@/lib/db/database-context';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';

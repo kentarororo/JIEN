@@ -9,7 +9,7 @@ import {
   validatePublicWasmUrl,
 } from './finalize-pages-build.mjs';
 
-test('absolutizes the Expo SQLite WASM URL for a GitHub Pages worker', () => {
+test('absolutizes the main-thread SQLite WASM URL for GitHub Pages', () => {
   const source =
     '__d(function(e,s,a,b,o){o.exports="/JIEN/assets/expo-sqlite/web/wa-sqlite.abc123.wasm"},1,[]);';
   const result = absolutizeSQLiteWasmUrls(source, {
@@ -41,13 +41,13 @@ test('does not rewrite unrelated WASM assets or an already absolute URL', () => 
   assert.equal(result.patchedSource, source);
 });
 
-test('gives post-processed bundles deterministic cache-busting names', () => {
-  const patchedWorker = 'o.exports="https://kentarororo.github.io/JIEN/assets/wa-sqlite.wasm"';
-  const firstName = createHashedBundleName('worker', patchedWorker);
+test('gives post-processed entry bundles deterministic cache-busting names', () => {
+  const patchedEntry = 'o.exports="https://kentarororo.github.io/JIEN/assets/wa-sqlite.wasm"';
+  const firstName = createHashedBundleName('entry', patchedEntry);
 
-  assert.match(firstName, /^worker-[0-9a-f]{32}\.js$/);
-  assert.equal(createHashedBundleName('worker', patchedWorker), firstName);
-  assert.notEqual(createHashedBundleName('worker', `${patchedWorker};`), firstName);
+  assert.match(firstName, /^entry-[0-9a-f]{32}\.js$/);
+  assert.equal(createHashedBundleName('entry', patchedEntry), firstName);
+  assert.notEqual(createHashedBundleName('entry', `${patchedEntry};`), firstName);
 });
 
 test('rejects hidden package-manager directories in the public WASM URL', () => {

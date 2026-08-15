@@ -25,6 +25,10 @@ export function evaluateWebSQLiteReadiness(
   if (!environment.isSecureContext) {
     return { state: 'unsupported', code: 'INSECURE_CONTEXT', message: 'Open JIEN over HTTPS to use local storage.' };
   }
+  // The web tester uses an in-memory wa-sqlite database on the main thread.
+  // Unlike Expo's worker transport, it does not need cross-origin isolation,
+  // SharedArrayBuffer, OPFS, a service worker, or a Web Worker.
+  if (mode === 'memory') return { state: 'ready' };
   if (!environment.isCrossOriginIsolated) {
     if (!environment.hasServiceWorker) {
       return { state: 'unsupported', code: 'SERVICE_WORKER_UNAVAILABLE', message: 'This browser cannot prepare secure local storage for JIEN.' };
@@ -34,7 +38,7 @@ export function evaluateWebSQLiteReadiness(
   if (!environment.hasSharedArrayBuffer) {
     return { state: 'unsupported', code: 'SHARED_MEMORY_UNAVAILABLE', message: 'This browser does not provide the shared memory required by local SQLite.' };
   }
-  if (mode === 'persistent' && !environment.hasStorageDirectory) {
+  if (!environment.hasStorageDirectory) {
     return { state: 'unsupported', code: 'OPFS_UNAVAILABLE', message: 'This browser does not provide persistent private file storage.' };
   }
   if (!environment.hasWorker) {

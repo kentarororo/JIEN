@@ -1,5 +1,5 @@
 import { Link, useRouter } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
+import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 

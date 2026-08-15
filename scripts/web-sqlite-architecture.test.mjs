@@ -7,7 +7,11 @@ const gate = readFileSync(
   new URL('../src/components/web-sqlite-gate.tsx', import.meta.url),
   'utf8',
 );
-const patch = readFileSync(new URL('../patches/expo-sqlite@57.0.1.patch', import.meta.url), 'utf8');
+const webProvider = readFileSync(
+  new URL('../src/lib/db/database-context.web.tsx', import.meta.url),
+  'utf8',
+);
+const html = readFileSync(new URL('../src/app/+html.tsx', import.meta.url), 'utf8');
 
 test('web startup has one SQLite owner instead of a preflight connection', () => {
   assert.doesNotMatch(gate, /openDatabaseAsync/);
@@ -23,12 +27,12 @@ test('the provider installs the page lifecycle before app database consumers', (
   assert.ok(lifecycleIndex < runtimeIndex);
 });
 
-test('web memory startup does not request OPFS or cross-tab ownership', () => {
+test('web memory startup does not request browser storage or cross-tab ownership', () => {
   assert.doesNotMatch(gate, /BroadcastChannel/);
   assert.doesNotMatch(gate, /navigator\.locks/);
   assert.match(layout, /Platform\.OS === 'web' \? ':memory:' : 'jien\.db'/);
   assert.match(gate, /evaluateWebSQLiteReadiness\([\s\S]*'memory'\)/);
-  assert.match(gate, /webSQLiteWorkerRegistry\.shutdown\(\)/);
+  assert.doesNotMatch(gate, /webSQLiteWorkerRegistry/);
 });
 
 test('web authenticates and hydrates before database consumers render', () => {
@@ -37,11 +41,11 @@ test('web authenticates and hydrates before database consumers render', () => {
   assert.ok(layout.indexOf('callbackRequest') < layout.indexOf('<WebAuthGate>'));
 });
 
-test('the Expo worker patch keeps memory startup away from AccessHandlePoolVFS', () => {
-  assert.match(patch, /databasePath === ':memory:'/);
-  assert.match(patch, /maybeInitPersistentAsync/);
-  assert.match(patch, /AccessHandlePoolVFS\.create/);
-  const memoryInitializer = patch.slice(patch.indexOf('async function maybeInitAsync'), patch.indexOf('async function maybeInitPersistentAsync'));
-  const addedMemoryInitializer = memoryInitializer.split('\n').filter((line) => line.startsWith('+')).join('\n');
-  assert.doesNotMatch(addedMemoryInitializer, /AccessHandlePoolVFS\.create/);
+test('web SQLite runs in memory without a worker or isolation service worker', () => {
+  assert.match(webProvider, /WaSQLiteFactory/);
+  assert.match(webProvider, /MemoryVFS/);
+  assert.doesNotMatch(webProvider, /AccessHandlePoolVFS|SharedArrayBuffer|new Worker/);
+  assert.doesNotMatch(html, /coi-serviceworker/);
+  assert.match(gate, /retireLegacyIsolationServiceWorker/);
+  assert.match(gate, /registration\.unregister\(\)/);
 });

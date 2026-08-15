@@ -92,21 +92,13 @@ pnpm exec expo run:ios
 pnpm exec expo run:android
 ```
 
-Web hosting must preserve the `Cross-Origin-Embedder-Policy: require-corp` and
-`Cross-Origin-Opener-Policy: same-origin` response headers required by the SQLite
-WebAssembly worker. The local Expo server config already supplies them.
-
 ## GitHub Pages test build
 
 Pushes to `main` run the Pages workflow and publish the static Expo build at
 `https://kentarororo.github.io/JIEN/`. The build uses Expo Router's `/JIEN` base URL.
-Because GitHub Pages cannot set the cross-origin isolation headers needed by
-Expo SQLite, the Pages artifact includes the MIT-licensed `coi-serviceworker` bridge;
-the first visit may reload once while it takes control. This is a test deployment
-constraint, not the preferred long-term production hosting setup.
-
-The web build keeps one OPFS SQLite owner per origin. On refresh or when another
-JIEN tab opens, the newer page asks the prior page to synchronously close SQLite,
-terminates Expo's access-handle worker, then acquires the browser Web Lock before
-opening the same database. This handoff preserves the database and avoids the
-stale-worker collision seen on mobile Safari; no recovery path deletes local data.
+Because GitHub Pages cannot set the cross-origin isolation headers required by
+Expo SQLite's alpha web worker, the tester runs Expo's bundled wa-sqlite directly
+in temporary main-thread memory. It does not use OPFS, `SharedArrayBuffer`, a
+service worker, or a Web Worker. Google sign-in happens before the database opens,
+Supabase hydrates every session, and local writes sync back promptly. Native builds
+continue to use persistent Expo SQLite and retain the full offline-first behavior.

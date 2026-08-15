@@ -1,5 +1,4 @@
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -8,7 +7,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -122,27 +120,23 @@ export async function finalizePagesBuild(options = {}) {
   const siteOrigin = normalizeSiteOrigin(
     options.siteOrigin ?? process.env.EXPO_PUBLIC_SITE_ORIGIN,
   );
-  const workerDirectory = path.join(distRoot, '_expo', 'static', 'js', 'web');
+  const bundleDirectory = path.join(distRoot, '_expo', 'static', 'js', 'web');
 
-  if (!existsSync(workerDirectory)) {
-    throw new Error(`Expo web worker directory was not exported: ${workerDirectory}`);
+  if (!existsSync(bundleDirectory)) {
+    throw new Error(`Expo web bundle directory was not exported: ${bundleDirectory}`);
   }
 
-  const workerPaths = readdirSync(workerDirectory)
-    .filter((name) => /^worker-.*\.js$/.test(name))
-    .map((name) => path.join(workerDirectory, name));
+  const bundlePaths = readdirSync(bundleDirectory)
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => path.join(bundleDirectory, name));
 
-  if (workerPaths.length === 0) {
-    throw new Error('Expo did not emit a SQLite web worker.');
-  }
-
-  const patches = workerPaths.map((workerPath) => {
-    const source = readFileSync(workerPath, 'utf8');
+  const patches = bundlePaths.map((bundlePath) => {
+    const source = readFileSync(bundlePath, 'utf8');
     return {
-      workerPath,
+      bundlePath,
       ...absolutizeSQLiteWasmUrls(source, { basePath, siteOrigin }),
     };
-  });
+  }).filter((patch) => patch.replacementCount > 0);
   const replacementCount = patches.reduce((total, patch) => total + patch.replacementCount, 0);
 
   if (replacementCount !== 1) {
@@ -151,8 +145,8 @@ export async function finalizePagesBuild(options = {}) {
     );
   }
 
-  const patchedWorker = patches.find((patch) => patch.replacementCount === 1);
-  const assetPath = patchedWorker.assetPaths[0];
+  const patchedBundle = patches.find((patch) => patch.replacementCount === 1);
+  const assetPath = patchedBundle.assetPaths[0];
   const exportedWasmPath = resolveDistAsset(distRoot, basePath, assetPath);
 
   if (!existsSync(exportedWasmPath) || statSync(exportedWasmPath).size === 0) {
@@ -176,61 +170,30 @@ export async function finalizePagesBuild(options = {}) {
   writeFileSync(publicWasmPath, wasmBytes);
 
   const originalAbsoluteAssetUrl = `${siteOrigin}${assetPath}`;
-  const deployableWorkerSource = patchedWorker.patchedSource.replace(
+  const deployableBundleSource = patchedBundle.patchedSource.replace(
     originalAbsoluteAssetUrl,
     absoluteAssetUrl,
   );
 
   if (
-    deployableWorkerSource === patchedWorker.patchedSource ||
-    deployableWorkerSource.includes(originalAbsoluteAssetUrl)
+    deployableBundleSource === patchedBundle.patchedSource ||
+    deployableBundleSource.includes(originalAbsoluteAssetUrl)
   ) {
-    throw new Error('Failed to redirect the Expo SQLite worker to its Pages-safe WASM asset.');
+    throw new Error('Failed to redirect wa-sqlite to its Pages-safe WASM asset.');
   }
 
-  writeFileSync(patchedWorker.workerPath, deployableWorkerSource);
-
-  // The worker filename was hashed before this post-export fix. Give both the
-  // worker and its referring entry bundle new content-derived URLs so browsers
-  // cannot reuse the broken Pages artifacts from an earlier deployment.
-  const originalWorkerName = path.basename(patchedWorker.workerPath);
-  const cacheBustedWorkerName = createHashedBundleName('worker', deployableWorkerSource);
-  const cacheBustedWorkerPath = path.join(workerDirectory, cacheBustedWorkerName);
-  writeFileSync(cacheBustedWorkerPath, deployableWorkerSource);
-
-  const bundleReferencePatches = listFiles(distRoot)
-    .filter((filePath) => filePath.endsWith('.js') && filePath !== patchedWorker.workerPath)
-    .map((filePath) => {
-      const source = readFileSync(filePath, 'utf8');
-      return {
-        filePath,
-        source,
-        replacementCount: source.split(originalWorkerName).length - 1,
-      };
-    })
-    .filter((patch) => patch.replacementCount > 0);
-
-  if (bundleReferencePatches.length !== 1) {
-    throw new Error(
-      `Expected one Expo entry bundle to reference ${originalWorkerName}, found ${bundleReferencePatches.length}.`,
-    );
-  }
-
-  const entryPatch = bundleReferencePatches[0];
-  const originalEntryName = path.basename(entryPatch.filePath);
+  // The entry filename was hashed before this post-export URL repair. Give it
+  // a content-derived URL so mobile browsers cannot reuse an older startup.
+  const originalEntryName = path.basename(patchedBundle.bundlePath);
 
   if (!/^entry-.*\.js$/.test(originalEntryName)) {
-    throw new Error(`Unexpected SQLite worker importer: ${entryPatch.filePath}`);
+    throw new Error(`Unexpected main-thread SQLite bundle: ${patchedBundle.bundlePath}`);
   }
 
-  const patchedEntrySource = entryPatch.source.replaceAll(
-    originalWorkerName,
-    cacheBustedWorkerName,
-  );
-  const cacheBustedEntryName = createHashedBundleName('entry', patchedEntrySource);
-  const cacheBustedEntryPath = path.join(path.dirname(entryPatch.filePath), cacheBustedEntryName);
-  writeFileSync(entryPatch.filePath, patchedEntrySource);
-  writeFileSync(cacheBustedEntryPath, patchedEntrySource);
+  const cacheBustedEntryName = createHashedBundleName('entry', deployableBundleSource);
+  const cacheBustedEntryPath = path.join(path.dirname(patchedBundle.bundlePath), cacheBustedEntryName);
+  writeFileSync(patchedBundle.bundlePath, deployableBundleSource);
+  writeFileSync(cacheBustedEntryPath, deployableBundleSource);
 
   let htmlReferenceCount = 0;
   for (const htmlPath of listFiles(distRoot).filter((filePath) => filePath.endsWith('.html'))) {
@@ -251,23 +214,12 @@ export async function finalizePagesBuild(options = {}) {
 
   await WebAssembly.compile(readFileSync(publicWasmPath));
 
-  const indexPath = path.join(distRoot, 'index.html');
-  const serviceWorkerSrc = `${basePath}/coi-serviceworker.js`;
-
-  if (!readFileSync(indexPath, 'utf8').includes(`src="${serviceWorkerSrc}"`)) {
-    throw new Error(`The Pages HTML does not load ${serviceWorkerSrc}.`);
-  }
-
-  const require = createRequire(import.meta.url);
-  const serviceWorkerSource = require.resolve('coi-serviceworker/coi-serviceworker.js');
-  copyFileSync(serviceWorkerSource, path.join(distRoot, 'coi-serviceworker.js'));
   writeFileSync(path.join(distRoot, '.nojekyll'), '');
 
   return {
     absoluteAssetUrl,
     entryPath: cacheBustedEntryPath,
     wasmBytes: statSync(publicWasmPath).size,
-    workerPath: cacheBustedWorkerPath,
   };
 }
 
@@ -277,6 +229,5 @@ const invokedDirectly =
 if (invokedDirectly) {
   const result = await finalizePagesBuild();
   console.log(`Pages entry bundle: ${path.relative(process.cwd(), result.entryPath)}`);
-  console.log(`Pages SQLite worker: ${path.relative(process.cwd(), result.workerPath)}`);
   console.log(`Pages SQLite WASM: ${result.absoluteAssetUrl} (${result.wasmBytes} bytes, valid)`);
 }

@@ -1,7 +1,7 @@
 import * as Network from 'expo-network';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
+import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 

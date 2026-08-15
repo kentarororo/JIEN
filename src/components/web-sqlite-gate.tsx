@@ -1,4 +1,4 @@
-import { useSQLiteContext } from 'expo-sqlite';
+import { useSQLiteContext } from '@/lib/db/database-context';
 import { Component, createContext, type ErrorInfo, type PropsWithChildren, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
@@ -9,7 +9,6 @@ import {
   evaluateWebSQLiteReadiness,
   type WebSQLiteReadiness,
 } from '@/lib/web-sqlite-readiness';
-import { webSQLiteWorkerRegistry } from '@/lib/web-worker-registry';
 import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 
 const ISOLATION_RELOAD_KEY = 'jien:sqlite-isolation-reload';
@@ -20,6 +19,20 @@ type WebSQLiteOwnershipContextValue = {
 };
 
 const WebSQLiteOwnershipContext = createContext<WebSQLiteOwnershipContextValue | null>(null);
+
+async function retireLegacyIsolationServiceWorker(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !navigator.serviceWorker.getRegistrations) return;
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(registrations
+    .filter((registration) => {
+      const scriptUrl = registration.active?.scriptURL
+        ?? registration.waiting?.scriptURL
+        ?? registration.installing?.scriptURL
+        ?? '';
+      return new URL(scriptUrl, window.location.href).pathname.endsWith('/coi-serviceworker.js');
+    })
+    .map((registration) => registration.unregister()));
+}
 
 function readEnvironment(): WebSQLiteReadiness {
   const storage = navigator.storage as StorageManager & { getDirectory?: () => Promise<unknown> };
@@ -81,38 +94,23 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
       setReadiness(next);
       timeout = setTimeout(refresh, 250);
     };
-    const reloadWhenControlled = () => {
-      if (window.crossOriginIsolated) return refresh();
-      try {
-        if (window.sessionStorage.getItem(ISOLATION_RELOAD_KEY) === '1') return;
-        window.sessionStorage.setItem(ISOLATION_RELOAD_KEY, '1');
-      } catch {
-        return;
-      }
-      window.location.reload();
-    };
-
-    navigator.serviceWorker?.addEventListener('controllerchange', reloadWhenControlled);
-    void navigator.serviceWorker?.ready.then(() => {
-      if (navigator.serviceWorker.controller) reloadWhenControlled();
+    void retireLegacyIsolationServiceWorker().catch((error) => {
+      console.warn('Could not retire the legacy JIEN isolation service worker', error);
     });
     refresh();
 
     return () => {
       active = false;
       if (timeout) clearTimeout(timeout);
-      navigator.serviceWorker?.removeEventListener('controllerchange', reloadWhenControlled);
     };
   }, []);
 
   useEffect(() => {
     if (readiness.state !== 'ready') return;
-    webSQLiteWorkerRegistry.install(window);
     const closeMemoryDatabase = () => {
       for (const close of [...closers.current]) {
         try { close(); } catch (error) { console.error('Failed to close web SQLite memory database', error); }
       }
-      webSQLiteWorkerRegistry.shutdown();
     };
     window.addEventListener('pagehide', closeMemoryDatabase);
 

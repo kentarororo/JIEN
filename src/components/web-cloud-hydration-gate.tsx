@@ -1,4 +1,4 @@
-import { useSQLiteContext } from 'expo-sqlite';
+import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useState, type PropsWithChildren } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 

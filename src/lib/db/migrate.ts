@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { Platform } from 'react-native';
 
-import { addColumnIfMissing } from './migration-utils';
+import { DATABASE_JOURNAL_MODE } from './database-journal-mode.ts';
+import { addColumnIfMissing } from './migration-utils.ts';
 
 const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -72,13 +72,7 @@ const STARTER_FOODS = [
 ] as const;
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
-  // A single browser worker owns the OPFS database. DELETE journaling avoids
-  // retaining a second WAL file/access handle across navigation reloads.
-  await db.execAsync(
-    Platform.OS === 'web'
-      ? 'PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;'
-      : 'PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;',
-  );
+  await db.execAsync(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = ${DATABASE_JOURNAL_MODE};`);
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
 
   const currentVersion = version?.user_version ?? 0;

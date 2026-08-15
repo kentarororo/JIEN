@@ -28,9 +28,16 @@ test('reports unsupported persistent storage after isolation', () => {
   });
 });
 
-test('memory mode never requires OPFS storage', () => {
+test('main-thread memory mode does not require browser isolation or storage workers', () => {
   assert.deepEqual(
-    evaluateWebSQLiteReadiness({ ...ready, hasStorageDirectory: false }, 'memory'),
+    evaluateWebSQLiteReadiness({
+      ...ready,
+      isCrossOriginIsolated: false,
+      hasSharedArrayBuffer: false,
+      hasServiceWorker: false,
+      hasStorageDirectory: false,
+      hasWorker: false,
+    }, 'memory'),
     { state: 'ready' },
   );
 });

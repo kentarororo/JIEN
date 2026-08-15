@@ -1,8 +1,6 @@
 import { ScrollViewStyleReset } from 'expo-router/html';
 import type { PropsWithChildren } from 'react';
 
-const pagesBaseUrl = process.env.EXPO_PUBLIC_BASE_URL;
-
 export default function Root({ children }: PropsWithChildren) {
   return (
     <html lang="en">
@@ -13,7 +11,6 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="theme-color" content="#71452F" />
         <title>JIEN</title>
         <ScrollViewStyleReset />
-        {pagesBaseUrl ? <script src={`${pagesBaseUrl}/coi-serviceworker.js`} /> : null}
       </head>
       <body>{children}</body>
     </html>
