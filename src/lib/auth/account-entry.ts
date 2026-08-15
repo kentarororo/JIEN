@@ -6,6 +6,7 @@ export type AccountSyncSnapshot = {
 
 export type AccountEntryDecision =
   | { kind: 'app' }
+  | { kind: 'onboarding' }
   | { kind: 'welcome'; notice: string | null; noticeTone: 'neutral' | 'warning' }
   | { kind: 'account_conflict'; message: string; mayWriteToCloud: false };
 
@@ -43,13 +44,10 @@ export function resolveAccountEntry(
   }
 
   if (sync.state === 'synced') {
-    return {
-      kind: 'welcome',
-      notice: sync.profileRestored
-        ? 'Your account was restored, but its profile setup is not complete yet.'
-        : 'You are signed in, but this account does not have a completed JIEN profile yet.',
-      noticeTone: 'neutral',
-    };
+    // Authentication and cloud restore have both finished. A signed-in user
+    // without a completed profile is new (or has an unfinished profile), so
+    // sending them back to account entry creates an OAuth loop.
+    return { kind: 'onboarding' };
   }
 
   return { kind: 'welcome', notice: null, noticeTone: 'neutral' };

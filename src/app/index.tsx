@@ -39,6 +39,7 @@ export default function IndexRoute() {
   if (error) return <Screen><StatePanel title="Setup is unavailable" body={error} actionLabel="Try again" onAction={() => void load()} /></Screen>;
   if (decision == null) return <Screen><StatePanel title="Preparing JIEN" body="Checking this device and your signed-in account." loading /></Screen>;
   if (decision.kind === 'app') return <Redirect href="/(tabs)/today" />;
+  if (decision.kind === 'onboarding') return <Redirect href="/onboarding" />;
 
   const notice = decision.kind === 'account_conflict' ? decision.message : decision.notice;
   const noticeTone = decision.kind === 'account_conflict' ? 'danger' : decision.noticeTone;

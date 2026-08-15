@@ -18,6 +18,20 @@ test('returning signed-in account enters the app after cloud restore completes',
   );
 });
 
+test('signed-in account without a completed profile continues to onboarding', () => {
+  assert.deepEqual(
+    resolveAccountEntry(false, { state: 'synced', profileRestored: false }),
+    { kind: 'onboarding' },
+  );
+});
+
+test('an incomplete restored profile continues to onboarding instead of account entry', () => {
+  assert.deepEqual(
+    resolveAccountEntry(false, { state: 'synced', profileRestored: true }),
+    { kind: 'onboarding' },
+  );
+});
+
 test('fresh device opens account-first welcome instead of onboarding', () => {
   assert.deepEqual(
     resolveAccountEntry(false, { state: 'signed_out' }),
