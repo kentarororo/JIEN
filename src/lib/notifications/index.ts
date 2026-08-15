@@ -4,12 +4,15 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
   getDailyNutrition,
+  getMealLoggingPattern,
   getNotificationPreference,
   getScheduledNotificationId,
+  getSyncStatus,
   setScheduledNotificationId,
 } from '@/lib/db';
 
 import { getMealGapTrigger } from './meal-gap-policy';
+import { getSyncAttentionTrigger } from './sync-attention-policy';
 
 const CHANNEL_ID = 'contextual-reminders';
 
@@ -61,12 +64,14 @@ export async function reconcileMealGapNotification(
   if (Platform.OS === 'web') return 'unsupported';
 
   const daily = await getDailyNutrition(db);
-  const expectedMeals = Number(preference.conditions.expectedMeals ?? 2);
+  const pattern = await getMealLoggingPattern(db);
+  const expectedMeals = pattern.expectedMeals ?? 2;
   if (daily.meals.length >= expectedMeals) return 'complete';
 
   const now = new Date();
   const triggerAt = getMealGapTrigger({
     enabled: preference.enabled,
+    patternEstablished: pattern.established,
     mealCount: daily.meals.length,
     expectedMeals,
     checkHour: Number(preference.conditions.checkHour ?? 20),
@@ -88,7 +93,7 @@ export async function reconcileMealGapNotification(
   const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
       title: 'A meal may be missing',
-      body: 'You usually log at least two meals. Add one if today’s log is incomplete.',
+      body: `You usually log about ${expectedMeals} meals. Add one if today's log is incomplete.`,
       data: { href: '/meals/new', type: 'meal_gap' },
     },
     trigger: {
@@ -100,3 +105,72 @@ export async function reconcileMealGapNotification(
   await setScheduledNotificationId(db, 'meal_gap', notificationId);
   return 'scheduled';
 }
+
+export async function cancelSyncAttentionNotification(db: SQLiteDatabase): Promise<void> {
+  const scheduledId = await getScheduledNotificationId(db, 'sync_issue');
+  if (scheduledId && Platform.OS !== 'web') {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(scheduledId);
+    } catch {
+      // The operating system may already have delivered or cleared this identifier.
+    }
+  }
+  await setScheduledNotificationId(db, 'sync_issue', null);
+}
+
+export async function reconcileSyncAttentionNotification(
+  db: SQLiteDatabase,
+  requestPermission = false,
+): Promise<'scheduled' | 'disabled' | 'complete' | 'unsupported' | 'permission_denied'> {
+  const preference = await getNotificationPreference(db, 'sync_issue');
+  const sync = await getSyncStatus(db);
+  if (!preference?.enabled) {
+    await cancelSyncAttentionNotification(db);
+    return 'disabled';
+  }
+  if (sync.actionRequiredCount < 1) {
+    await cancelSyncAttentionNotification(db);
+    return 'complete';
+  }
+  if (Platform.OS === 'web') return 'unsupported';
+  const triggerAt = getSyncAttentionTrigger({
+    enabled: preference.enabled,
+    actionRequiredCount: sync.actionRequiredCount,
+    quietHoursStart: preference.quietHoursStart,
+    quietHoursEnd: preference.quietHoursEnd,
+    now: new Date(),
+  });
+  if (!triggerAt) return 'complete';
+
+  const permissions = await Notifications.getPermissionsAsync();
+  const allowed = permissions.granted || (requestPermission && (await ensurePermission()));
+  if (!allowed) {
+    await cancelSyncAttentionNotification(db);
+    return 'permission_denied';
+  }
+  const existingId = await getScheduledNotificationId(db, 'sync_issue');
+  if (existingId) return 'scheduled';
+  const notificationId = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Sync needs your attention',
+      body: `${sync.actionRequiredCount} saved change${sync.actionRequiredCount === 1 ? '' : 's'} need sign-in or a settings update. Open Sync to review.`,
+      data: { href: '/settings', type: 'sync_issue' },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: triggerAt,
+      channelId: CHANNEL_ID,
+    },
+  });
+  await setScheduledNotificationId(db, 'sync_issue', notificationId);
+  return 'scheduled';
+}
+
+export async function reconcileContextualNotifications(db: SQLiteDatabase): Promise<void> {
+  await Promise.allSettled([
+    reconcileMealGapNotification(db),
+    reconcileSyncAttentionNotification(db),
+  ]);
+}
+
+export { getNotificationHref } from './navigation';

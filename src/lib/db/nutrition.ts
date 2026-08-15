@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toLocalDateKey } from '@/lib/time';
 import { calculateStartingNutritionTarget } from '@/lib/nutrition/targets';
+import { inferMealLoggingPattern } from '@/lib/nutrition/meal-pattern';
 import {
   activeRecordPredicate,
   calculateMealTotals,
@@ -211,6 +212,24 @@ export async function getDailyNutrition(
     ? await ensureStartingNutritionTarget(db)
     : null);
   return { date, meals, totals, target };
+}
+
+export async function getMealLoggingPattern(
+  db: SQLiteDatabase,
+  now = new Date(),
+): Promise<{ established: boolean; expectedMeals: number | null; sampleDays: number }> {
+  const today = toLocalDateKey(now);
+  const since = new Date(now);
+  since.setDate(since.getDate() - 14);
+  const rows = await db.getAllAsync<{ meal_count: number }>(
+    `SELECT COUNT(*) AS meal_count
+     FROM meals
+     WHERE eaten_on >= ? AND eaten_on < ? AND deleted_at IS NULL
+     GROUP BY eaten_on
+     ORDER BY meal_count`,
+    [toLocalDateKey(since), today],
+  );
+  return inferMealLoggingPattern(rows.map((row) => Number(row.meal_count)));
 }
 
 type MealRecordRow = {

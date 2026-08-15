@@ -8,12 +8,18 @@ import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
 import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
 import { getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, syncAccountData } from '@/lib/db';
-import { reconcileMealGapNotification } from '@/lib/notifications';
+import { reconcileMealGapNotification, reconcileSyncAttentionNotification } from '@/lib/notifications';
 import { spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
 
 async function loadSettings(db: ReturnType<typeof useSQLiteContext>) {
   const [sync, notifications, account, profile] = await Promise.all([getSyncStatus(db), listNotificationPreferences(db), getAccountState(), getUserProfile(db)]);
-  return { sync, account, profile, mealGap: notifications.find((item) => item.type === 'meal_gap') ?? null };
+  return {
+    sync,
+    account,
+    profile,
+    mealGap: notifications.find((item) => item.type === 'meal_gap') ?? null,
+    syncIssue: notifications.find((item) => item.type === 'sync_issue') ?? null,
+  };
 }
 
 export default function SettingsScreen() {
@@ -43,6 +49,25 @@ export default function SettingsScreen() {
       const outcome = await reconcileMealGapNotification(db, enabled);
       setMessage(
         !enabled ? 'Meal-gap reminders are off.' : outcome === 'scheduled' ? 'A reminder will appear only if today still looks incomplete.' : outcome === 'permission_denied' ? 'Notification permission was not granted.' : outcome === 'unsupported' ? 'Local reminders are available on iOS and Android.' : 'No reminder is needed for today.',
+      );
+      await reload();
+    });
+  };
+
+  const toggleSyncAttention = async (enabled: boolean) => {
+    await run('sync-notification', async () => {
+      await saveNotificationPreference(db, 'sync_issue', enabled);
+      const outcome = await reconcileSyncAttentionNotification(db, enabled);
+      setMessage(
+        !enabled
+          ? 'Sync-attention reminders are off.'
+          : outcome === 'scheduled'
+            ? 'JIEN will notify you once when saved changes need action.'
+            : outcome === 'permission_denied'
+              ? 'Notification permission was not granted.'
+              : outcome === 'unsupported'
+                ? 'Local reminders are available on iOS and Android.'
+                : 'No sync action is needed right now.',
       );
       await reload();
     });
@@ -99,10 +124,16 @@ export default function SettingsScreen() {
       <SectionHeading title="Contextual reminders" detail="Off until you opt in" />
       <Card>
         <View style={styles.row}>
-          <View style={styles.copy}><AppText style={styles.cardTitle}>Possible missing meal</AppText><AppText style={{ color: theme.colors.textMuted }}>At 8 pm, only when fewer than two meals are logged. A new meal cancels stale reminders.</AppText></View>
+          <View style={styles.copy}><AppText style={styles.cardTitle}>Possible missing meal</AppText><AppText style={{ color: theme.colors.textMuted }}>At 8 pm, only after recent history establishes a multi-meal pattern and today's log is below it. A new meal cancels stale reminders.</AppText></View>
           <Switch accessibilityLabel="Possible missing meal reminder" disabled={busy === 'notification'} value={data?.mealGap?.enabled ?? false} onValueChange={(value) => void toggleMealGap(value)} trackColor={{ false: theme.colors.surfaceMuted, true: theme.colors.wood }} thumbColor={theme.colors.surfaceRaised} />
         </View>
         {Platform.OS === 'web' ? <AppText style={{ color: theme.colors.textMuted }}>Scheduling is available in the native app.</AppText> : null}
+      </Card>
+      <Card>
+        <View style={styles.row}>
+          <View style={styles.copy}><AppText style={styles.cardTitle}>Sync needs attention</AppText><AppText style={{ color: theme.colors.textMuted }}>Only for a persistent sign-in, permission, validation, or schema problem that requires you to act. Ordinary offline retries stay silent.</AppText></View>
+          <Switch accessibilityLabel="Sync needs attention reminder" disabled={busy === 'sync-notification'} value={data?.syncIssue?.enabled ?? false} onValueChange={(value) => void toggleSyncAttention(value)} trackColor={{ false: theme.colors.surfaceMuted, true: theme.colors.wood }} thumbColor={theme.colors.surfaceRaised} />
+        </View>
       </Card>
 
       <SectionHeading title="Sync" detail="SQLite remains the source of truth" />

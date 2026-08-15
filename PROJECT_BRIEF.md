@@ -32,7 +32,7 @@ there once the core loop is genuinely good.
 - Manual logging, macro counters, based on adaptive principles — adjust targets from
   actual trend data over time, not just a static formula, closer to how MacroFactor
   works than a fixed Mifflin-St Jeor calculator
-- AI food photo ID: photo + typed context → Claude vision call → structured estimate
+- AI food photo ID: photo + typed context → server-side vision call → structured estimate
   (items, portions, calories, macros, confidence flag). Good enough for real-world
   estimation; not a lab-grade nutrition database on day one.
 
@@ -77,7 +77,7 @@ there once the core loop is genuinely good.
   wins conflict resolution is sufficient at single-user scale
 - The progression engine is pure client-side math over local data — works fully
   offline
-- AI features (chat, food photo ID, adaptive explanations) require the Claude API and
+- AI features (chat, food photo ID, adaptive explanations) require a server-side AI provider and
   cannot run offline:
   - Chat: cache the last several AI responses so prior guidance is readable offline,
     even if new questions can't be asked
@@ -100,7 +100,7 @@ a thin onboarding produces a generic app.
 
 ## Tech stack
 Expo (React Native + Router) · Supabase (Postgres/Auth/Storage/Edge Functions) ·
-Claude API via Edge Functions · RevenueCat · EAS Build · react-native-health /
+Gemini/Anthropic via Edge Functions · RevenueCat · EAS Build · react-native-health /
 react-native-health-connect (phase 3+)
 
 ## Roadmap

@@ -112,3 +112,17 @@ must reach Supabase before the Edge Function will send context to the AI provide
 The function reads recent structured rows through the signed-in user's RLS scope;
 the service role is used only to write the assistant-role message that clients are
 not permitted to forge.
+
+## Offline meal-photo queue
+
+Compressed meal photos and typed context can be placed in the device-only
+`meal_photo_jobs` queue without blocking manual meal entry. Raw image data never
+enters the generic Supabase sync queue or portable export. When a signed-in
+connection and AI consent are available, the runtime checks capability before any
+photo upload, analyzes one job at a time, strictly parses the response, clears the
+raw image, and exposes the editable result from the Food screen.
+
+Transient failures use bounded one-to-sixteen-minute exponential delays and stop
+after five attempts. Authentication, consent, and provider-configuration failures
+remain visible as action-required rather than retrying in a loop. Processing rows
+older than five minutes are safely reclaimed after an interrupted app session.

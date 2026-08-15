@@ -440,4 +440,31 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       PRAGMA user_version = 8;
     `);
   }
+
+  if (currentVersion < 9) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS meal_photo_jobs (
+        id TEXT PRIMARY KEY NOT NULL,
+        image_base64 TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        source_label TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        retryable INTEGER NOT NULL DEFAULT 1,
+        next_attempt_at TEXT,
+        error_code TEXT,
+        error_message TEXT,
+        request_id TEXT,
+        result_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS meal_photo_jobs_status_idx
+        ON meal_photo_jobs(status, retryable, next_attempt_at, created_at);
+      PRAGMA user_version = 9;
+    `);
+  }
 }

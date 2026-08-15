@@ -1,13 +1,19 @@
 // @ts-nocheck
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
+import {
+  requestWellnessGuidance,
+  resolveWellnessProvider,
+  WellnessProviderError,
+} from '../_shared/wellness-provider.ts';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-request-id',
 };
 
 Deno.serve(async (request) => {
-  const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
+  const requestId = safeRequestId(request.headers.get('x-request-id'));
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') {
     return failure('METHOD_NOT_ALLOWED', 'Only POST is supported.', false, 405, requestId);
@@ -104,39 +110,36 @@ Deno.serve(async (request) => {
       return failure('INVALID_SEQUENCE', 'The reply sequence does not follow the question.', false, 409, requestId);
     }
 
-    const context = await loadLiveContext(userClient, userId, conversationId, profile);
-    const safePlan = normalizePlanBrief(planBrief);
-    const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-    const model = Deno.env.get('ANTHROPIC_MODEL');
-    if (!apiKey || !model) {
-      return failure('AI_NOT_CONFIGURED', 'AI guidance is not configured yet.', true, 503, requestId);
+    const provider = resolveWellnessProvider({
+      WELLNESS_AI_PROVIDER: Deno.env.get('WELLNESS_AI_PROVIDER'),
+      GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
+      GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
+      ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
+      ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
+    });
+    if (!provider.ok) {
+      return failure('AI_NOT_CONFIGURED', 'AI guidance is not configured yet.', false, 503, requestId);
     }
 
-    const providerResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 900,
-        temperature: 0.2,
-        system: `You are JIEN's restrained wellness planning assistant. Use only the supplied user-owned context. Be concise, warm, and practical. Never diagnose, prescribe treatment, recommend max-effort or 1RM testing, or invent missing measurements. The deterministic plan brief is computed by the app and is the sole numeric source of truth for progression: explain it exactly and never replace its action, load, reps, or deload state. If an active joint flag exists, prioritize caution and suggest a qualified clinician for concerning or persistent symptoms. State uncertainty plainly. End health-related guidance with a short "Not medical advice" reminder.`,
-        messages: [{
-          role: 'user',
-          content: `Request mode: ${mode}\nQuestion: ${String(userMessage.content).slice(0, 2_000)}\n\nLive structured context (last 7-30 days):\n${JSON.stringify(context)}\n\nDeterministic plan brief:\n${JSON.stringify(safePlan)}\n\nRespond in plain text with short paragraphs or compact bullet lines.`,
-        }],
-      }),
-    });
-    if (!providerResponse.ok) {
+    const context = await loadLiveContext(userClient, userId, conversationId, profile);
+    const safePlan = normalizePlanBrief(planBrief);
+    let providerResult;
+    try {
+      providerResult = await requestWellnessGuidance(provider.configuration, {
+        system: wellnessSystemPrompt(),
+        prompt: wellnessUserPrompt(mode, userMessage.content, context, safePlan),
+      });
+    } catch (cause) {
+      if (cause instanceof WellnessProviderError) {
+        return failure(
+          cause.code,
+          cause.message,
+          cause.retryable,
+          cause.httpStatus,
+          requestId,
+        );
+      }
       return failure('AI_PROVIDER_UNAVAILABLE', 'The AI service could not respond. Try again shortly.', true, 502, requestId);
-    }
-    const providerMessage = await providerResponse.json();
-    const content = String(providerMessage.content?.find((part) => part.type === 'text')?.text ?? '').trim();
-    if (!content) {
-      return failure('AI_EMPTY_RESPONSE', 'The AI service returned an empty response. Try again.', true, 502, requestId);
     }
 
     const createdAt = new Date().toISOString();
@@ -146,11 +149,11 @@ Deno.serve(async (request) => {
       conversation_id: conversationId,
       sequence: assistantSequence,
       role: 'assistant',
-      content: content.slice(0, 12_000),
+      content: providerResult.text.slice(0, 12_000),
       structured_content: { kind: mode, plan_brief_version: safePlan?.version ?? null },
-      metadata: { request_id: requestId },
-      model,
-      provider_message_id: providerMessage.id ?? null,
+      metadata: { request_id: requestId, provider: provider.configuration.provider },
+      model: provider.configuration.model,
+      provider_message_id: providerResult.providerMessageId,
       created_at: createdAt,
       client_updated_at: createdAt,
       deleted_at: null,
@@ -247,6 +250,19 @@ function normalizePlanBrief(value) {
       reason: String(exercise.reason ?? '').slice(0, 300),
     })),
   };
+}
+
+function wellnessSystemPrompt() {
+  return `You are JIEN's restrained wellness planning assistant. Use only the supplied user-owned context. Be concise, warm, and practical. Never diagnose, prescribe treatment, recommend max-effort or 1RM testing, or invent missing measurements. The deterministic plan brief is computed by the app and is the sole numeric source of truth for progression: explain it exactly and never replace its action, load, reps, or deload state. If an active joint flag exists, prioritize caution and suggest a qualified clinician for concerning or persistent symptoms. State uncertainty plainly. End health-related guidance with a short "Not medical advice" reminder.`;
+}
+
+function wellnessUserPrompt(mode, userMessage, context, safePlan) {
+  return `Request mode: ${mode}\nQuestion: ${String(userMessage).slice(0, 2_000)}\n\nLive structured context (last 7-30 days):\n${JSON.stringify(context)}\n\nDeterministic plan brief:\n${JSON.stringify(safePlan)}\n\nRespond in plain text with short paragraphs or compact bullet lines.`;
+}
+
+function safeRequestId(value) {
+  const clean = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z0-9_-]{8,128}$/.test(clean) ? clean : crypto.randomUUID();
 }
 
 function isUuid(value) {

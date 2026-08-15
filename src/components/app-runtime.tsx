@@ -1,16 +1,20 @@
 import * as Network from 'expo-network';
+import * as Notifications from 'expo-notifications';
+import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { getSupabaseClient, syncAccountData } from '@/lib/db';
+import { getSupabaseClient, processPendingMealPhotoJobs, syncAccountData } from '@/lib/db';
 import { subscribeToQueuedLocalWrites } from '@/lib/db/write-sync-signal';
-import { reconcileMealGapNotification } from '@/lib/notifications';
+import { getNotificationHref, reconcileContextualNotifications } from '@/lib/notifications';
 
 export function AppRuntime() {
   const db = useSQLiteContext();
+  const router = useRouter();
   const syncing = useRef(false);
   const rerunRequested = useRef(false);
+  const handledNotificationIds = useRef(new Set<string>());
 
   const reconcile = useCallback(async (trigger: 'background' | 'auth_state_change' = 'background') => {
     if (syncing.current) {
@@ -21,9 +25,10 @@ export function AppRuntime() {
     try {
       do {
         rerunRequested.current = false;
+        await syncAccountData(db, { trigger }).catch(() => undefined);
         await Promise.allSettled([
-          syncAccountData(db, { trigger }),
-          reconcileMealGapNotification(db),
+          processPendingMealPhotoJobs(db),
+          reconcileContextualNotifications(db),
         ]);
       } while (rerunRequested.current);
     } finally {
@@ -44,6 +49,23 @@ export function AppRuntime() {
       appStateSubscription.remove();
     };
   }, [reconcile]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const openResponse = (response: Notifications.NotificationResponse) => {
+      const identifier = response.notification.request.identifier;
+      if (handledNotificationIds.current.has(identifier)) return;
+      const href = getNotificationHref(response.notification.request.content.data);
+      if (!href) return;
+      handledNotificationIds.current.add(identifier);
+      router.push(href);
+    };
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) openResponse(response);
+    });
+    const subscription = Notifications.addNotificationResponseReceivedListener(openResponse);
+    return () => subscription.remove();
+  }, [router]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;

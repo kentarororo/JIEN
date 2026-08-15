@@ -13,9 +13,12 @@ import {
   analyzeMealPhoto,
   cacheFoodCatalogItems,
   classifyMealPhotoAnalysisError,
+  consumeQueuedMealPhotoResult,
   getMealPhotoAnalysisCapability,
+  getQueuedMealPhotoResult,
   lookupFoodBarcode,
   markFoodCatalogItemUsed,
+  queueMealPhotoAnalysis,
   saveMeal,
   searchFoodDatabase,
   searchLocalFoodCatalog,
@@ -73,12 +76,14 @@ const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'
 export default function NewMealScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { date } = useLocalSearchParams<{ date?: string }>();
+  const { date, photoJob } = useLocalSearchParams<{ date?: string; photoJob?: string }>();
   const { colors } = useJienTheme();
   const cameraRef = useRef<CameraView>(null);
   const screenRef = useRef<ScrollView>(null);
   const mealItemsYRef = useRef(0);
   const photoAnalysisLockRef = useRef(false);
+  const photoQueueLockRef = useRef(false);
+  const queuedPhotoRecoveryRef = useRef<string | null>(null);
   const barcodeLockRef = useRef(false);
   const pendingPickerResultRef = useRef<ReturnType<typeof ImagePicker.getPendingResultAsync> | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -129,6 +134,35 @@ export default function NewMealScreen() {
     });
     return () => { active = false; };
   }, [photoFlow.selection]);
+
+  useEffect(() => {
+    if (!photoJob || queuedPhotoRecoveryRef.current === photoJob) return;
+    queuedPhotoRecoveryRef.current = photoJob;
+    let active = true;
+    void getQueuedMealPhotoResult(db, photoJob).then(async (result) => {
+      if (!active) return;
+      if (!result) {
+        setToolMessage('That queued photo result is no longer available.');
+        return;
+      }
+      const drafts = result.items.map(toDraftFood);
+      const itemKeys = drafts.map((item) => item.key);
+      setFoods((current) => current.length === 1 && isBlankFood(current[0]!)
+        ? drafts
+        : [...current, ...drafts]);
+      setAppliedPhotoRequestIds((current) => current.includes(result.requestId)
+        ? current
+        : [...current, result.requestId]);
+      setPhotoAnalyses((current) => current.some((item) => item.requestId === result.requestId)
+        ? current
+        : [...current, { requestId: result.requestId, description: result.description, itemKeys }]);
+      setToolMessage(`${itemKeys.length} queued AI-estimated item${itemKeys.length === 1 ? '' : 's'} added. Review every portion and macro before saving.`);
+      await consumeQueuedMealPhotoResult(db, result.id);
+    }).catch((cause) => {
+      if (active) setToolMessage(cause instanceof Error ? cause.message : 'The queued photo result could not be opened.');
+    });
+    return () => { active = false; };
+  }, [db, photoJob]);
 
   const update = (key: string, field: 'name', value: string) => {
     setFormError(null);
@@ -459,6 +493,28 @@ export default function NewMealScreen() {
     }
   };
 
+  const queuePendingPhoto = async () => {
+    const selection = photoFlow.selection;
+    if (!selection || cameraBusy || photoQueueLockRef.current) return;
+    photoQueueLockRef.current = true;
+    setCameraBusy(true);
+    try {
+      await queueMealPhotoAnalysis(db, {
+        base64: selection.base64,
+        mediaType: selection.mediaType,
+        sourceLabel: selection.sourceLabel,
+        description: photoFlow.description,
+      });
+      dispatchPhoto({ type: 'dismissed' });
+      setToolMessage('Photo saved on this device. JIEN will analyze it when your signed-in connection is ready; the result will appear on Food.');
+    } catch (cause) {
+      setToolMessage(cause instanceof Error ? cause.message : 'The photo could not be queued on this device.');
+    } finally {
+      photoQueueLockRef.current = false;
+      setCameraBusy(false);
+    }
+  };
+
   const dismissPendingPhoto = (manual = false) => {
     if (cameraBusy) return;
     const description = photoFlow.description.trim();
@@ -707,6 +763,7 @@ export default function NewMealScreen() {
                 {!photoCanAnalyze && (photoFlow.capability || photoFlow.failure) ? (
                   <Button label="Check availability again" onPress={() => void refreshPhotoCapability()} variant="quiet" disabled={cameraBusy} />
                 ) : null}
+                <Button label="Save photo for later" onPress={() => void queuePendingPhoto()} variant="secondary" disabled={cameraBusy} />
                 <Button label="Enter manually instead" onPress={() => dismissPendingPhoto(true)} variant="secondary" disabled={cameraBusy} />
               </View>
             )}

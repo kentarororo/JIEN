@@ -12,7 +12,8 @@ and restored from a Supabase backend with row-level security.
 - searchable offline food starters, editable database/barcode results, and camera/library meal-photo analysis
 - meal, food-item, macro-total, and versioned nutrition-target logging
 - native share / web download for workout CSV, nutrition CSV, and complete JSON
-- opt-in, context-aware missing-meal notification scaffolding
+- opt-in, history-aware meal-gap and persistent sync-attention notifications with
+  quiet hours, stale cancellation, and safe deep links
 - optional Google or email authentication, persistent sessions, and two-way cloud restore
 - warm cream, royal-brown, and wood-accented light/dark themes
 - calm guided onboarding for goals, body baseline, equipment, joint considerations, diet, and AI consent

@@ -178,6 +178,20 @@ removal sets `deleted_at` on the meal and all active items; history queries excl
 those tombstones, while sync retains them long enough to remove the records on
 other devices.
 
+### Local-only `meal_photo_jobs`
+
+Prepared meal photos can be queued in SQLite when the network, account, consent, or
+AI service is not ready. This device-only table stores the compressed image, typed
+context, bounded retry state, safe error details, and a strictly parsed result. It is
+not a Supabase table and is deliberately excluded from cloud row sync and portable
+exports. The raw image is cleared immediately after successful analysis; the result
+row is deleted after its editable food items are opened in a meal draft.
+
+Automatic processing runs on startup, foreground, connectivity changes, and queued
+local-write signals. Processing claims are recoverable after five minutes, retries
+use bounded exponential delays, and repeated provider failures stop after five
+attempts until the user explicitly retries or discards the photo.
+
 ### `nutrition_targets`
 
 Historical daily macro targets, effective from a local date and optionally through
@@ -283,6 +297,14 @@ there is no blanket retention reminder type.
 | `last_notified_at` | `timestamptz` | Last successful delivery time |
 | `conditions` | `jsonb` | Trigger-specific threshold object |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
+
+Meal-gap reminders require at least four recent logged days with a median of two or
+more meals, then compare today's log with that established median. Sync-attention
+reminders are eligible only for paused authentication, authorization, validation,
+schema, or configuration failures—not normal offline/backoff retries. Both remain
+off until enabled, respect 22:00-08:00 quiet hours, cancel when their condition
+clears, and deep-link only through an explicit in-app route allowlist. The planned
+workout category remains dormant until a real scheduled-workout flow exists.
 
 ## Local food discovery cache
 

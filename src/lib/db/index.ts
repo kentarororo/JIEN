@@ -19,6 +19,16 @@ export type {
   MealPhotoCapability,
   MealPhotoCapabilityStatus,
 } from './meal-photo-api';
+export {
+  consumeQueuedMealPhotoResult,
+  discardQueuedMealPhoto,
+  getMealPhotoQueueSummary,
+  getQueuedMealPhotoResult,
+  processPendingMealPhotoJobs,
+  queueMealPhotoAnalysis,
+  retryQueuedMealPhotos,
+} from './meal-photo-queue';
+export type { MealPhotoQueueSummary, QueuedMealPhotoResult } from './meal-photo-queue';
 export { migrateDatabase } from './migrate';
 export { getUserProfile, hasCompletedOnboarding, saveUserProfile } from './profile';
 export {
@@ -34,6 +44,7 @@ export {
   deleteMeal,
   ensureStartingNutritionTarget,
   getDailyNutrition,
+  getMealLoggingPattern,
   getMealDetail,
   getNutritionTarget,
   listMealsForDate,

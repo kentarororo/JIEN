@@ -11,8 +11,8 @@ slice and don't talk to each other. That gap is the product.
 - Client: Expo (React Native + Expo Router), TypeScript
 - Local data: SQLite on-device (source of truth for offline-first), background sync to Supabase
 - Backend: Supabase (Postgres, Auth, Storage, Edge Functions)
-- AI: Anthropic Claude API — called ONLY from Supabase Edge Functions, never directly
-  from the client
+- AI: provider-neutral Gemini/Anthropic adapters — called ONLY from Supabase Edge
+  Functions, never directly from the client
 - Subscriptions: RevenueCat
 - Health data (phase 3+): react-native-health (iOS), react-native-health-connect
   (Android) — native only, requires a custom dev client, not available in Expo Go
@@ -60,7 +60,7 @@ drift from the actual migrations.
   copy before shipping the write path, not after
 
 ## Never
-- Call the Anthropic API directly from the client
+- Call an AI provider directly from the client
 - Add a new npm dependency without checking Expo managed-workflow compatibility first
 - Build a 1RM-chasing or max-effort-testing feature
 - Request the broad Google `drive` scope — `drive.file` only
