@@ -8,7 +8,7 @@ import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
 import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
 import { getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, syncAccountData } from '@/lib/db';
-import { reconcileMealGapNotification, reconcileSyncAttentionNotification } from '@/lib/notifications';
+import { reconcileMealGapNotification, reconcileSyncAttentionNotification, reconcileWorkoutPlanNotification } from '@/lib/notifications';
 import { spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
 
 async function loadSettings(db: ReturnType<typeof useSQLiteContext>) {
@@ -18,6 +18,7 @@ async function loadSettings(db: ReturnType<typeof useSQLiteContext>) {
     account,
     profile,
     mealGap: notifications.find((item) => item.type === 'meal_gap') ?? null,
+    workoutPlan: notifications.find((item) => item.type === 'workout_plan') ?? null,
     syncIssue: notifications.find((item) => item.type === 'sync_issue') ?? null,
   };
 }
@@ -68,6 +69,25 @@ export default function SettingsScreen() {
               : outcome === 'unsupported'
                 ? 'Local reminders are available on iOS and Android.'
                 : 'No sync action is needed right now.',
+      );
+      await reload();
+    });
+  };
+
+  const toggleWorkoutPlan = async (enabled: boolean) => {
+    await run('workout-notification', async () => {
+      await saveNotificationPreference(db, 'workout_plan', enabled);
+      const outcome = await reconcileWorkoutPlanNotification(db, enabled);
+      setMessage(
+        !enabled
+          ? 'Planned-workout reminders are off.'
+          : outcome === 'scheduled'
+            ? 'The next planned session will remind you about one hour before it starts.'
+            : outcome === 'permission_denied'
+              ? 'Notification permission was not granted.'
+              : outcome === 'unsupported'
+                ? 'Local reminders are available on iOS and Android.'
+                : 'Plan a future workout before a reminder is needed.',
       );
       await reload();
     });
@@ -128,6 +148,12 @@ export default function SettingsScreen() {
           <Switch accessibilityLabel="Possible missing meal reminder" disabled={busy === 'notification'} value={data?.mealGap?.enabled ?? false} onValueChange={(value) => void toggleMealGap(value)} trackColor={{ false: theme.colors.surfaceMuted, true: theme.colors.wood }} thumbColor={theme.colors.surfaceRaised} />
         </View>
         {Platform.OS === 'web' ? <AppText style={{ color: theme.colors.textMuted }}>Scheduling is available in the native app.</AppText> : null}
+      </Card>
+      <Card>
+        <View style={styles.row}>
+          <View style={styles.copy}><AppText style={styles.cardTitle}>Planned workout approaching</AppText><AppText style={{ color: theme.colors.textMuted }}>About one hour before the next calendar-backed session. Starting, completing, skipping, removing, or moving the plan cancels stale reminders.</AppText></View>
+          <Switch accessibilityLabel="Planned workout reminder" disabled={busy === 'workout-notification'} value={data?.workoutPlan?.enabled ?? false} onValueChange={(value) => void toggleWorkoutPlan(value)} trackColor={{ false: theme.colors.surfaceMuted, true: theme.colors.wood }} thumbColor={theme.colors.surfaceRaised} />
+        </View>
       </Card>
       <Card>
         <View style={styles.row}>

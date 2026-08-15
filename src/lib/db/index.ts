@@ -65,15 +65,21 @@ export {
 export { getSupabaseClient } from './supabase';
 export { getSyncStatus, syncPendingChanges } from './sync-queue';
 export {
+  completePlannedWorkout,
   deleteWorkout,
   getExerciseHistory,
+  getNextPlannedWorkout,
   getLastExerciseSessionSets,
   getWorkoutProgressComparison,
   getWorkoutDetail,
   listRecentWorkouts,
+  listUpcomingPlannedWorkouts,
+  listPlannedWorkoutsForDate,
   listWorkoutsForDate,
   listVolumeHistory,
   listWorkoutExportRows,
   saveWorkout,
+  savePlannedWorkout,
+  skipPlannedWorkout,
 } from './workouts';
 export type * from './types';

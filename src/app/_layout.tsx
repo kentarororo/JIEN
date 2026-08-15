@@ -45,6 +45,7 @@ function AppNavigator() {
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
         <Stack.Screen name="workouts/new" options={{ title: 'Log workout', presentation: 'modal' }} />
+        <Stack.Screen name="workouts/plan" options={{ title: 'Plan workout', presentation: 'modal' }} />
         <Stack.Screen name="workouts/[id]" options={{ title: 'Workout' }} />
         <Stack.Screen name="meals/new" options={{ title: 'Log meal', presentation: 'modal' }} />
         <Stack.Screen name="meals/[id]" options={{ title: 'Meal' }} />

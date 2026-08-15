@@ -5,16 +5,21 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   getDailyNutrition,
   getMealLoggingPattern,
+  getNextPlannedWorkout,
   getNotificationPreference,
   getScheduledNotificationId,
+  getSetting,
   getSyncStatus,
   setScheduledNotificationId,
+  setSetting,
 } from '@/lib/db';
 
 import { getMealGapTrigger } from './meal-gap-policy';
 import { getSyncAttentionTrigger } from './sync-attention-policy';
+import { getWorkoutPlanTrigger } from './workout-plan-policy';
 
 const CHANNEL_ID = 'contextual-reminders';
+const WORKOUT_PLAN_SCHEDULE_KEY = 'scheduled_workout_plan_key';
 
 export function configureNotificationHandling(): void {
   Notifications.setNotificationHandler({
@@ -118,6 +123,88 @@ export async function cancelSyncAttentionNotification(db: SQLiteDatabase): Promi
   await setScheduledNotificationId(db, 'sync_issue', null);
 }
 
+export async function cancelWorkoutPlanNotification(db: SQLiteDatabase): Promise<void> {
+  const scheduledId = await getScheduledNotificationId(db, 'workout_plan');
+  if (scheduledId && Platform.OS !== 'web') {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(scheduledId);
+    } catch {
+      // The operating system may already have delivered or cleared this identifier.
+    }
+  }
+  await Promise.all([
+    setScheduledNotificationId(db, 'workout_plan', null),
+    setSetting(db, WORKOUT_PLAN_SCHEDULE_KEY, ''),
+  ]);
+}
+
+export async function reconcileWorkoutPlanNotification(
+  db: SQLiteDatabase,
+  requestPermission = false,
+): Promise<'scheduled' | 'disabled' | 'complete' | 'unsupported' | 'permission_denied'> {
+  const preference = await getNotificationPreference(db, 'workout_plan');
+  if (!preference?.enabled) {
+    await cancelWorkoutPlanNotification(db);
+    return 'disabled';
+  }
+  const planned = await getNextPlannedWorkout(db);
+  if (!planned?.scheduledAt) {
+    await cancelWorkoutPlanNotification(db);
+    return 'complete';
+  }
+  if (Platform.OS === 'web') return 'unsupported';
+  const triggerAt = getWorkoutPlanTrigger({
+    enabled: preference.enabled,
+    scheduledAt: planned.scheduledAt,
+    leadMinutes: Number(preference.conditions.leadMinutes ?? 60),
+    quietHoursStart: preference.quietHoursStart,
+    quietHoursEnd: preference.quietHoursEnd,
+    now: new Date(),
+  });
+  if (!triggerAt) {
+    await cancelWorkoutPlanNotification(db);
+    return 'complete';
+  }
+
+  const permissions = await Notifications.getPermissionsAsync();
+  const allowed = permissions.granted || (requestPermission && (await ensurePermission()));
+  if (!allowed) {
+    await cancelWorkoutPlanNotification(db);
+    return 'permission_denied';
+  }
+  const scheduleKey = `${planned.id}|${planned.scheduledAt}`;
+  const [existingId, existingKey] = await Promise.all([
+    getScheduledNotificationId(db, 'workout_plan'),
+    getSetting(db, WORKOUT_PLAN_SCHEDULE_KEY),
+  ]);
+  if (existingId && existingKey === scheduleKey) return 'scheduled';
+  if (existingId) await cancelWorkoutPlanNotification(db);
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+      name: 'Contextual reminders',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      vibrationPattern: [0, 180],
+    });
+  }
+  const notificationId = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: `${planned.title} is planned soon`,
+      body: 'Review your set targets and start the session when you are ready.',
+      data: { href: `/workouts/${planned.id}`, type: 'workout_plan' },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: triggerAt,
+      channelId: CHANNEL_ID,
+    },
+  });
+  await Promise.all([
+    setScheduledNotificationId(db, 'workout_plan', notificationId),
+    setSetting(db, WORKOUT_PLAN_SCHEDULE_KEY, scheduleKey),
+  ]);
+  return 'scheduled';
+}
+
 export async function reconcileSyncAttentionNotification(
   db: SQLiteDatabase,
   requestPermission = false,
@@ -169,6 +256,7 @@ export async function reconcileSyncAttentionNotification(
 export async function reconcileContextualNotifications(db: SQLiteDatabase): Promise<void> {
   await Promise.allSettled([
     reconcileMealGapNotification(db),
+    reconcileWorkoutPlanNotification(db),
     reconcileSyncAttentionNotification(db),
   ]);
 }

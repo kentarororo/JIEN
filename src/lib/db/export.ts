@@ -65,7 +65,8 @@ export async function getCompleteExportSnapshot(
        ORDER BY name COLLATE NOCASE ASC, id ASC`,
     ),
     db.getAllAsync<ExportDatabaseRow>(
-      `SELECT id, title, status, performed_on, started_at, completed_at, notes,
+      `SELECT id, title, status, performed_on, scheduled_at, started_at, completed_at,
+              notes, plan_json,
               created_at, updated_at, client_updated_at, deleted_at
        FROM workouts
        WHERE deleted_at IS NULL

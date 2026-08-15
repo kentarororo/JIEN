@@ -5,6 +5,8 @@ implementation is in `supabase/migrations/20260811000100_initial_schema.sql`, wi
 account-safe starter exercise ownership in
 `supabase/migrations/20260814000100_account_ownership.sql` and editable meal
 provenance in `supabase/migrations/20260814000200_meal_edit_provenance.sql`.
+Calendar-backed workout plans are added by
+`supabase/migrations/20260815000100_planned_workouts.sql`.
 
 ## Conventions
 
@@ -100,9 +102,18 @@ A planned or performed session. `performed_on` is the user's local calendar day;
 | `title` | `text` | Required; defaults to `Workout` |
 | `status` | `workout_status` | Session workflow state |
 | `performed_on` | `date` | User-local reporting day |
+| `scheduled_at` | `timestamptz` | Optional absolute start time for a planned session |
 | `started_at`, `completed_at` | `timestamptz` | Optional absolute session times |
 | `notes` | `text` | Optional session notes |
+| `plan_json` | `jsonb` | Versioned exercise order, prior-set targets, and deterministic progression overlays for a planned session |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
+
+`plan_json` is a snapshot used to make a scheduled workout usable offline. It keeps
+the previous completed set values separate from optional green progression cues;
+starting the workout pre-fills the recorded values and never silently applies a cue.
+Completing a plan changes the same workout row to `completed` and writes observed
+sets transactionally. Skipping, deleting, completing, or rescheduling a plan makes
+its reminder ineligible and causes the device scheduler to cancel or replace it.
 
 ### `sets`
 
@@ -301,10 +312,11 @@ there is no blanket retention reminder type.
 Meal-gap reminders require at least four recent logged days with a median of two or
 more meals, then compare today's log with that established median. Sync-attention
 reminders are eligible only for paused authentication, authorization, validation,
-schema, or configuration failures—not normal offline/backoff retries. Both remain
-off until enabled, respect 22:00-08:00 quiet hours, cancel when their condition
-clears, and deep-link only through an explicit in-app route allowlist. The planned
-workout category remains dormant until a real scheduled-workout flow exists.
+schema, or configuration failures—not normal offline/backoff retries. Planned-
+workout reminders target only the next future `planned` workout, default to a
+60-minute lead, and are replaced when that row or time changes. All categories
+remain off until enabled, respect 22:00-08:00 quiet hours, cancel when their
+condition clears, and deep-link only through an explicit in-app route allowlist.
 
 ## Local food discovery cache
 

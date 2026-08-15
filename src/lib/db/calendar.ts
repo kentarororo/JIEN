@@ -5,6 +5,7 @@ import type { CalendarDayActivity } from './types';
 const emptyDay = (date: string): CalendarDayActivity => ({
   date,
   workoutCount: 0,
+  plannedWorkoutCount: 0,
   workingSetCount: 0,
   trainingWorkKg: 0,
   mealCount: 0,
@@ -21,20 +22,22 @@ export async function listCalendarActivity(
     db.getAllAsync<{
       date: string;
       workout_count: number;
+      planned_workout_count: number;
       working_set_count: number;
       training_work_kg: number | null;
     }>(
       `SELECT w.performed_on AS date,
-        COUNT(DISTINCT w.id) AS workout_count,
-        COUNT(CASE WHEN s.kind = 'working' THEN 1 END) AS working_set_count,
+        COUNT(DISTINCT CASE WHEN w.status = 'completed' THEN w.id END) AS workout_count,
+        COUNT(DISTINCT CASE WHEN w.status = 'planned' THEN w.id END) AS planned_workout_count,
+        COUNT(CASE WHEN w.status = 'completed' AND s.kind = 'working' THEN 1 END) AS working_set_count,
         COALESCE(SUM(CASE
-          WHEN s.kind = 'working' AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
-          WHEN s.kind = 'working' THEN s.load_value * s.reps
+          WHEN w.status = 'completed' AND s.kind = 'working' AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
+          WHEN w.status = 'completed' AND s.kind = 'working' THEN s.load_value * s.reps
           ELSE 0 END), 0) AS training_work_kg
        FROM workouts w
        LEFT JOIN workout_sets s ON s.workout_id = w.id AND s.deleted_at IS NULL
        WHERE w.performed_on BETWEEN ? AND ?
-         AND w.status = 'completed'
+         AND w.status IN ('completed', 'planned')
          AND w.deleted_at IS NULL
        GROUP BY w.performed_on`,
       [startDate, endDate],
@@ -62,6 +65,7 @@ export async function listCalendarActivity(
     byDate.set(row.date, {
       ...emptyDay(row.date),
       workoutCount: row.workout_count,
+      plannedWorkoutCount: row.planned_workout_count,
       workingSetCount: row.working_set_count,
       trainingWorkKg: row.training_work_kg ?? 0,
     });

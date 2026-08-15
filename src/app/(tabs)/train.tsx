@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { getWorkoutProgressComparison, listRecentWorkouts, listVolumeHistory } from '@/lib/db';
+import { getWorkoutProgressComparison, listRecentWorkouts, listUpcomingPlannedWorkouts, listVolumeHistory } from '@/lib/db';
 import { aggregateWeeklyVolume, detectDeloadSignal, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -15,22 +15,34 @@ export default function TrainScreen() {
   const router = useRouter();
   const { colors } = useJienTheme();
   const loader = useCallback(async () => {
-    const [workouts, volumeSets, progress] = await Promise.all([
+    const [workouts, planned, volumeSets, progress] = await Promise.all([
       listRecentWorkouts(db),
+      listUpcomingPlannedWorkouts(db),
       listVolumeHistory(db),
       getWorkoutProgressComparison(db),
     ]);
     const weeks = aggregateWeeklyVolume(volumeSets);
-    return { workouts, weeks, progress, signal: detectDeloadSignal(weeks.map((week) => week.totalKg)) };
+    return { workouts, planned, weeks, progress, signal: detectDeloadSignal(weeks.map((week) => week.totalKg)) };
   }, [db]);
   const { data, error, loading, reload } = useScreenData(loader);
 
   return (
     <Screen>
-      <ScreenHeading title="Training" eyebrow="Machine-first log" action={<Button label="Add" onPress={() => router.push('/workouts/new')} />} />
+      <ScreenHeading title="Training" eyebrow="Machine-first log" action={<View style={styles.headerActions}><Button label="Plan" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" /><Button label="Log" onPress={() => router.push('/workouts/new')} /></View>} />
       {loading && !data ? <StatePanel title="Loading workouts" body="Reading your on-device history." loading /> : null}
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
-      {!loading && !error && data?.workouts.length === 0 ? <StatePanel title="No workouts yet" body="Start with one exercise and record the sets you completed." actionLabel="Log your first workout" onAction={() => router.push('/workouts/new')} /> : null}
+      {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
+      {data?.planned.length ? <>
+        <SectionHeading title="Upcoming" detail="Calendar-backed sessions" />
+        <View style={styles.list}>{data.planned.map((workout) => (
+          <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
+            <Pressable><Card style={{ backgroundColor: colors.accentSoft, borderColor: colors.accent }}>
+              <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? `${formatShortDate(workout.scheduledAt)} · ${formatTime(workout.scheduledAt)}` : formatShortDate(workout.performedOn)}</AppText></View>
+              <AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets · review or start</AppText>
+            </Card></Pressable>
+          </Link>
+        ))}</View>
+      </> : null}
       {data?.progress ? (
         <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
           <AppText style={[styles.kicker, { color: colors.accent }]}>LATEST SESSION PROGRESS</AppText>
@@ -104,6 +116,7 @@ export default function TrainScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   list: { gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm },
   title: { ...typography.bodyLarge, fontWeight: '700', flex: 1 },

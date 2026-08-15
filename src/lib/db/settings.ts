@@ -88,14 +88,27 @@ export async function saveNotificationPreference(
   type: NotificationType,
   enabled: boolean,
 ): Promise<NotificationPreference> {
-  const existing = await db.getFirstAsync<{ id: string; created_at: string }>(
-    'SELECT id, created_at FROM notification_preferences WHERE type = ?',
+  const existing = await db.getFirstAsync<{ id: string; created_at: string; conditions: string }>(
+    'SELECT id, created_at, conditions FROM notification_preferences WHERE type = ?',
     [type],
   );
   const id = existing?.id ?? Crypto.randomUUID();
   const now = new Date().toISOString();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const conditions = type === 'meal_gap' ? { expectedMeals: 2, checkHour: 20 } : {};
+  const defaultConditions = type === 'meal_gap'
+    ? { expectedMeals: 2, checkHour: 20 }
+    : type === 'workout_plan'
+      ? { leadMinutes: 60 }
+      : {};
+  let conditions = defaultConditions;
+  if (existing?.conditions) {
+    try {
+      const parsed = JSON.parse(existing.conditions) as Record<string, unknown>;
+      conditions = { ...defaultConditions, ...parsed };
+    } catch {
+      conditions = defaultConditions;
+    }
+  }
   const payload = {
     id,
     type,

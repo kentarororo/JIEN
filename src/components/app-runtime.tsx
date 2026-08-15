@@ -68,7 +68,6 @@ export function AppRuntime() {
   }, [router]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web') return undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = subscribeToQueuedLocalWrites(() => {
       if (timeout) clearTimeout(timeout);

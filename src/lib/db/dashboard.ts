@@ -40,7 +40,7 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
         ELSE s.load_value * s.reps END), 0) AS total_volume_kg
      FROM workouts w
      LEFT JOIN workout_sets s ON s.workout_id = w.id AND s.deleted_at IS NULL
-     WHERE w.deleted_at IS NULL
+     WHERE w.status = 'completed' AND w.deleted_at IS NULL
      GROUP BY w.id
      ORDER BY w.performed_on DESC, w.started_at DESC
      LIMIT 1`,
@@ -56,6 +56,7 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
         setCount: latest.set_count,
         exerciseCount: latest.exercise_count,
         totalVolumeKg: latest.total_volume_kg,
+        scheduledAt: null,
       }
     : null;
 

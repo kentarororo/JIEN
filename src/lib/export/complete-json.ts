@@ -78,8 +78,9 @@ function mapExercise(row: ExportDatabaseRow): JsonObject {
 function mapWorkout(row: ExportDatabaseRow): JsonObject {
   return {
     id: value(row, 'id'), title: value(row, 'title'), status: value(row, 'status'),
-    performedOn: value(row, 'performed_on'), startedAt: value(row, 'started_at'),
-    completedAt: value(row, 'completed_at'), notes: value(row, 'notes'),
+    performedOn: value(row, 'performed_on'), scheduledAt: value(row, 'scheduled_at'),
+    startedAt: value(row, 'started_at'), completedAt: value(row, 'completed_at'),
+    notes: value(row, 'notes'), plan: decodeExportJson(row.plan_json, null),
     createdAt: value(row, 'created_at'), updatedAt: value(row, 'updated_at'),
     clientUpdatedAt: value(row, 'client_updated_at'), deletedAt: value(row, 'deleted_at'),
   };

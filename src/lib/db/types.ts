@@ -132,6 +132,47 @@ export type SaveWorkoutInput = {
   }>;
 };
 
+export type PlannedWorkoutSet = {
+  loadValue: number | null;
+  loadUnit: LoadUnit;
+  reps: number | null;
+};
+
+export type PlannedWorkoutExercise = {
+  exerciseId: string;
+  exerciseName: string;
+  primaryMuscleGroup: string;
+  targetRepMin: number;
+  targetRepMax: number;
+  sets: PlannedWorkoutSet[];
+  progression: {
+    action: 'start' | 'hold' | 'add_reps' | 'add_load';
+    reason: string;
+    cues: Array<{
+      workingSetIndex: number;
+      action: 'add_reps' | 'add_load';
+      loadValue: number;
+      targetReps: number;
+      changePercent: number | null;
+      label: string;
+    }>;
+  };
+};
+
+export type PlannedWorkoutPlan = {
+  version: 1;
+  exercises: PlannedWorkoutExercise[];
+};
+
+export type SavePlannedWorkoutInput = {
+  id?: string;
+  title: string;
+  performedOn: string;
+  scheduledAt: string;
+  notes?: string;
+  exercises: PlannedWorkoutExercise[];
+};
+
 export type WorkoutSummary = {
   id: string;
   title: string;
@@ -142,6 +183,7 @@ export type WorkoutSummary = {
   setCount: number;
   exerciseCount: number;
   totalVolumeKg: number;
+  scheduledAt: string | null;
 };
 
 export type WorkoutSet = WorkoutSetInput & {
@@ -160,6 +202,7 @@ export type WorkoutSet = WorkoutSetInput & {
 export type WorkoutDetail = WorkoutSummary & {
   notes: string | null;
   sets: WorkoutSet[];
+  plan: PlannedWorkoutPlan | null;
 };
 
 export type ExerciseProgressComparison = {
@@ -280,6 +323,7 @@ export type DailyNutrition = {
 export type CalendarDayActivity = {
   date: string;
   workoutCount: number;
+  plannedWorkoutCount: number;
   workingSetCount: number;
   trainingWorkKg: number;
   mealCount: number;

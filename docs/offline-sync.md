@@ -2,7 +2,8 @@
 
 ## Contract
 
-SQLite is the source of truth for manual logging. Each workout, meal, target,
+SQLite is the source of truth for manual logging and planning. Each workout plan,
+completed workout, meal, target,
 wellness measurement or check-in, user-authored AI message, or notification
 preference write and its `sync_queue` upsert is committed in the same SQLite
 transaction. UI success for manual logging never waits for the network.
@@ -37,6 +38,12 @@ unpauses the row so an account, schema, or app-state correction can be tested.
 
 The app attempts sync at startup, after authentication, when returning to the
 foreground, when connectivity returns, and when the user chooses **Sync now**.
+
+Planned workouts use the same `workouts` queue row as completed sessions. Their
+versioned `plan_json` contains the previous-set snapshot and separate deterministic
+progression cues needed to start offline. Completing a plan updates that same UUID
+to `completed` and inserts observed sets in one SQLite transaction; skipping or
+deleting it writes a status change or tombstone through the same queue.
 
 ## Conflict rule
 

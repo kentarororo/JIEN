@@ -5,9 +5,9 @@ import { StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { deleteWorkout, getWorkoutDetail, getWorkoutProgressComparison } from '@/lib/db';
+import { deleteWorkout, getWorkoutDetail, getWorkoutProgressComparison, skipPlannedWorkout } from '@/lib/db';
 import { formatShortDate, formatTime } from '@/lib/time';
-import { spacing, typography, useJienTheme } from '@/theme';
+import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -17,6 +17,8 @@ export default function WorkoutDetailScreen() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmSkip, setConfirmSkip] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const loader = useCallback(async () => {
     const [detail, progress] = await Promise.all([
       getWorkoutDetail(db, id),
@@ -45,9 +47,95 @@ export default function WorkoutDetailScreen() {
     }
   };
 
+  const skipWorkout = async () => {
+    if (skipping) return;
+    setSkipping(true);
+    setDeleteError(null);
+    try {
+      await skipPlannedWorkout(db, id);
+      router.replace('/train');
+    } catch (cause) {
+      setDeleteError(cause instanceof Error ? cause.message : 'The planned workout could not be skipped.');
+      setSkipping(false);
+    }
+  };
+
   if (loading && !data) return <Screen><StatePanel title="Loading workout" body="Reading this session from your device." loading /></Screen>;
   if (error) return <Screen><StatePanel title="Workout unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /></Screen>;
   if (!detail) return <Screen><StatePanel title="Workout not found" body="It may have been removed from this device." /></Screen>;
+
+  if (detail.status === 'planned') {
+    return (
+      <Screen contentContainerStyle={styles.screenContent}>
+        <ScreenHeading
+          title={detail.title}
+          eyebrow={`Planned · ${formatShortDate(detail.scheduledAt ?? detail.performedOn)}${detail.scheduledAt ? ` · ${formatTime(detail.scheduledAt)}` : ''}`}
+        />
+        <Card style={[styles.progress, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+          <AppText style={[styles.kicker, { color: colors.accent }]}>UPCOMING SESSION</AppText>
+          <AppText style={styles.progressValue}>{detail.plan?.exercises.length ?? 0} exercises</AppText>
+          <AppText style={{ color: colors.textMuted }}>Previous completed values are the starting point. Green cues are optional and remain separate until you choose them.</AppText>
+        </Card>
+        {detail.plan?.exercises.map((exercise) => (
+          <View key={exercise.exerciseId} style={styles.group}>
+            <SectionHeading title={exercise.exerciseName} detail={`${exercise.primaryMuscleGroup.replaceAll('_', ' ')} · target ${exercise.targetRepMin}–${exercise.targetRepMax}`} />
+            <Card>
+              {exercise.sets.map((set, index) => {
+                const cue = exercise.progression.cues.find((item) => item.workingSetIndex === index);
+                return (
+                  <View key={`${exercise.exerciseId}-${index}`} style={styles.plannedSet}>
+                    <AppText style={styles.setIndex}>{index + 1}</AppText>
+                    <View style={styles.flex}>
+                      <AppText style={styles.setValue}>{set.loadValue == null || set.reps == null ? `Choose load · ${exercise.targetRepMin}–${exercise.targetRepMax} reps` : `${set.loadValue} ${set.loadUnit} × ${set.reps}`}</AppText>
+                      {cue ? <AppText style={{ color: colors.success, fontWeight: '700' }}>{cue.label}</AppText> : null}
+                    </View>
+                  </View>
+                );
+              })}
+              <View style={[styles.planReason, { backgroundColor: exercise.progression.action === 'hold' ? colors.warningSoft : colors.successSoft }]}>
+                <AppText style={{ color: exercise.progression.action === 'hold' ? colors.warning : colors.success, fontWeight: '700' }}>{exercise.progression.reason}</AppText>
+              </View>
+            </Card>
+          </View>
+        ))}
+        <Card style={{ backgroundColor: colors.surfaceMuted }}>
+          <AppText style={styles.progressName}>When you are ready</AppText>
+          <AppText style={{ color: colors.textMuted }}>Starting opens the normal set logger with these exact values. Completing it replaces this plan on the calendar.</AppText>
+          <View style={styles.actions}>
+            <Button label="Start workout" onPress={() => router.replace({ pathname: '/workouts/new', params: { planWorkoutId: detail.id } })} />
+            <Button label="Edit or reschedule" onPress={() => router.replace({ pathname: '/workouts/plan', params: { planWorkoutId: detail.id } } as never)} variant="secondary" />
+            <Button label="Back to calendar" onPress={() => router.replace('/today')} variant="secondary" />
+          </View>
+        </Card>
+        <Card style={confirmSkip ? { backgroundColor: colors.warningSoft, borderColor: colors.warning } : undefined}>
+          {confirmSkip ? (
+            <>
+              <AppText style={styles.progressName}>Skip this planned session?</AppText>
+              <AppText style={{ color: colors.textMuted }}>It will leave the upcoming list and its reminder will be cancelled. Completed history is unaffected.</AppText>
+              {deleteError ? <AppText style={{ color: colors.danger }}>{deleteError}</AppText> : null}
+              <View style={styles.actions}>
+                <Button label="Mark skipped" onPress={() => void skipWorkout()} busy={skipping} variant="secondary" />
+                <Button label="Keep plan" onPress={() => setConfirmSkip(false)} disabled={skipping} variant="quiet" />
+              </View>
+            </>
+          ) : <Button label="Skip this session" onPress={() => setConfirmSkip(true)} variant="quiet" />}
+        </Card>
+        <Card style={confirmDelete ? { backgroundColor: colors.dangerSoft, borderColor: colors.danger } : undefined}>
+          {confirmDelete ? (
+            <>
+              <AppText style={styles.progressName}>Remove this plan?</AppText>
+              <AppText style={{ color: colors.textMuted }}>The plan and its reminder will be removed from every synced device.</AppText>
+              {deleteError ? <AppText style={{ color: colors.danger }}>{deleteError}</AppText> : null}
+              <View style={styles.actions}>
+                <Button label="Remove plan" onPress={() => void removeWorkout()} busy={deleting} variant="danger" />
+                <Button label="Keep it" onPress={() => setConfirmDelete(false)} disabled={deleting} variant="secondary" />
+              </View>
+            </>
+          ) : <Button label="Remove this plan" onPress={() => setConfirmDelete(true)} variant="quiet" />}
+        </Card>
+      </Screen>
+    );
+  }
 
   return (
     <Screen contentContainerStyle={styles.screenContent}>
@@ -139,6 +227,8 @@ const styles = StyleSheet.create({
   setRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   setIndex: { width: 24, opacity: 0.65 },
   setValue: { flex: 1, fontWeight: '700' },
+  plannedSet: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  planReason: { padding: spacing.sm, borderRadius: radii.control },
   nextSession: { padding: spacing.lg },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 });

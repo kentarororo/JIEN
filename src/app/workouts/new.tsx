@@ -7,6 +7,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } f
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import {
   createCustomExercise,
+  completePlannedWorkout,
   getLastExerciseSessionSets,
   getWorkoutDetail,
   getUserProfile,
@@ -49,9 +50,9 @@ const isRowEmpty = (set: DraftSet) => !set.load.trim() && !set.reps.trim() && !s
 export default function NewWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const workoutIdRef = useRef(Crypto.randomUUID());
+  const { templateWorkoutId, planWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; planWorkoutId?: string; date?: string }>();
+  const workoutIdRef = useRef(planWorkoutId ?? Crypto.randomUUID());
   const submitLockRef = useRef(false);
-  const { templateWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; date?: string }>();
   const { width } = useWindowDimensions();
   const compact = width < 520;
   const { colors } = useJienTheme();
@@ -76,21 +77,22 @@ export default function NewWorkoutScreen() {
       const [exercises, profile, template] = await Promise.all([
         listExercises(db),
         getUserProfile(db),
-        templateWorkoutId ? getWorkoutDetail(db, templateWorkoutId) : Promise.resolve(null),
+        templateWorkoutId || planWorkoutId ? getWorkoutDetail(db, planWorkoutId ?? templateWorkoutId!) : Promise.resolve(null),
       ]);
       setCatalog(exercises);
       if (template?.sets[0]) setUnit(template.sets[0].loadUnit);
+      else if (template?.plan?.exercises[0]?.sets[0]) setUnit(template.plan.exercises[0].sets[0].loadUnit);
       else if (profile) setUnit(profile.preferredLoadUnit);
       if (template) {
         setTitle(template.title);
-        setBlocks(blocksFromTemplate(template));
+        setBlocks(template.status === 'planned' ? blocksFromPlan(template) : blocksFromTemplate(template));
       } else {
         setBlocks((current) => current.length ? current : [newBlock(exercises[0]?.id ?? '')]);
       }
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Could not load exercises.');
     }
-  }, [db, templateWorkoutId]);
+  }, [db, planWorkoutId, templateWorkoutId]);
 
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
 
@@ -218,8 +220,10 @@ export default function NewWorkoutScreen() {
       ))) {
         throw new Error('Use a non-negative load, whole-number reps, and optional RPE from 1–10.');
       }
-      const startedAt = date ? localTimestampForDate(date) : new Date().toISOString();
-      const id = await saveWorkout(db, { id: workoutIdRef.current, title, startedAt, exercises });
+      const startedAt = planWorkoutId ? new Date().toISOString() : date ? localTimestampForDate(date) : new Date().toISOString();
+      const id = planWorkoutId
+        ? await completePlannedWorkout(db, planWorkoutId, { id: workoutIdRef.current, title, startedAt, exercises })
+        : await saveWorkout(db, { id: workoutIdRef.current, title, startedAt, exercises });
       saved = true;
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
@@ -248,9 +252,9 @@ export default function NewWorkoutScreen() {
         </View>
       </View>
 
-      {templateWorkoutId ? (
+      {templateWorkoutId || planWorkoutId ? (
         <View style={[styles.templateBanner, { backgroundColor: colors.successSoft }]}>
-          <AppText style={styles.suggestionTitle}>Next session prepared</AppText>
+          <AppText style={styles.suggestionTitle}>{planWorkoutId ? 'Planned session started' : 'Next session prepared'}</AppText>
           <AppText style={{ color: colors.textMuted }}>Every load and rep starts exactly where this completed session left off. Green suggestions are optional and never overwrite your fields.</AppText>
         </View>
       ) : null}
@@ -387,8 +391,8 @@ export default function NewWorkoutScreen() {
         ) : null}
       </Card>
 
-      <SectionHeading title="Finish" detail="Blank rows are ignored. Your completed sets save to this device first." />
-      <Button label="Save completed workout" onPress={() => void submit()} busy={saving} />
+      <SectionHeading title="Finish" detail={planWorkoutId ? 'Completing this session replaces the calendar plan with the work you actually did.' : 'Blank rows are ignored. Your completed sets save to this device first.'} />
+      <Button label={planWorkoutId ? 'Complete planned workout' : 'Save completed workout'} onPress={() => void submit()} busy={saving} />
     </Screen>
   );
 }
@@ -472,6 +476,25 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
     grouped.set(set.exerciseId, block);
   });
   return [...grouped.values()];
+}
+
+function blocksFromPlan(template: WorkoutDetail): DraftExercise[] {
+  return template.plan?.exercises.map((exercise) => ({
+    key: Crypto.randomUUID(),
+    exerciseId: exercise.exerciseId,
+    sets: exercise.sets.map((set) => newSet(
+      set.loadValue == null ? '' : String(set.loadValue),
+      set.reps == null ? '' : String(set.reps),
+    )),
+    progression: exercise.progression,
+    sourceSets: exercise.sets.flatMap((set) => set.loadValue == null || set.reps == null ? [] : [{
+      loadValue: set.loadValue,
+      loadUnit: set.loadUnit,
+      reps: set.reps,
+      rpe: null,
+      kind: 'working' as const,
+    }]),
+  })) ?? [];
 }
 
 function SetCueRow({ cue, onApply }: { cue: SetProgressionCue; onApply: (cue: SetProgressionCue) => void }) {

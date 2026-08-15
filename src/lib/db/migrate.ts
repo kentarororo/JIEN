@@ -467,4 +467,15 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       PRAGMA user_version = 9;
     `);
   }
+
+  if (currentVersion < 10) {
+    await addColumnIfMissing(db, 'workouts', 'scheduled_at', 'TEXT');
+    await addColumnIfMissing(db, 'workouts', 'plan_json', 'TEXT');
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS workouts_upcoming_plan_idx
+        ON workouts(status, scheduled_at)
+        WHERE status = 'planned' AND deleted_at IS NULL;
+      PRAGMA user_version = 10;
+    `);
+  }
 }

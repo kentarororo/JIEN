@@ -8,11 +8,12 @@ and restored from a Supabase backend with row-level security.
 
 - Expo Router tabs for Today, Training, Food, and Settings
 - responsive multi-exercise workout logging, custom exercises, and optional RPE
+- calendar-backed planned workouts that preserve prior sets and keep progression cues optional
 - deterministic session-over-session overload and weekly volume summaries (no 1RM flows)
 - searchable offline food starters, editable database/barcode results, and camera/library meal-photo analysis
 - meal, food-item, macro-total, and versioned nutrition-target logging
 - native share / web download for workout CSV, nutrition CSV, and complete JSON
-- opt-in, history-aware meal-gap and persistent sync-attention notifications with
+- opt-in planned-workout, history-aware meal-gap, and persistent sync-attention notifications with
   quiet hours, stale cancellation, and safe deep links
 - optional Google or email authentication, persistent sessions, and two-way cloud restore
 - warm cream, royal-brown, and wood-accented light/dark themes
@@ -77,8 +78,9 @@ finishes authentication. Supabase authentication and RLS scope remote rows to th
 owner; both sides reject stale `client_updated_at` updates.
 
 The remote model and security rules are documented in [docs/schema.md](docs/schema.md)
-and implemented by [the initial migration](supabase/migrations/20260811000100_initial_schema.sql)
-plus [the account-ownership migration](supabase/migrations/20260814000100_account_ownership.sql).
+and implemented by the ordered SQL history in [supabase/migrations](supabase/migrations).
+Apply pending migrations to the linked Supabase project before testing a newly
+synced entity or column on another device.
 
 ## Native builds
 

@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, moveMonthSelection } from '@/lib/calendar';
-import { getDashboardSummary, listCalendarActivity, listMealsForDate, listWorkoutsForDate } from '@/lib/db';
+import { getDashboardSummary, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listWorkoutsForDate } from '@/lib/db';
 import { formatShortDate, formatTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -21,13 +21,14 @@ export default function TodayScreen() {
   const loader = useCallback(async () => {
     const rangeStart = cells[0]?.dateKey ?? todayKey;
     const rangeEnd = cells.at(-1)?.dateKey ?? todayKey;
-    const [summary, activity, selectedWorkouts, selectedMeals] = await Promise.all([
+    const [summary, activity, selectedWorkouts, selectedPlans, selectedMeals] = await Promise.all([
       getDashboardSummary(db),
       listCalendarActivity(db, rangeStart, rangeEnd),
       listWorkoutsForDate(db, selectedDate),
+      listPlannedWorkoutsForDate(db, selectedDate),
       listMealsForDate(db, selectedDate),
     ]);
-    return { summary, activity, selectedWorkouts, selectedMeals, selectedDate };
+    return { summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedDate };
   }, [cells, db, selectedDate, todayKey]);
   const { data, error, loading, reload } = useScreenData(loader);
 
@@ -40,8 +41,10 @@ export default function TodayScreen() {
   const activityByDate = new Map(data.activity.map((day) => [day.date, day]));
   const selectedActivity = activityByDate.get(selectedDate);
   const selectedWorkouts = data.selectedDate === selectedDate ? data.selectedWorkouts : [];
+  const selectedPlans = data.selectedDate === selectedDate ? data.selectedPlans : [];
   const selectedMeals = data.selectedDate === selectedDate ? data.selectedMeals : [];
   const selectedInFuture = selectedDate > todayKey;
+  const selectedInPast = selectedDate < todayKey;
   const changeMonth = (delta: number) => {
     const next = moveMonthSelection(visibleMonth, selectedDate, delta);
     setVisibleMonth(next.month);
@@ -75,7 +78,7 @@ export default function TodayScreen() {
               <Pressable
                 key={cell.dateKey}
                 accessibilityRole="button"
-                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} workouts, ${day.mealCount} meals` : ''}`}
+                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals` : ''}`}
                 onPress={() => setSelectedDate(cell.dateKey)}
                 style={({ pressed }) => [
                   styles.dayCell,
@@ -87,6 +90,7 @@ export default function TodayScreen() {
                 <AppText style={[styles.dayNumber, { color: cell.isCurrentMonth ? colors.text : colors.textMuted }, selected && { color: colors.accent, fontWeight: '800' }]}>{cell.dayNumber}</AppText>
                 <View style={styles.dayDots}>
                   {day?.workoutCount ? <View accessibilityLabel="Workout logged" style={[styles.dot, { backgroundColor: colors.success }]} /> : null}
+                  {day?.plannedWorkoutCount ? <View accessibilityLabel="Workout planned" style={[styles.dot, { backgroundColor: colors.accent }]} /> : null}
                   {day?.mealCount ? <View accessibilityLabel="Food logged" style={[styles.dot, { backgroundColor: colors.wood }]} /> : null}
                 </View>
               </Pressable>
@@ -98,16 +102,25 @@ export default function TodayScreen() {
             <View style={styles.flex}>
               <AppText style={styles.value}>{new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${selectedDate}T12:00:00`))}</AppText>
               <AppText style={{ color: colors.textMuted }}>{selectedInFuture
-                ? 'Future-day planning will arrive with routines; completed logs stay on today or earlier.'
+                ? `${selectedPlans.length} planned workout${selectedPlans.length === 1 ? '' : 's'} · completed logs stay on today or earlier.`
                 : selectedActivity
-                  ? `${selectedActivity.workoutCount} workout · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${Math.round(selectedActivity.caloriesKcal)} kcal`
+                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${Math.round(selectedActivity.caloriesKcal)} kcal`
                   : 'No activity logged'}</AppText>
             </View>
             <View style={styles.selectedDayActions}>
               <Button label={selectedWorkouts.length ? 'Log another workout' : 'Log workout'} onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
+              <Button label={selectedPlans.length ? 'Plan another' : 'Plan workout'} onPress={() => router.push({ pathname: '/workouts/plan', params: { date: selectedDate } } as never)} disabled={selectedInPast} variant="quiet" />
               <Button label={selectedActivity?.mealCount ? 'Log another meal' : 'Log meal'} onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
             </View>
           </View>
+          {selectedPlans.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Planned workouts</AppText>{selectedPlans.map((workout) => (
+            <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
+              <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border, backgroundColor: colors.accentSoft }, pressed && styles.pressed]}>
+                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText></View>
+                <AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? formatTime(workout.scheduledAt) : 'Planned'}</AppText>
+              </Pressable>
+            </Link>
+          ))}</View> : null}
           {selectedWorkouts.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged workouts</AppText>{selectedWorkouts.map((workout) => (
             <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border }, pressed && styles.pressed]}>

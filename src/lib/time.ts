@@ -21,6 +21,28 @@ export function localTimestampForDate(dateKey: string, clock: Date = new Date())
   return date.toISOString();
 }
 
+export function localTimestampForDateAndTime(dateKey: string, time: string): string {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!dateMatch || !timeMatch) throw new Error('Use a valid date and 24-hour time, such as 18:30.');
+  const hours = Number(timeMatch[1]);
+  const minutes = Number(timeMatch[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    throw new Error('Use a valid 24-hour time, such as 18:30.');
+  }
+  const date = new Date(
+    Number(dateMatch[1]),
+    Number(dateMatch[2]) - 1,
+    Number(dateMatch[3]),
+    hours,
+    minutes,
+    0,
+    0,
+  );
+  if (toLocalDateKey(date) !== dateKey) throw new Error('Choose a valid calendar date.');
+  return date.toISOString();
+}
+
 export function startOfIsoWeek(date: Date = new Date()): Date {
   const result = new Date(date);
   result.setHours(0, 0, 0, 0);
