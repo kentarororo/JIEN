@@ -50,6 +50,9 @@ export type DeloadSignal = {
   message: string;
 };
 
+export const STORED_JOINT_CONSIDERATION_HOLD_REASON =
+  'A saved joint or injury consideration is active. Previous sets remain visible, but no load or rep increase is suggested.';
+
 export function loadToKg(value: number, unit: LoadUnit): number {
   return unit === 'lb' ? value * POUNDS_TO_KG : value;
 }
@@ -112,7 +115,11 @@ export function suggestDoubleProgression(input: {
   }
   const loadValue = workingSets[0]?.loadValue ?? 0;
   if (input.jointFlag) {
-    return { action: 'hold', loadValue, reason: 'Hold load while the joint flag is active.' };
+    return {
+      action: 'hold',
+      loadValue,
+      reason: STORED_JOINT_CONSIDERATION_HOLD_REASON,
+    };
   }
   if (workingSets.some((set) => (set.rpe ?? 0) > 9)) {
     return { action: 'hold', loadValue, reason: 'Hold load because the last effort exceeded RPE 9.' };
@@ -177,7 +184,11 @@ export function buildSetProgressionPlan(input: {
     return { action: 'hold', reason: 'Complete every load and rep field before progressing.', cues: [] };
   }
   if (input.jointFlag) {
-    return { action: 'hold', reason: 'Hold the plan while the joint flag is active.', cues: [] };
+    return {
+      action: 'hold',
+      reason: STORED_JOINT_CONSIDERATION_HOLD_REASON,
+      cues: [],
+    };
   }
   if (workingSets.some((set) => set.rpe != null && set.rpe > 9)) {
     return { action: 'hold', reason: 'Repeat the work: at least one set exceeded RPE 9.', cues: [] };

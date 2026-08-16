@@ -5,9 +5,46 @@ import type {
   PlannedWorkoutPlan,
   WorkoutSet,
 } from '../db/types.ts';
-import { buildSetProgressionPlan } from '../progression/index.ts';
+import {
+  buildSetProgressionPlan,
+  STORED_JOINT_CONSIDERATION_HOLD_REASON,
+} from '../progression/index.ts';
 
 const DEFAULT_WORKING_SETS = 3;
+
+/**
+ * Onboarding currently stores joint and injury considerations as free-form
+ * profile notes. Until those notes have an explicit exercise-level scope, a
+ * non-empty consideration conservatively pauses numeric progression cues.
+ */
+export function hasStoredJointConsideration(flags: string[] | null | undefined): boolean {
+  return flags?.some((flag) => flag.trim().length > 0) ?? false;
+}
+
+/** Apply a current profile hold to a previously saved plan without mutating it. */
+export function applyStoredJointConsiderationHold(
+  plan: PlannedWorkoutPlan | null,
+  active: boolean,
+): PlannedWorkoutPlan | null {
+  if (!plan || !active) return plan;
+  return {
+    ...plan,
+    exercises: plan.exercises.map((exercise) => {
+      const hasPreviousValues = exercise.sets.some(
+        (set) => set.loadValue != null || set.reps != null,
+      );
+      if (!hasPreviousValues) return exercise;
+      return {
+        ...exercise,
+        progression: {
+          action: 'hold',
+          reason: STORED_JOINT_CONSIDERATION_HOLD_REASON,
+          cues: [],
+        },
+      };
+    }),
+  };
+}
 
 export function buildPlannedWorkoutExercise(input: {
   exercise: Exercise;

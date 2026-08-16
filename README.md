@@ -98,7 +98,8 @@ Pushes to `main` run the Pages workflow and publish the static Expo build at
 `https://kentarororo.github.io/JIEN/`. The build uses Expo Router's `/JIEN` base URL.
 Because GitHub Pages cannot set the cross-origin isolation headers required by
 Expo SQLite's alpha web worker, the tester runs Expo's bundled wa-sqlite directly
-in temporary main-thread memory. It does not use OPFS, `SharedArrayBuffer`, a
-service worker, or a Web Worker. Google sign-in happens before the database opens,
-Supabase hydrates every session, and local writes sync back promptly. Native builds
-continue to use persistent Expo SQLite and retain the full offline-first behavior.
+in main-thread memory and commits serialized database images to account-scoped
+IndexedDB. It does not use OPFS, `SharedArrayBuffer`, a service worker, or a Web
+Worker. Google sign-in happens before the database opens; completed SQLite
+transactions are durable across refreshes and sync to Supabase when online. Native
+builds continue to use persistent Expo SQLite.

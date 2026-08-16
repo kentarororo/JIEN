@@ -14,6 +14,7 @@ import {
   type OpenFoodFactsSearchResponse,
 } from './open-food-facts';
 import type { FoodCatalogItem } from './types';
+import { withExclusiveTransaction } from './exclusive-transaction';
 import {
   getSupabaseClient,
   invokeEdgeFunctionEnvelope,
@@ -87,7 +88,7 @@ export async function searchLocalFoodCatalog(
 
 export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatalogItem[]): Promise<void> {
   const now = new Date().toISOString();
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     for (const item of items) {
       await db.runAsync(
         `INSERT INTO food_catalog_cache (

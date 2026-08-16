@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
 import type { Exercise } from './types';
 
@@ -84,7 +85,7 @@ export async function createCustomExercise(
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `INSERT INTO exercises (
         id, name, movement_pattern, primary_muscle_group, secondary_muscle_groups,

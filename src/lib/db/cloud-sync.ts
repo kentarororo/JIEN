@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { hasAccountConflict, needsFullReconciliation, preserveLocalAiMetadata, serializeCloudValue } from './cloud-sync-mappers';
+import { withExclusiveTransaction } from './exclusive-transaction';
 import { getSetting, setSetting } from './settings';
 import { getSupabaseClient } from './supabase';
 import { syncPendingChanges, type SyncResult } from './sync-queue';
@@ -157,7 +158,7 @@ async function applyRemoteRows(
   const columnInfo = await db.getAllAsync<ColumnInfo>(`PRAGMA table_info("${localTable}")`);
   const localColumns = new Set(columnInfo.map((column) => column.name));
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     for (const row of rows) {
       let columns = Object.keys(row).filter((column) => localColumns.has(column));
       if (remoteTable === 'ai_messages') {

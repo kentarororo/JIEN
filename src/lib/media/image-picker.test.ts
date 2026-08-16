@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MAX_MEAL_PHOTO_BYTES, resolveMealPhotoPickerResult } from './image-picker.ts';
+import { MAX_MEAL_PHOTO_BYTES, MAX_WEB_MEAL_PHOTO_BASE64_LENGTH, resolveMealPhotoPickerResult } from './image-picker.ts';
 
 test('treats picker cancellation and an absent Android recovery result as quiet outcomes', () => {
   assert.deepEqual(resolveMealPhotoPickerResult(null), { kind: 'empty' });
@@ -33,4 +33,9 @@ test('surfaces an interrupted Android picker error', () => {
     resolveMealPhotoPickerResult({ code: 'E_PICKER', message: 'Picker was interrupted.' }),
     { kind: 'error', message: 'Picker was interrupted.' },
   );
+});
+
+test('web meal photos have a bounded snapshot-safe payload', () => {
+  assert.equal(MAX_WEB_MEAL_PHOTO_BASE64_LENGTH, 3_000_000);
+  assert.ok(MAX_WEB_MEAL_PHOTO_BASE64_LENGTH < 14_000_000);
 });

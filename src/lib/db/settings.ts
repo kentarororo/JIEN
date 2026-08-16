@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
 import type { NotificationPreference, NotificationType } from './types';
 
@@ -124,7 +125,7 @@ export async function saveNotificationPreference(
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `INSERT INTO notification_preferences (
         id, type, enabled, quiet_hours_start, quiet_hours_end, timezone,

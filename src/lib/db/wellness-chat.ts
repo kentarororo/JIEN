@@ -2,7 +2,13 @@ import * as Crypto from 'expo-crypto';
 import * as Network from 'expo-network';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { invokeEdgeFunction } from './supabase';
+import {
+  parseWellnessChatResponse,
+  withoutWellnessFailureMetadata,
+  withWellnessFailureMetadata,
+} from './wellness-chat-contract';
+import { withExclusiveTransaction } from './exclusive-transaction';
+import { EdgeFunctionError, invokeEdgeFunctionEnvelope } from './supabase';
 import { enqueueUpsert, syncPendingChanges } from './sync-queue';
 import type { AiMessage, DeterministicPlanBrief } from './types';
 
@@ -15,17 +21,6 @@ type PendingRequest = {
   assistantSequence: number;
   mode: WellnessChatMode;
   planBrief: DeterministicPlanBrief;
-};
-
-type WellnessChatResponse = {
-  message: {
-    id: string;
-    conversationId: string;
-    sequence: number;
-    content: string;
-    createdAt: string;
-    model: string | null;
-  };
 };
 
 export async function sendWellnessMessage(
@@ -63,7 +58,7 @@ export async function retryWellnessMessage(
     [userMessageId],
   );
   if (!row) throw new Error('That cached message is no longer available.');
-  const metadata = JSON.parse(row.metadata) as {
+  const metadata = parseMetadata(row.metadata) as {
     assistant_message_id?: string;
     mode?: WellnessChatMode;
     plan_brief?: DeterministicPlanBrief;
@@ -71,7 +66,10 @@ export async function retryWellnessMessage(
   if (!metadata.assistant_message_id || !metadata.plan_brief) {
     throw new Error('This older message cannot be retried. Ask it again instead.');
   }
-  await db.runAsync(`UPDATE ai_messages SET local_status = 'pending' WHERE id = ?`, [userMessageId]);
+  await db.runAsync(
+    `UPDATE ai_messages SET local_status = 'pending', metadata = ? WHERE id = ?`,
+    [JSON.stringify(withoutWellnessFailureMetadata(metadata)), userMessageId],
+  );
   return deliverPendingRequest(db, {
     conversationId: row.conversation_id,
     userMessageId,
@@ -114,7 +112,7 @@ async function createPendingRequest(
   let assistantSequence = 0;
   const now = new Date().toISOString();
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     const existing = await db.getFirstAsync<{ id: string }>(
       `SELECT id FROM ai_conversations
        WHERE purpose = 'wellness' AND status = 'active' AND deleted_at IS NULL
@@ -202,15 +200,43 @@ async function deliverPendingRequest(
        WHERE table_name = 'ai_messages' AND entity_id = ?`,
       [request.userMessageId],
     );
-    if (syncResult.state !== 'synced' || stillQueued) {
-      throw new Error(
-        syncResult.state === 'partial'
-          ? `Sync the latest local data before asking AI: ${syncResult.error}`
-          : 'Sign in and sync your latest local data before asking AI.',
+    if (syncResult.state !== 'synced') {
+      if (syncResult.state === 'partial') {
+        throw new EdgeFunctionError(
+          `Sync the latest local data before asking AI: ${syncResult.error}`,
+          'SYNC_PENDING',
+          true,
+        );
+      }
+      if (syncResult.state === 'action_required') {
+        throw new EdgeFunctionError(
+          `Cloud sync needs attention before asking AI: ${syncResult.error}`,
+          'SYNC_ACTION_REQUIRED',
+          false,
+        );
+      }
+      const failures = {
+        offline: ['AI needs a connection. Your question is cached for retry.', 'NETWORK_REQUIRED', true],
+        not_configured: ['Cloud sync is not configured. Your question is cached for retry.', 'NOT_CONFIGURED', false],
+        signed_out: ['Sign in and sync before asking AI. Your question is cached for retry.', 'AUTH_REQUIRED', false],
+        account_conflict: ['This device is linked to a different account.', 'ACCOUNT_CONFLICT', false],
+      } as const;
+      const [message, code, retryable] = failures[syncResult.state] ?? [
+        'Sync your latest local data before asking AI.',
+        'SYNC_REQUIRED',
+        true,
+      ];
+      throw new EdgeFunctionError(message, code, retryable);
+    }
+    if (stillQueued) {
+      throw new EdgeFunctionError(
+        'Sync your latest local data before asking AI.',
+        'SYNC_REQUIRED',
+        true,
       );
     }
 
-    const response = await invokeEdgeFunction<WellnessChatResponse>('wellness-chat', {
+    const envelope = await invokeEdgeFunctionEnvelope<unknown>('wellness-chat', {
       conversationId: request.conversationId,
       userMessageId: request.userMessageId,
       assistantMessageId: request.assistantMessageId,
@@ -218,6 +244,21 @@ async function deliverPendingRequest(
       mode: request.mode,
       planBrief: request.planBrief,
     });
+    let response;
+    try {
+      response = parseWellnessChatResponse(envelope.data, {
+        conversationId: request.conversationId,
+        assistantMessageId: request.assistantMessageId,
+        assistantSequence: request.assistantSequence,
+      });
+    } catch {
+      throw new EdgeFunctionError(
+        'The AI service returned an invalid response. You can retry it.',
+        'INVALID_RESPONSE',
+        true,
+        envelope.requestId,
+      );
+    }
     const message = response.message;
     const local: AiMessage = {
       id: message.id,
@@ -227,10 +268,10 @@ async function deliverPendingRequest(
       content: message.content,
       createdAt: message.createdAt,
       localStatus: 'complete',
-      metadata: { mode: request.mode },
+      metadata: { mode: request.mode, request_id: envelope.requestId },
     };
     const now = new Date().toISOString();
-    await db.withTransactionAsync(async () => {
+    await withExclusiveTransaction(db, async (db) => {
       await db.runAsync(
         `INSERT INTO ai_messages (
           id, conversation_id, sequence, role, content, structured_content,
@@ -262,7 +303,29 @@ async function deliverPendingRequest(
     });
     return local;
   } catch (error) {
-    await db.runAsync(`UPDATE ai_messages SET local_status = 'failed' WHERE id = ?`, [request.userMessageId]);
+    const row = await db.getFirstAsync<{ metadata: string }>(
+      `SELECT metadata FROM ai_messages WHERE id = ?`,
+      [request.userMessageId],
+    );
+    await db.runAsync(
+      `UPDATE ai_messages SET local_status = 'failed', metadata = ? WHERE id = ?`,
+      [
+        JSON.stringify(withWellnessFailureMetadata(parseMetadata(row?.metadata), error)),
+        request.userMessageId,
+      ],
+    );
     throw error;
+  }
+}
+
+function parseMetadata(value: string | null | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed != null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
   }
 }

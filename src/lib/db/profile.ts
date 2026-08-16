@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
 import { insertBodyMeasurement } from './wellness';
 import type { FitnessGoal, LoadUnit, SaveBodyMeasurementInput, SaveUserProfileInput, TrainingExperience, UserProfile } from './types';
@@ -88,7 +89,7 @@ export async function saveUserProfile(
     client_updated_at: now,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `INSERT INTO user_profile (
         id, training_experience, available_equipment, injury_flags, goals,

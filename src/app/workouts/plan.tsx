@@ -16,7 +16,11 @@ import {
   type PlannedWorkoutExercise,
   type WorkoutDetail,
 } from '@/lib/db';
-import { buildPlannedWorkoutExercise } from '@/lib/planning/workout-plan';
+import {
+  applyStoredJointConsiderationHold,
+  buildPlannedWorkoutExercise,
+  hasStoredJointConsideration,
+} from '@/lib/planning/workout-plan';
 import { localTimestampForDateAndTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -39,6 +43,7 @@ export default function PlanWorkoutScreen() {
   const submitLockRef = useRef(false);
   const [catalog, setCatalog] = useState<Exercise[] | null>(null);
   const [preferredUnit, setPreferredUnit] = useState<LoadUnit>('kg');
+  const [jointProgressionHold, setJointProgressionHold] = useState(false);
   const [latestWorkout, setLatestWorkout] = useState<WorkoutDetail | null>(null);
   const [title, setTitle] = useState('Next training session');
   const [date, setDate] = useState(params.date ?? tomorrowKey());
@@ -60,14 +65,19 @@ export default function PlanWorkoutScreen() {
         listRecentWorkouts(db, 1),
         params.planWorkoutId ? getWorkoutDetail(db, params.planWorkoutId) : Promise.resolve(null),
       ]);
+      const shouldHoldProgression = hasStoredJointConsideration(profile?.injuryFlags);
       setCatalog(exercises);
       setPreferredUnit(profile?.preferredLoadUnit ?? 'kg');
+      setJointProgressionHold(shouldHoldProgression);
       setLatestWorkout(recent[0] ? await getWorkoutDetail(db, recent[0].id) : null);
       if (existingPlan?.status === 'planned' && existingPlan.plan) {
         setTitle(existingPlan.title);
         setDate(existingPlan.performedOn);
         setTime(existingPlan.scheduledAt ? formatClock(existingPlan.scheduledAt) : '18:00');
-        setPlanned(existingPlan.plan.exercises);
+        setPlanned(
+          applyStoredJointConsiderationHold(existingPlan.plan, shouldHoldProgression)?.exercises
+            ?? existingPlan.plan.exercises,
+        );
       }
     } catch (cause) {
       setLoadingError(cause instanceof Error ? cause.message : 'Could not prepare workout planning.');
@@ -82,7 +92,12 @@ export default function PlanWorkoutScreen() {
     setFormError(null);
     try {
       const history = await getLastExerciseSessionSets(db, exercise.id);
-      const next = buildPlannedWorkoutExercise({ exercise, history, preferredLoadUnit: preferredUnit });
+      const next = buildPlannedWorkoutExercise({
+        exercise,
+        history,
+        preferredLoadUnit: preferredUnit,
+        jointFlag: jointProgressionHold,
+      });
       setPlanned((current) => [...current, next]);
       setQuery('');
       setBrowseAll(false);
@@ -106,6 +121,7 @@ export default function PlanWorkoutScreen() {
           exercise,
           history: latestWorkout.sets.filter((set) => set.exerciseId === exerciseId),
           preferredLoadUnit: preferredUnit,
+          jointFlag: jointProgressionHold,
         });
       }));
       setTitle(latestWorkout.title);
@@ -158,6 +174,13 @@ export default function PlanWorkoutScreen() {
         <AppText style={styles.cardTitle}>Plan now, log the work later</AppText>
         <AppText style={{ color: colors.textMuted }}>JIEN copies the last completed loads and reps. Green cues show the smallest optional progression without changing those fields.</AppText>
       </Card>
+
+      {jointProgressionHold ? (
+        <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
+          <AppText style={[styles.cardTitle, { color: colors.warning }]}>Progression suggestions are on hold</AppText>
+          <AppText style={{ color: colors.textMuted }}>Your profile contains a joint or injury consideration. JIEN will preserve previous sets as a reference without suggesting more load or reps. You remain in control of what feels appropriate.</AppText>
+        </Card>
+      ) : null}
 
       <View style={[styles.scheduleFields, !compact && styles.scheduleFieldsWide]}>
         <Field label="Session name" value={title} onChangeText={setTitle} containerStyle={styles.flex} />

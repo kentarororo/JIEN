@@ -107,6 +107,17 @@ test('adds one rep to the lowest set and holds on a joint flag', () => {
     jointFlag: true,
   });
   assert.equal(hold.action, 'hold');
+
+  const planHold = buildSetProgressionPlan({
+    sets: [{ reps: 12, loadValue: 40, loadUnit: 'kg', rpe: 8 }],
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+    jointFlag: true,
+  });
+  assert.equal(planHold.action, 'hold');
+  assert.deepEqual(planHold.cues, []);
+  assert.match(planHold.reason, /previous sets remain visible/i);
 });
 
 test('keeps rear delts and core as explicit volume buckets', () => {

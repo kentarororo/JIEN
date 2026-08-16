@@ -64,3 +64,8 @@ and writes assistant messages with the service role. Gemini and Anthropic share 
 normalized, time-bounded contract. The deterministic plan brief is treated as
 immutable numeric input; the selected model explains it but does not replace its
 load, rep, or deload decisions.
+
+The request contract rejects malformed or coercible plan values. Required live-
+context query failures stop before provider use, and the reserved assistant UUID is
+validated as the retry idempotency key. See `docs/wellness-ai.md` for the end-to-end
+sequence, stable error behavior, and deployment smoke-test expectations.

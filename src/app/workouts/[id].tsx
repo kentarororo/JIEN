@@ -5,7 +5,8 @@ import { StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { deleteWorkout, getWorkoutDetail, getWorkoutProgressComparison, skipPlannedWorkout } from '@/lib/db';
+import { deleteWorkout, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, skipPlannedWorkout } from '@/lib/db';
+import { applyStoredJointConsiderationHold, hasStoredJointConsideration } from '@/lib/planning/workout-plan';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -20,11 +21,23 @@ export default function WorkoutDetailScreen() {
   const [confirmSkip, setConfirmSkip] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const loader = useCallback(async () => {
-    const [detail, progress] = await Promise.all([
+    const [detail, progress, profile] = await Promise.all([
       getWorkoutDetail(db, id),
       getWorkoutProgressComparison(db, id),
+      getUserProfile(db),
     ]);
-    return { detail, progress };
+    return {
+      detail: detail?.status === 'planned'
+        ? {
+            ...detail,
+            plan: applyStoredJointConsiderationHold(
+              detail.plan,
+              hasStoredJointConsideration(profile?.injuryFlags),
+            ),
+          }
+        : detail,
+      progress,
+    };
   }, [db, id]);
   const { data, error, loading, reload } = useScreenData(loader);
   const detail = data?.detail ?? null;

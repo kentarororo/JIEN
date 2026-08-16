@@ -35,7 +35,7 @@ import {
 } from '@/lib/nutrition/serving';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
-import { resolveMealPhotoPickerResult } from '@/lib/media/image-picker';
+import { MAX_WEB_MEAL_PHOTO_BASE64_LENGTH, resolveMealPhotoPickerResult } from '@/lib/media/image-picker';
 import {
   applyPhotoAnalysisDrafts,
   initialMealPhotoFlowState,
@@ -868,10 +868,12 @@ function formatFoodNumber(value: number): string {
 
 async function prepareWebPhoto(file: File): Promise<PendingMealPhoto> {
   if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') {
-    if (file.size > 10_000_000) throw new Error('That photo is too large. Choose a photo under 10 MB.');
+    if (file.size > 2_000_000) throw new Error('This browser needs a photo under 2 MB. Try a tighter crop.');
     const dataUrl = await readFileAsDataUrl(file);
     const base64 = dataUrl.split(',')[1];
-    if (!base64) throw new Error('The selected photo could not be read.');
+    if (!base64 || base64.length > MAX_WEB_MEAL_PHOTO_BASE64_LENGTH) {
+      throw new Error('That photo is still too large. Try a tighter crop.');
+    }
     return { base64, mediaType: file.type || 'image/jpeg', sourceLabel: file.name || 'Selected photo' };
   }
 
@@ -889,7 +891,7 @@ async function prepareWebPhoto(file: File): Promise<PendingMealPhoto> {
     });
     const dataUrl = await readFileAsDataUrl(blob);
     const base64 = dataUrl.split(',')[1];
-    if (!base64 || base64.length > 14_000_000) throw new Error('That photo is still too large to analyze. Try a tighter crop.');
+    if (!base64 || base64.length > MAX_WEB_MEAL_PHOTO_BASE64_LENGTH) throw new Error('That photo is still too large to analyze. Try a tighter crop.');
     return { base64, mediaType: 'image/jpeg', sourceLabel: file.name || 'Selected photo' };
   } finally {
     bitmap.close();

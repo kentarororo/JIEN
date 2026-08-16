@@ -1,7 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { DATABASE_JOURNAL_MODE } from './database-journal-mode.ts';
+import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
+
+export const LATEST_DATABASE_VERSION = 10;
 
 const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -232,7 +235,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     `);
 
     const now = new Date().toISOString();
-    await db.withTransactionAsync(async () => {
+    await withExclusiveTransaction(db, async (db) => {
       for (const exercise of DEFAULT_EXERCISES) {
         await db.runAsync(
           `INSERT OR IGNORE INTO exercises (
@@ -322,7 +325,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS food_catalog_barcode_idx ON food_catalog_cache(barcode) WHERE barcode IS NOT NULL;
     `);
     const foodNow = new Date().toISOString();
-    await db.withTransactionAsync(async () => {
+    await withExclusiveTransaction(db, async (db) => {
       for (const food of STARTER_FOODS) {
         await db.runAsync(
           `INSERT OR IGNORE INTO food_catalog_cache (
@@ -388,7 +391,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   if (currentVersion < 6) {
     const exerciseNow = new Date().toISOString();
-    await db.withTransactionAsync(async () => {
+    await withExclusiveTransaction(db, async (db) => {
       for (const exercise of DEFAULT_EXERCISES) {
         await db.runAsync(
           `INSERT OR IGNORE INTO exercises (
@@ -408,7 +411,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     await addColumnIfMissing(db, 'food_items', 'original_source', 'TEXT');
     await addColumnIfMissing(db, 'food_items', 'original_confidence', 'REAL');
     await addColumnIfMissing(db, 'food_items', 'is_user_edited', 'INTEGER NOT NULL DEFAULT 0');
-    await db.withTransactionAsync(async () => {
+    await withExclusiveTransaction(db, async (db) => {
       await db.runAsync(`UPDATE food_items
         SET original_source = COALESCE(original_source, source),
             original_confidence = COALESCE(original_confidence, confidence)

@@ -111,6 +111,13 @@ test('wellness Edge Function delegates provider traffic through the shared adapt
   const source = readFileSync(new URL('../wellness-chat/index.ts', import.meta.url), 'utf8');
   assert.match(source, /resolveWellnessProvider/);
   assert.match(source, /requestWellnessGuidance/);
+  assert.match(source, /parseWellnessChatRequest/);
+  assert.match(source, /CONTEXT_UNAVAILABLE/);
+  assert.match(source, /IDEMPOTENCY_CONFLICT/);
   assert.doesNotMatch(source, /api\.anthropic\.com|generativelanguage\.googleapis\.com/);
   assert.match(source, /safeRequestId/);
+  assert.ok(
+    source.indexOf('if (existingReply)') < source.indexOf('requestWellnessGuidance(provider.configuration'),
+    'a retry must return the reserved assistant row before making another provider call',
+  );
 });

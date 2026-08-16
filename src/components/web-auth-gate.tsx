@@ -3,6 +3,7 @@ import { useEffect, useState, type PropsWithChildren } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import { signInWithGoogle } from '@/lib/auth';
+import { authKindAfterGoingOffline } from '@/lib/auth/web-auth-state';
 import { getSupabaseClient } from '@/lib/db';
 import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 
@@ -27,8 +28,9 @@ function WebAuthGateContent({ children }: PropsWithChildren) {
     let client: SupabaseClient;
     const resolveSession = (session: Session | null) => {
       if (!active) return;
-      if (!navigator.onLine) setState({ kind: 'offline' });
-      else setState(session ? { kind: 'ready', session } : { kind: 'signed_out' });
+      if (session) setState({ kind: 'ready', session });
+      else if (!navigator.onLine) setState({ kind: 'offline' });
+      else setState({ kind: 'signed_out' });
     };
     try {
       client = getSupabaseClient();
@@ -40,7 +42,13 @@ function WebAuthGateContent({ children }: PropsWithChildren) {
       });
       const { data } = client.auth.onAuthStateChange((_event, session) => resolveSession(session));
       const onOnlineChange = () => {
-        if (!navigator.onLine) setState({ kind: 'offline' });
+        if (!navigator.onLine) {
+          setState((current) => (
+            authKindAfterGoingOffline(current.kind) === 'ready'
+              ? current
+              : { kind: 'offline' }
+          ));
+        }
         else void client!.auth.getSession().then(({ data }) => resolveSession(data.session));
       };
       window.addEventListener('online', onOnlineChange);
@@ -87,8 +95,8 @@ function WebAccountPanel({ state, onRetry }: { state: Exclude<GateState, { kind:
         </Text>
         <Text style={[styles.body, { color: colors.textMuted }]}>
           {offline
-            ? 'This web tester uses your private cloud account for every session. Reconnect, then try again.'
-            : 'The web tester keeps its working database in memory and restores it securely after Google sign-in.'}
+            ? 'Reconnect once so JIEN can verify the account for this browser.'
+            : 'The web tester keeps an account-scoped local database and syncs it securely after Google sign-in.'}
         </Text>
         {error ? <Text accessibilityRole="alert" style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
         {!loading && !offline ? (

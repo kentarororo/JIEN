@@ -13,7 +13,7 @@ test('planned workouts are local-first and use the same synced workout UUID when
   assert.match(migration, /plan_json/);
   assert.match(remoteMigration, /alter table public\.workouts/);
   assert.match(remoteMigration, /workouts_upcoming_plan_idx/);
-  assert.match(repository, /savePlannedWorkout[\s\S]*withTransactionAsync[\s\S]*enqueueUpsert\(db, 'workouts'/);
+  assert.match(repository, /savePlannedWorkout[\s\S]*withExclusiveTransaction[\s\S]*enqueueUpsert\(db, 'workouts'/);
   assert.match(repository, /completePlannedWorkout[\s\S]*WHERE id = \? AND status = 'planned'/);
   assert.match(repository, /workout_id: plannedWorkoutId/);
 });

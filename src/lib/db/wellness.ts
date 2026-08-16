@@ -10,6 +10,7 @@ import {
   suggestDoubleProgression,
 } from '@/lib/progression';
 
+import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
 import { getWorkoutDetail, listRecentWorkouts, listVolumeHistory } from './workouts';
 import type {
@@ -97,7 +98,7 @@ export async function insertBodyMeasurement(
 
 export async function saveBodyMeasurement(db: SQLiteDatabase, input: SaveBodyMeasurementInput): Promise<BodyMeasurement> {
   let measurement: BodyMeasurement | null = null;
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     measurement = await insertBodyMeasurement(db, input);
   });
   if (!measurement) throw new Error('Body measurement was not saved.');
@@ -177,7 +178,7 @@ export async function saveWellnessCheckIn(
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `INSERT INTO wellness_logs (
         id, kind, logged_on, logged_at, source, mood_score, energy_score,
@@ -243,7 +244,7 @@ export async function acknowledgeMedicalDisclaimer(db: SQLiteDatabase): Promise<
     medical_disclaimer_acknowledged_at: acknowledgedAt,
     client_updated_at: acknowledgedAt,
   };
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `UPDATE user_profile
        SET medical_disclaimer_acknowledged_at = ?, updated_at = ?, client_updated_at = ?

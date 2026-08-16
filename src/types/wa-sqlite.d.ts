@@ -11,6 +11,7 @@ declare module '@jien/wa-sqlite-constants' {
   export const SQLITE_DONE: number;
   export const SQLITE_OPEN_CREATE: number;
   export const SQLITE_OPEN_READWRITE: number;
+  export const SQLITE_OK: number;
   export const SQLITE_ROW: number;
 }
 

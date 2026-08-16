@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { Exercise, WorkoutSet } from '../db/types.ts';
-import { buildPlannedWorkoutExercise, parsePlannedWorkoutPlan } from './workout-plan.ts';
+import {
+  applyStoredJointConsiderationHold,
+  buildPlannedWorkoutExercise,
+  hasStoredJointConsideration,
+  parsePlannedWorkoutPlan,
+} from './workout-plan.ts';
 
 const exercise: Exercise = {
   id: 'exercise-1',
@@ -54,6 +59,42 @@ test('an exercise without history gets blank targets instead of invented loads',
   assert.equal(plan.sets.length, 3);
   assert.deepEqual(plan.sets[0], { loadValue: null, loadUnit: 'lb', reps: null });
   assert.equal(plan.progression.action, 'start');
+});
+
+test('stored profile considerations preserve prior sets and suppress progression cues', () => {
+  assert.equal(hasStoredJointConsideration(['  ', 'right wrist']), true);
+  assert.equal(hasStoredJointConsideration(['', '  ']), false);
+  assert.equal(hasStoredJointConsideration(undefined), false);
+
+  const plan = buildPlannedWorkoutExercise({
+    exercise,
+    history: [set(12, 40, 8), set(12, 40, 9)],
+    preferredLoadUnit: 'kg',
+    jointFlag: hasStoredJointConsideration(['right wrist—avoid loaded extension']),
+  });
+
+  assert.deepEqual(plan.sets.map((item) => [item.loadValue, item.reps]), [[40, 12], [40, 12]]);
+  assert.equal(plan.progression.action, 'hold');
+  assert.deepEqual(plan.progression.cues, []);
+  assert.match(plan.progression.reason, /saved joint or injury consideration/i);
+  assert.match(plan.progression.reason, /no load or rep increase/i);
+
+  const savedPlan = { version: 1 as const, exercises: [{ ...plan, progression: {
+    action: 'add_load' as const,
+    reason: 'Previously saved increase.',
+    cues: [{
+      workingSetIndex: 0,
+      action: 'add_load' as const,
+      loadValue: 42.5,
+      targetReps: 8,
+      changePercent: 6.25,
+      label: 'Try 42.5 kg x 8',
+    }],
+  } }] };
+  const overlaid = applyStoredJointConsiderationHold(savedPlan, true);
+  assert.equal(overlaid?.exercises[0]?.progression.action, 'hold');
+  assert.deepEqual(overlaid?.exercises[0]?.progression.cues, []);
+  assert.equal(savedPlan.exercises[0]?.progression.action, 'add_load');
 });
 
 test('planned workout parsing rejects malformed provider or sync content', () => {

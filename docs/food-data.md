@@ -14,9 +14,9 @@ a network service.
   supplies global community-contributed search and barcode matches. Its values can be
   incomplete, so JIEN displays the source and keeps every portion and macro editable.
 - Meal-photo estimates use the authenticated, consent-gated `analyze-food-photo` Edge
-  Function through a JIEN-owned Gemini or Anthropic provider key. The image stays in
-  temporary client memory for review/retry and is not
-  added to the durable meal log by capture alone. Capture or selection opens a review
+  Function through a JIEN-owned Gemini or Anthropic provider key. The compressed image
+  stays in the account-scoped local retry queue and is not added to the durable meal
+  log by capture alone. Web images are capped at a snapshot-safe size. Capture or selection opens a review
   sheet immediately; a successful analysis inserts every normalized result into the
   editable meal draft exactly once. Retryable failures retain the photo and context,
   and saved AI-derived items carry request provenance plus a completed AI status.

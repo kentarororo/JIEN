@@ -11,6 +11,10 @@ const webProvider = readFileSync(
   new URL('../src/lib/db/database-context.web.tsx', import.meta.url),
   'utf8',
 );
+const snapshotStore = readFileSync(
+  new URL('../src/lib/db/web-database-snapshot.ts', import.meta.url),
+  'utf8',
+);
 const html = readFileSync(new URL('../src/app/+html.tsx', import.meta.url), 'utf8');
 
 test('web startup has one SQLite owner instead of a preflight connection', () => {
@@ -27,12 +31,15 @@ test('the provider installs the page lifecycle before app database consumers', (
   assert.ok(lifecycleIndex < runtimeIndex);
 });
 
-test('web memory startup does not request browser storage or cross-tab ownership', () => {
+test('web startup does not request OPFS, workers, or cross-origin isolation', () => {
   assert.doesNotMatch(gate, /BroadcastChannel/);
   assert.doesNotMatch(gate, /navigator\.locks/);
   assert.match(layout, /Platform\.OS === 'web' \? ':memory:' : 'jien\.db'/);
-  assert.match(gate, /evaluateWebSQLiteReadiness\([\s\S]*'memory'\)/);
   assert.doesNotMatch(gate, /webSQLiteWorkerRegistry/);
+  assert.doesNotMatch(gate, /ISOLATION_TIMEOUT|SharedArrayBuffer|crossOriginIsolated/);
+  assert.match(gate, /addEventListener\('pagehide'/);
+  assert.match(gate, /addEventListener\('pageshow'/);
+  assert.match(gate, /event\.persisted/);
 });
 
 test('web authenticates and hydrates before database consumers render', () => {
@@ -41,9 +48,13 @@ test('web authenticates and hydrates before database consumers render', () => {
   assert.ok(layout.indexOf('callbackRequest') < layout.indexOf('<WebAuthGate>'));
 });
 
-test('web SQLite runs in memory without a worker or isolation service worker', () => {
+test('web SQLite uses a main-thread working database with account-scoped snapshots', () => {
   assert.match(webProvider, /WaSQLiteFactory/);
   assert.match(webProvider, /MemoryVFS/);
+  assert.match(webProvider, /WebDatabaseSnapshotStore\.open\(account\.user\.id\)/);
+  assert.match(webProvider, /sqlite\.deserialize/);
+  assert.match(snapshotStore, /indexedDB\.open/);
+  assert.match(snapshotStore, /jien-web-sqlite-v1/);
   assert.doesNotMatch(webProvider, /AccessHandlePoolVFS|SharedArrayBuffer|new Worker/);
   assert.doesNotMatch(html, /coi-serviceworker/);
   assert.match(gate, /retireLegacyIsolationServiceWorker/);

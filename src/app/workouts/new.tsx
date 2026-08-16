@@ -23,6 +23,7 @@ import {
   type SetProgressionCue,
   type SetProgressionPlan,
 } from '@/lib/progression';
+import { hasStoredJointConsideration } from '@/lib/planning/workout-plan';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
 
@@ -61,6 +62,7 @@ export default function NewWorkoutScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [title, setTitle] = useState('Training session');
   const [unit, setUnit] = useState<LoadUnit>('kg');
+  const [jointProgressionHold, setJointProgressionHold] = useState(false);
   const [blocks, setBlocks] = useState<DraftExercise[]>([]);
   const [exerciseQueries, setExerciseQueries] = useState<Record<string, string>>({});
   const [exerciseBrowsers, setExerciseBrowsers] = useState<Record<string, boolean>>({});
@@ -80,6 +82,7 @@ export default function NewWorkoutScreen() {
         templateWorkoutId || planWorkoutId ? getWorkoutDetail(db, planWorkoutId ?? templateWorkoutId!) : Promise.resolve(null),
       ]);
       setCatalog(exercises);
+      setJointProgressionHold(hasStoredJointConsideration(profile?.injuryFlags));
       if (template?.sets[0]) setUnit(template.sets[0].loadUnit);
       else if (template?.plan?.exercises[0]?.sets[0]) setUnit(template.plan.exercises[0].sets[0].loadUnit);
       else if (profile) setUnit(profile.preferredLoadUnit);
@@ -105,9 +108,10 @@ export default function NewWorkoutScreen() {
       repMin: exercise.targetRepMin,
       repMax: exercise.targetRepMax,
       loadIncrement: unit === 'lb' ? Math.max(5, exercise.loadIncrement) : exercise.loadIncrement,
+      jointFlag: jointProgressionHold,
     });
     setBlocks((current) => current.map((block) => block.key === blockKey ? { ...block, progression } : block));
-  }, [catalog, db, unit]);
+  }, [catalog, db, jointProgressionHold, unit]);
 
   useEffect(() => {
     blocks.forEach((block) => {
@@ -257,6 +261,13 @@ export default function NewWorkoutScreen() {
           <AppText style={styles.suggestionTitle}>{planWorkoutId ? 'Planned session started' : 'Next session prepared'}</AppText>
           <AppText style={{ color: colors.textMuted }}>Every load and rep starts exactly where this completed session left off. Green suggestions are optional and never overwrite your fields.</AppText>
         </View>
+      ) : null}
+
+      {jointProgressionHold ? (
+        <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
+          <AppText style={[styles.suggestionTitle, { color: colors.warning }]}>Progression suggestions are on hold</AppText>
+          <AppText style={{ color: colors.textMuted }}>Your profile contains a joint or injury consideration. Previous sets remain available as a reference, but JIEN will not suggest adding load or reps.</AppText>
+        </Card>
       ) : null}
 
       <Card style={styles.rpeGuide}>

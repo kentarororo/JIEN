@@ -5,6 +5,7 @@ import type {
 } from 'expo-image-picker';
 
 export const MAX_MEAL_PHOTO_BYTES = 25 * 1024 * 1024;
+export const MAX_WEB_MEAL_PHOTO_BASE64_LENGTH = 3_000_000;
 
 export type MealPhotoPickerResolution =
   | { kind: 'selected'; asset: ImagePickerAsset }

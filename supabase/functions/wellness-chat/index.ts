@@ -6,6 +6,11 @@ import {
   resolveWellnessProvider,
   WellnessProviderError,
 } from '../_shared/wellness-provider.ts';
+import {
+  contextQueriesSucceeded,
+  parseWellnessChatRequest,
+  storedReplyMatchesRequest,
+} from '../_shared/wellness-contract.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,34 +46,26 @@ Deno.serve(async (request) => {
     }
     const userId = userData.user.id;
 
-    const body = await request.json().catch(() => null);
-    if (body?.version !== 1 || !body.data) {
-      return failure('INVALID_ENVELOPE', 'This app version sent an invalid request.', false, 400, requestId);
-    }
+    const contract = parseWellnessChatRequest(await request.json().catch(() => null));
+    if (!contract.ok) return contractFailure(contract.code, requestId);
     const {
       conversationId,
       userMessageId,
       assistantMessageId,
       assistantSequence,
-      mode = 'chat',
+      mode,
       planBrief,
-    } = body.data;
-    if (![conversationId, userMessageId, assistantMessageId].every(isUuid)) {
-      return failure('INVALID_REQUEST', 'The conversation request is invalid.', false, 400, requestId);
-    }
-    if (!Number.isInteger(assistantSequence) || assistantSequence < 1 || assistantSequence > 100_000) {
-      return failure('INVALID_SEQUENCE', 'The conversation sequence is invalid.', false, 400, requestId);
-    }
-    if (!['chat', 'plan_explanation'].includes(mode)) {
-      return failure('INVALID_MODE', 'The requested guidance mode is invalid.', false, 400, requestId);
-    }
+    } = contract.data;
 
     const { data: profile, error: profileError } = await userClient
       .from('users')
       .select('training_experience, available_equipment, injury_flags, goals, typical_diet_pattern, preferred_load_unit, ai_data_consent, medical_disclaimer_acknowledged_at')
       .eq('id', userId)
-      .single();
-    if (profileError || !profile) {
+      .maybeSingle();
+    if (profileError) {
+      return failure('PROFILE_UNAVAILABLE', 'The wellness profile could not be read. Try again.', true, 503, requestId);
+    }
+    if (!profile) {
       return failure('PROFILE_REQUIRED', 'Complete onboarding before requesting AI guidance.', false, 409, requestId);
     }
     if (!profile.ai_data_consent) {
@@ -78,15 +75,23 @@ Deno.serve(async (request) => {
       return failure('DISCLAIMER_REQUIRED', 'Acknowledge the health guidance notice before using AI.', false, 403, requestId);
     }
 
-    const { data: existingReply } = await admin
+    const { data: existingReply, error: existingReplyError } = await admin
       .from('ai_messages')
-      .select('id, conversation_id, sequence, content, created_at, model')
+      .select('id, user_id, conversation_id, sequence, role, content, created_at, model, deleted_at')
       .eq('id', assistantMessageId)
       .eq('user_id', userId)
       .maybeSingle();
-    if (existingReply) return success({ message: mapMessage(existingReply) }, requestId);
+    if (existingReplyError) {
+      return failure('RESPONSE_LOOKUP_FAILED', 'The saved guidance could not be checked. Try again.', true, 503, requestId);
+    }
+    if (existingReply) {
+      if (!storedReplyMatchesRequest(existingReply, contract.data)) {
+        return failure('IDEMPOTENCY_CONFLICT', 'This reply identifier is already in use.', false, 409, requestId);
+      }
+      return success({ message: mapMessage(existingReply) }, requestId);
+    }
 
-    const [{ data: conversation }, { data: userMessage }] = await Promise.all([
+    const [conversationResult, userMessageResult] = await Promise.all([
       userClient
         .from('ai_conversations')
         .select('id')
@@ -103,6 +108,11 @@ Deno.serve(async (request) => {
         .is('deleted_at', null)
         .maybeSingle(),
     ]);
+    if (conversationResult.error || userMessageResult.error) {
+      return failure('MESSAGE_LOOKUP_FAILED', 'The synced question could not be checked. Try again.', true, 503, requestId);
+    }
+    const conversation = conversationResult.data;
+    const userMessage = userMessageResult.data;
     if (!conversation || !userMessage) {
       return failure('MESSAGE_NOT_SYNCED', 'Sync the question before requesting an AI reply.', true, 409, requestId);
     }
@@ -121,8 +131,13 @@ Deno.serve(async (request) => {
       return failure('AI_NOT_CONFIGURED', 'AI guidance is not configured yet.', false, 503, requestId);
     }
 
-    const context = await loadLiveContext(userClient, userId, conversationId, profile);
-    const safePlan = normalizePlanBrief(planBrief);
+    let context;
+    try {
+      context = await loadLiveContext(userClient, userId, conversationId, profile);
+    } catch {
+      return failure('CONTEXT_UNAVAILABLE', 'Your recent context could not be loaded. Try again.', true, 503, requestId);
+    }
+    const safePlan = planBrief;
     let providerResult;
     try {
       providerResult = await requestWellnessGuidance(provider.configuration, {
@@ -184,6 +199,9 @@ async function loadLiveContext(client, userId, conversationId, profile) {
     client.from('wellness_logs').select('kind, logged_at, mood_score, energy_score, stress_score, soreness_score, motivation_score, sleep_duration_minutes, sleep_quality_score, injury_flags, notes').eq('user_id', userId).gte('logged_on', since30).is('deleted_at', null).order('logged_at', { ascending: false }).limit(30),
     client.from('ai_messages').select('role, content').eq('conversation_id', conversationId).is('deleted_at', null).order('sequence', { ascending: false }).limit(8),
   ]);
+  if (!contextQueriesSucceeded(workoutResult, mealResult, wellnessResult, historyResult)) {
+    throw new Error('CONTEXT_QUERY_FAILED');
+  }
   const workouts = workoutResult.data ?? [];
   const workoutIds = workouts.map((row) => row.id);
   const meals = mealResult.data ?? [];
@@ -191,11 +209,12 @@ async function loadLiveContext(client, userId, conversationId, profile) {
   const [setResult, foodResult] = await Promise.all([
     workoutIds.length
       ? client.from('sets').select('workout_id, exercise_id, reps, load_value, load_unit, rpe, kind').in('workout_id', workoutIds).is('deleted_at', null).limit(500)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
     mealIds.length
       ? client.from('food_items').select('meal_id, calories_kcal, protein_g, carbohydrate_g, fat_g').in('meal_id', mealIds).is('deleted_at', null).limit(600)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
   ]);
+  if (!contextQueriesSucceeded(setResult, foodResult)) throw new Error('CONTEXT_QUERY_FAILED');
   const workingSets = (setResult.data ?? []).filter((set) => set.kind === 'working');
   const volumeKg = workingSets.reduce((total, set) => total + Number(set.load_value) * Number(set.reps) * (set.load_unit === 'lb' ? 0.45359237 : 1), 0);
   const foods = foodResult.data ?? [];
@@ -231,27 +250,6 @@ async function loadLiveContext(client, userId, conversationId, profile) {
   };
 }
 
-function normalizePlanBrief(value) {
-  if (!value || value.version !== 1 || !Array.isArray(value.exercises)) return null;
-  return {
-    version: 1,
-    generatedAt: String(value.generatedAt ?? ''),
-    sourceWorkoutId: value.sourceWorkoutId ?? null,
-    sourceWorkoutTitle: String(value.sourceWorkoutTitle ?? '').slice(0, 120) || null,
-    activeJointFlag: Boolean(value.activeJointFlag),
-    weeklyVolumeKg: (value.weeklyVolumeKg ?? []).slice(-10).map((item) => round(Number(item))),
-    deloadSignal: value.deloadSignal ?? { kind: 'none', message: 'No signal supplied.' },
-    exercises: value.exercises.slice(0, 20).map((exercise) => ({
-      exerciseName: String(exercise.exerciseName ?? '').slice(0, 120),
-      action: exercise.action,
-      loadValue: exercise.loadValue == null ? null : round(Number(exercise.loadValue)),
-      loadUnit: exercise.loadUnit,
-      targetReps: Array.isArray(exercise.targetReps) ? exercise.targetReps.slice(0, 10).map(Number) : null,
-      reason: String(exercise.reason ?? '').slice(0, 300),
-    })),
-  };
-}
-
 function wellnessSystemPrompt() {
   return `You are JIEN's restrained wellness planning assistant. Use only the supplied user-owned context. Be concise, warm, and practical. Never diagnose, prescribe treatment, recommend max-effort or 1RM testing, or invent missing measurements. The deterministic plan brief is computed by the app and is the sole numeric source of truth for progression: explain it exactly and never replace its action, load, reps, or deload state. If an active joint flag exists, prioritize caution and suggest a qualified clinician for concerning or persistent symptoms. State uncertainty plainly. End health-related guidance with a short "Not medical advice" reminder.`;
 }
@@ -265,9 +263,6 @@ function safeRequestId(value) {
   return /^[A-Za-z0-9_-]{8,128}$/.test(clean) ? clean : crypto.randomUUID();
 }
 
-function isUuid(value) {
-  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
 function round(value) { return Number.isFinite(value) ? Math.round(value * 10) / 10 : 0; }
 function mapRounded(value) { return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, round(Number(item))])); }
 function mapMessage(row) {
@@ -291,4 +286,16 @@ function failure(code, message, retryable, status, requestId) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+function contractFailure(code, requestId) {
+  const failures = {
+    INVALID_ENVELOPE: ['This app version sent an invalid request.', 400],
+    INVALID_REQUEST: ['The conversation request is invalid.', 400],
+    INVALID_SEQUENCE: ['The conversation sequence is invalid.', 400],
+    INVALID_MODE: ['The requested guidance mode is invalid.', 400],
+    INVALID_PLAN: ['The deterministic plan brief is invalid.', 400],
+  };
+  const [message, status] = failures[code] ?? ['The conversation request is invalid.', 400];
+  return failure(code, message, false, status, requestId);
 }

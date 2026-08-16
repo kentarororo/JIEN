@@ -6,6 +6,7 @@ import { calculateOverloadChangePercent, calculateSetVolumeKg } from '@/lib/prog
 import { parsePlannedWorkoutPlan } from '@/lib/planning/workout-plan';
 
 import { exerciseRemotePayload } from './exercises';
+import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
 import type {
   LoadUnit,
@@ -243,7 +244,7 @@ export async function savePlannedWorkout(
     client_updated_at: now,
     deleted_at: null,
   };
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     if (existing) {
       await db.runAsync(
         `UPDATE workouts SET title = ?, performed_on = ?, scheduled_at = ?, notes = ?,
@@ -299,7 +300,7 @@ export async function saveWorkout(
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     const insertResult = await db.runAsync(
       `INSERT OR IGNORE INTO workouts (
         id, title, status, performed_on, started_at, completed_at, notes,
@@ -420,7 +421,7 @@ export async function completePlannedWorkout(
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     const updated = await db.runAsync(
       `UPDATE workouts SET title = ?, status = 'completed', performed_on = ?,
         started_at = ?, completed_at = ?, notes = ?, updated_at = ?, client_updated_at = ?
@@ -489,7 +490,7 @@ export async function skipPlannedWorkout(db: SQLiteDatabase, workoutId: string):
   );
   if (!workout) return;
   const now = new Date().toISOString();
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `UPDATE workouts SET status = 'skipped', updated_at = ?, client_updated_at = ?
        WHERE id = ? AND status = 'planned'`,
@@ -546,7 +547,7 @@ export async function deleteWorkout(db: SQLiteDatabase, workoutId: string): Prom
   );
   const deletedAt = new Date().toISOString();
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `UPDATE workouts SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
       [deletedAt, deletedAt, deletedAt, workoutId],

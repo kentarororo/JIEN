@@ -13,6 +13,7 @@ import {
 } from '@/lib/nutrition/meal-record';
 
 import { enqueueUpsert } from './sync-queue';
+import { withExclusiveTransaction } from './exclusive-transaction';
 import { getUserProfile } from './profile';
 import { getLatestBodyMeasurement } from './wellness';
 import type {
@@ -81,7 +82,7 @@ export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promis
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `INSERT INTO meals (
         id, name, type, eaten_on, eaten_at, source, notes,
@@ -383,7 +384,7 @@ export async function updateMeal(
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `UPDATE meals SET name = ?, eaten_on = ?, eaten_at = ?, is_user_edited = ?,
         updated_at = ?, client_updated_at = ? WHERE id = ?`,
@@ -444,7 +445,7 @@ export async function deleteMeal(db: SQLiteDatabase, mealId: string): Promise<vo
     [mealId],
   );
   const deletedAt = new Date().toISOString();
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `UPDATE meals SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
       [deletedAt, deletedAt, deletedAt, mealId],
@@ -593,7 +594,7 @@ export async function saveNutritionTarget(
     deleted_at: null,
   };
 
-  await db.withTransactionAsync(async () => {
+  await withExclusiveTransaction(db, async (db) => {
     if (updateCurrentDay) {
       await db.runAsync(
         `UPDATE nutrition_targets SET

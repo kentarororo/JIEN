@@ -1,17 +1,13 @@
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { Component, createContext, type ErrorInfo, type PropsWithChildren, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { Component, createContext, type ErrorInfo, type PropsWithChildren, useCallback, useContext, useEffect, useRef } from 'react';
 import { Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import {
   describeWebSQLiteStartupFailure,
 } from '@/lib/web-sqlite-bootstrap';
-import {
-  evaluateWebSQLiteReadiness,
-  type WebSQLiteReadiness,
-} from '@/lib/web-sqlite-readiness';
+import { createWebSQLitePageLifecycle, type WebSQLitePageLifecycle } from '@/lib/web-sqlite-lifecycle';
 import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 
-const ISOLATION_RELOAD_KEY = 'jien:sqlite-isolation-reload';
 const BOOT_RELOAD_KEY = 'jien:sqlite-bootstrap-reload';
 
 type WebSQLiteOwnershipContextValue = {
@@ -34,118 +30,53 @@ async function retireLegacyIsolationServiceWorker(): Promise<void> {
     .map((registration) => registration.unregister()));
 }
 
-function readEnvironment(): WebSQLiteReadiness {
-  const storage = navigator.storage as StorageManager & { getDirectory?: () => Promise<unknown> };
-  return evaluateWebSQLiteReadiness({
-    isSecureContext: window.isSecureContext,
-    isCrossOriginIsolated: window.crossOriginIsolated === true,
-    hasSharedArrayBuffer: typeof globalThis.SharedArrayBuffer !== 'undefined',
-    hasServiceWorker: 'serviceWorker' in navigator,
-    hasStorageDirectory: typeof storage?.getDirectory === 'function',
-    hasWorker: typeof globalThis.Worker !== 'undefined',
-  }, 'memory');
-}
-
 export function WebSQLiteGate({ children }: PropsWithChildren) {
   if (Platform.OS !== 'web') return children;
   return <WebSQLiteGateContent>{children}</WebSQLiteGateContent>;
 }
 
 function WebSQLiteGateContent({ children }: PropsWithChildren) {
-  const [readiness, setReadiness] = useState<WebSQLiteReadiness>({
-    state: 'preparing',
-    code: 'WAITING_FOR_ISOLATION',
-  });
-  const closers = useRef(new Set<() => void>());
+  const lifecycle = useRef<WebSQLitePageLifecycle | null>(null);
+  if (!lifecycle.current) {
+    lifecycle.current = createWebSQLitePageLifecycle({
+      terminateWorkers: () => undefined,
+      releaseLease: () => undefined,
+      reload: () => window.location.reload(),
+    });
+  }
 
   const registerDatabaseCloser = useCallback((closeDatabaseSync: () => void) => {
-    closers.current.add(closeDatabaseSync);
-    return () => closers.current.delete(closeDatabaseSync);
+    return lifecycle.current!.registerDatabaseCloser(closeDatabaseSync);
   }, []);
 
   useEffect(() => {
-    let active = true;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const startedAt = Date.now();
-    const refresh = () => {
-      if (!active) return;
-      const next = readEnvironment();
-      if (next.state === 'ready') {
-        try {
-          window.sessionStorage.removeItem(ISOLATION_RELOAD_KEY);
-        } catch {
-          // Isolation is authoritative even when session storage is restricted.
-        }
-        setReadiness(next);
-        return;
-      }
-      if (next.state === 'unsupported') {
-        setReadiness(next);
-        return;
-      }
-      if (Date.now() - startedAt >= 8_000) {
-        setReadiness({
-          state: 'unsupported',
-          code: 'ISOLATION_TIMEOUT',
-          message: 'Secure local storage did not finish preparing. Close this tab, reopen JIEN, and try once more.',
-        });
-        return;
-      }
-      setReadiness(next);
-      timeout = setTimeout(refresh, 250);
-    };
     void retireLegacyIsolationServiceWorker().catch((error) => {
       console.warn('Could not retire the legacy JIEN isolation service worker', error);
     });
-    refresh();
-
-    return () => {
-      active = false;
-      if (timeout) clearTimeout(timeout);
-    };
   }, []);
 
   useEffect(() => {
-    if (readiness.state !== 'ready') return;
     const closeMemoryDatabase = () => {
-      for (const close of [...closers.current]) {
-        try { close(); } catch (error) { console.error('Failed to close web SQLite memory database', error); }
-      }
+      try { lifecycle.current?.closeForPageTransition(); }
+      catch (error) { console.error('Failed to close web SQLite memory database', error); }
+    };
+    const restoreMemoryDatabase = (event: PageTransitionEvent) => {
+      if (event.persisted) lifecycle.current?.restoreAfterPageTransition();
     };
     window.addEventListener('pagehide', closeMemoryDatabase);
+    window.addEventListener('pageshow', restoreMemoryDatabase);
 
     return () => {
       window.removeEventListener('pagehide', closeMemoryDatabase);
+      window.removeEventListener('pageshow', restoreMemoryDatabase);
       closeMemoryDatabase();
     };
-  }, [readiness.state]);
-
-  if (readiness.state === 'ready') {
-    return (
-      <WebSQLiteOwnershipContext.Provider value={{ registerDatabaseCloser }}>
-        {children}
-      </WebSQLiteOwnershipContext.Provider>
-    );
-  }
-
-  const retry = () => {
-    try {
-      window.sessionStorage.removeItem(ISOLATION_RELOAD_KEY);
-      window.sessionStorage.removeItem(BOOT_RELOAD_KEY);
-    } catch {
-      // Reload still gives browsers with restricted session storage one safe retry.
-    }
-    window.location.reload();
-  };
-  const environmentFailure = readiness.state === 'unsupported' ? readiness : null;
-  const failure = environmentFailure;
+  }, []);
 
   return (
-    <WebSQLiteStartupPanel
-      actionLabel="Try again"
-      failure={failure}
-      onRetry={retry}
-    />
+    <WebSQLiteOwnershipContext.Provider value={{ registerDatabaseCloser }}>
+      {children}
+    </WebSQLiteOwnershipContext.Provider>
   );
 }
 

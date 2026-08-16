@@ -39,6 +39,18 @@ unpauses the row so an account, schema, or app-state correction can be tested.
 The app attempts sync at startup, after authentication, when returning to the
 foreground, when connectivity returns, and when the user chooses **Sync now**.
 
+On web, wa-sqlite still uses a main-thread `MemoryVFS` working database to avoid
+iOS Safari OPFS ownership failures. After each successful outer transaction, JIEN
+serializes the `main` schema and atomically advances an account-scoped IndexedDB
+pointer to a new immutable snapshot before returning success to the caller. The snapshot contains local rows,
+the outbox, pull cursors, and device-only photo jobs; a rollback leaves the prior
+generation intact. Snapshot envelopes are fenced by the verified Supabase user UUID
+and a monotonic generation so another account or a stale tab cannot overwrite them.
+The preceding generation is retained as a recovery slot. Structurally invalid or
+future snapshots are quarantined without deleting their bytes; JIEN publishes a new
+active generation only after a complete cloud rebuild. Native SQLite persistence is
+unchanged.
+
 Planned workouts use the same `workouts` queue row as completed sessions. Their
 versioned `plan_json` contains the previous-set snapshot and separate deterministic
 progression cues needed to start offline. Completing a plan updates that same UUID
