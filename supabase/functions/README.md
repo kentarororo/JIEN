@@ -1,6 +1,6 @@
 # Edge Functions
 
-Deploy `food-search`, `food-barcode`, `analyze-food-photo`, and `wellness-chat` with
+Deploy `food-search`, `food-barcode`, `ai-settings`, `analyze-food-photo`, and `wellness-chat` with
 Supabase's normal JWT verification enabled. Configure these server-only secrets:
 
 - `USDA_FDC_API_KEY` from USDA FoodData Central.
@@ -31,19 +31,57 @@ documentation.
 
 ## Configure Gemini AI features
 
-From the repository, replace the quoted placeholders with JIEN-owned server values:
+### Tester-owned key flow (default for the current beta)
+
+Apply migration `20260816000200_user_ai_credentials.sql`, then deploy the three AI
+functions:
 
 ```powershell
-supabase secrets set PHOTO_AI_PROVIDER="gemini" GEMINI_API_KEY="<JIEN-owned-Gemini-key>" GEMINI_MODEL="<approved-Gemini-model>" --project-ref vrgkkcunbngjgqfmlcuh
-supabase functions deploy analyze-food-photo wellness-chat --project-ref vrgkkcunbngjgqfmlcuh
-supabase secrets list --project-ref vrgkkcunbngjgqfmlcuh
+& $pnpm dlx supabase@latest db push
+& $pnpm dlx supabase@latest functions deploy ai-settings --project-ref vrgkkcunbngjgqfmlcuh --use-api
+& $pnpm dlx supabase@latest functions deploy analyze-food-photo --project-ref vrgkkcunbngjgqfmlcuh --use-api
+& $pnpm dlx supabase@latest functions deploy wellness-chat --project-ref vrgkkcunbngjgqfmlcuh --use-api
 ```
 
-One JIEN-owned Gemini key serves all authenticated testers through the Edge Functions.
+Signed-in testers then open **Settings > AI connection**, follow the direct Google AI
+Studio link, and paste their own Gemini key. `ai-settings` verifies the key against
+`gemini-3.5-flash-lite` without sending user content, then stores it encrypted in
+Supabase Vault. The browser receives only configured/source/model/limit metadata; it
+never receives the stored key. The same personal key is resolved server-side for
+meal-photo estimates and contextual wellness guidance. A hard JIEN allowance permits
+5 photo requests and 10 contextual requests per account per UTC day.
+
+Google controls the key's Free/Paid plan. A project with no paid billing uses the
+Gemini free tier and stops at Google's quota; JIEN cannot upgrade it. If the tester
+enables billing, Google may charge them. Google's current free-tier terms say
+submitted content may be used to improve its products; the setup screen discloses
+this before accepting a key. Google's project spend caps are separate, experimental,
+and can lag, so JIEN's request allowance is an additional abuse bound—not a monetary
+guarantee.
+
+### Deployment-owned fallback (optional)
+
+Create a JIEN-owned key in [Google AI Studio](https://ai.google.dev/gemini-api/docs/api-key),
+then run the repository setup helper. It prompts securely for the key, saves it only
+in Supabase Secrets, deploys the current function, and removes its temporary secret
+file:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\configure-photo-ai.ps1
+```
+
+The helper selects the current stable low-cost `gemini-3.5-flash-lite` model, which accepts image
+input and structured JSON output. One JIEN-owned Gemini key serves all authenticated
+testers through the Edge Function.
 Configure quotas, budget alerts, and key restrictions on that JIEN Google AI project.
 Normal Google sign-in is identity only: JIEN does not request or forward the user's
 Google access token, and a tester's Gemini consumer subscription does not fund JIEN
 inference.
+
+If configuring manually instead, set `PHOTO_AI_PROVIDER=gemini`, `WELLNESS_AI_PROVIDER=gemini`, `GEMINI_API_KEY`,
+and `GEMINI_MODEL=gemini-3.5-flash-lite` in Supabase Edge Function Secrets, then deploy
+the three AI functions. Secrets become available immediately, but the functions still
+must be redeployed whenever its source code changes.
 
 For an Anthropic-only deployment:
 
@@ -53,7 +91,8 @@ supabase functions deploy analyze-food-photo wellness-chat --project-ref vrgkkcu
 ```
 
 Never place provider keys in Expo, GitHub Pages variables, browser storage, or Google
-OAuth configuration. Supabase secrets are the only supported location.
+OAuth configuration. Deployment-owned keys use Supabase Function Secrets; tester-owned
+keys use the authenticated `ai-settings` proxy and encrypted Supabase Vault storage.
 
 Food search normalizes USDA results to a 100 g portion. Barcode lookup uses Open Food
 Facts and returns its attribution.

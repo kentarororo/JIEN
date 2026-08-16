@@ -3,9 +3,9 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { File as ExpoFile } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { createElement, useEffect, useReducer, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
@@ -126,14 +126,14 @@ export default function NewMealScreen() {
     return () => clearTimeout(timer);
   }, [db, query]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (!photoFlow.selection) return;
     let active = true;
     void getMealPhotoAnalysisCapability().then((capability) => {
       if (active) dispatchPhoto({ type: 'capability_resolved', capability });
     });
     return () => { active = false; };
-  }, [photoFlow.selection]);
+  }, [photoFlow.selection]));
 
   useEffect(() => {
     if (!photoJob || queuedPhotoRecoveryRef.current === photoJob) return;
@@ -749,7 +749,13 @@ export default function NewMealScreen() {
                 <Button
                   label={photoFlow.phase === 'failed'
                     ? photoFlow.failure?.retryable ? 'Try analysis again' : 'Analysis unavailable'
-                    : photoFlow.capability ? 'Analyze photo' : 'Checking availability...'}
+                    : photoFlow.capability?.available
+                      ? `Analyze with ${photoFlow.capability.provider === 'anthropic' ? 'Anthropic' : 'Gemini'}`
+                      : photoAccessStatus === 'consent_required'
+                        ? 'AI consent required'
+                        : photoAccessStatus === 'not_configured'
+                          ? 'Connect Gemini first'
+                          : photoFlow.capability ? 'Analysis unavailable' : 'Checking availability...'}
                   onPress={() => void analyzePendingPhoto()}
                   busy={cameraBusy}
                   disabled={!photoCanAnalyze}
@@ -758,10 +764,31 @@ export default function NewMealScreen() {
                   <Button label="Open Account" onPress={() => router.push('/settings/account')} variant="secondary" disabled={cameraBusy} />
                 ) : null}
                 {photoAccessStatus === 'consent_required' ? (
-                  <Button label="Review AI consent" onPress={() => router.push({ pathname: '/onboarding', params: { edit: '1' } })} variant="secondary" disabled={cameraBusy} />
+                  <Button
+                    label="Review AI consent"
+                    onPress={() => router.push({
+                      pathname: '/onboarding',
+                      params: { edit: '1', section: 'ai-consent', returnTo: 'meal-photo' },
+                    })}
+                    variant="secondary"
+                    disabled={cameraBusy}
+                  />
+                ) : null}
+                {photoAccessStatus === 'not_configured' ? (
+                  <Button
+                    label="Open AI connection"
+                    onPress={() => router.push('/settings/ai' as never)}
+                    variant="secondary"
+                    disabled={cameraBusy}
+                  />
                 ) : null}
                 {!photoCanAnalyze && (photoFlow.capability || photoFlow.failure) ? (
-                  <Button label="Check availability again" onPress={() => void refreshPhotoCapability()} variant="quiet" disabled={cameraBusy} />
+                  <Button
+                    label={photoAccessStatus === 'not_configured' ? 'Check connection again' : 'Check availability again'}
+                    onPress={() => void refreshPhotoCapability()}
+                    variant="quiet"
+                    disabled={cameraBusy}
+                  />
                 ) : null}
                 <Button label="Save photo for later" onPress={() => void queuePendingPhoto()} variant="secondary" disabled={cameraBusy} />
                 <Button label="Enter manually instead" onPress={() => dismissPendingPhoto(true)} variant="secondary" disabled={cameraBusy} />

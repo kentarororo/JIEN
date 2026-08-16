@@ -52,6 +52,7 @@ function AppNavigator() {
         <Stack.Screen name="wellness/body" options={{ title: 'Body measurements', presentation: 'modal' }} />
         <Stack.Screen name="settings/macros" options={{ title: 'Macro targets', presentation: 'modal' }} />
         <Stack.Screen name="settings/account" options={{ title: 'Account', presentation: 'modal' }} />
+        <Stack.Screen name="settings/ai" options={{ title: 'AI connection', presentation: 'modal' }} />
       </Stack>
       <GlobalTabBar />
       <StatusBar style={isDark ? 'light' : 'dark'} />

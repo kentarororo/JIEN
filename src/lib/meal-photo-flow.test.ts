@@ -16,7 +16,7 @@ test('retains the selected photo and context after a retryable failure', () => {
   state = reduceMealPhotoFlow(state, { type: 'analysis_started' });
   state = reduceMealPhotoFlow(state, {
     type: 'analysis_failed',
-    failure: { code: 'NETWORK_REQUIRED', message: 'Connection required.', retryable: true, status: 'offline', requestId: 'request-123' },
+    failure: { code: 'NETWORK_REQUIRED', message: 'Connection required.', retryable: true, status: 'offline', requestId: 'request-123', provider: null },
   });
   assert.equal(state.phase, 'failed');
   assert.equal(state.selection, selection);
@@ -29,14 +29,14 @@ test('an explicit availability recheck leaves a failed photo in a visible ready 
   state = reduceMealPhotoFlow(state, { type: 'analysis_started' });
   state = reduceMealPhotoFlow(state, {
     type: 'analysis_failed',
-    failure: { code: 'PHOTO_AI_NOT_CONFIGURED', message: 'Setup needed.', retryable: false, status: 'not_configured', requestId: 'request-123' },
+    failure: { code: 'PHOTO_AI_NOT_CONFIGURED', message: 'Setup needed.', retryable: false, status: 'not_configured', requestId: 'request-123', provider: null },
   });
   state = reduceMealPhotoFlow(state, { type: 'capability_checking' });
   assert.equal(state.phase, 'ready');
   assert.equal(state.failure, null);
   state = reduceMealPhotoFlow(state, {
     type: 'capability_resolved',
-    capability: { available: true, status: 'ready', message: 'Ready.', retryable: false, requestId: 'request-456' },
+    capability: { available: true, status: 'ready', message: 'Ready.', retryable: false, requestId: 'request-456', provider: 'gemini' },
   });
   assert.equal(state.capability?.available, true);
   assert.equal(state.selection, selection);

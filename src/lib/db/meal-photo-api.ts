@@ -14,6 +14,9 @@ export type MealPhotoCapability = {
   message: string;
   retryable: boolean;
   requestId: string | null;
+  provider: 'gemini' | 'anthropic' | null;
+  credentialSource?: 'personal' | 'app' | null;
+  dailyLimit?: number | null;
 };
 
 export type MealPhotoAnalysisFailure = {
@@ -22,6 +25,7 @@ export type MealPhotoAnalysisFailure = {
   retryable: boolean;
   status: Exclude<MealPhotoCapabilityStatus, 'ready'>;
   requestId: string | null;
+  provider: null;
 };
 
 export type ParsedMealPhotoAnalysis = {
@@ -41,12 +45,24 @@ export function parseMealPhotoAnalysisData(value: unknown): ParsedMealPhotoAnaly
   return { items, disclaimer };
 }
 
-export function parseMealPhotoCapabilityData(value: unknown): boolean {
+export function parseMealPhotoCapabilityData(value: unknown): {
+  provider: 'gemini' | 'anthropic';
+  credentialSource: 'personal' | 'app';
+  dailyLimit: number;
+} {
   const record = asRecord(value);
-  if (!record || record.available !== true) {
+  if (!record || record.available !== true
+    || (record.provider !== 'gemini' && record.provider !== 'anthropic')
+    || (record.credentialSource !== 'personal' && record.credentialSource !== 'app')
+    || typeof record.dailyLimit !== 'number' || !Number.isInteger(record.dailyLimit)
+    || record.dailyLimit < 1 || record.dailyLimit > 1000) {
     throw new Error('Photo analysis availability could not be confirmed.');
   }
-  return true;
+  return {
+    provider: record.provider,
+    credentialSource: record.credentialSource,
+    dailyLimit: record.dailyLimit,
+  };
 }
 
 export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysisFailure {
@@ -64,6 +80,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       status: 'auth_required',
       retryable: false,
       requestId,
+      provider: null,
       message: 'Sign in from Account to analyze this photo. Your selected photo and context are retained.',
     };
   }
@@ -73,22 +90,48 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       status: 'consent_required',
       retryable: false,
       requestId,
+      provider: null,
       message: 'Review and allow contextual AI in your profile before sending this photo. The photo stays on this device until then.',
     };
   }
-  if (
-    code === 'PHOTO_AI_NOT_CONFIGURED'
-    || code === 'PROVIDER_CONFIGURATION_INVALID'
-    || code === 'SERVICE_NOT_CONFIGURED'
-    || code === 'NOT_CONFIGURED'
-    || code === 'HTTP_404'
-  ) {
+  if (code === 'PHOTO_AI_NOT_CONFIGURED') {
     return {
       code,
       status: 'not_configured',
       retryable: false,
       requestId,
-      message: 'JIEN photo analysis is not configured or deployed for this build. The deployment owner needs to enable it; you can keep this photo here or enter the meal manually.',
+      provider: null,
+      message: 'No Gemini connection is enabled yet. Open AI connection to create and securely connect a personal free-tier key.',
+    };
+  }
+  if (code === 'PROVIDER_CONFIGURATION_INVALID') {
+    return {
+      code,
+      status: 'not_configured',
+      retryable: false,
+      requestId,
+      provider: null,
+      message: 'Gemini rejected the connected key. Open AI connection to verify or replace it.',
+    };
+  }
+  if (code === 'HTTP_404') {
+    return {
+      code,
+      status: 'not_configured',
+      retryable: false,
+      requestId,
+      provider: null,
+      message: 'The secure photo-analysis function is not deployed for this build yet. Your selected photo remains available here.',
+    };
+  }
+  if (code === 'SERVICE_NOT_CONFIGURED' || code === 'NOT_CONFIGURED') {
+    return {
+      code,
+      status: 'not_configured',
+      retryable: false,
+      requestId,
+      provider: null,
+      message: 'This build is missing its Supabase server connection. Manual food logging remains available.',
     };
   }
   if (code === 'NETWORK_REQUIRED' || code === 'REQUEST_TIMEOUT') {
@@ -97,6 +140,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       status: 'offline',
       retryable: true,
       requestId,
+      provider: null,
       message: 'AI photo analysis needs a connection. Your photo and context are retained so you can retry.',
     };
   }
@@ -105,6 +149,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
     status: 'unavailable',
     retryable: typeof details?.retryable === 'boolean' ? details.retryable : true,
     requestId,
+    provider: null,
     message: error?.message.trim()
       ? error.message
       : 'The photo could not be analyzed. Your photo and context are retained.',

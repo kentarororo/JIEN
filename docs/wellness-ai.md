@@ -20,8 +20,10 @@ this technical document.
    only that user's non-deleted recent rows through RLS.
 6. If any required context query fails, the request returns `CONTEXT_UNAVAILABLE`;
    the provider is not called with a silently partial picture.
-7. Gemini or Anthropic runs only through the shared server adapter. Provider secrets
-   and the user's Google identity token are never sent to the client or forwarded.
+7. Gemini or Anthropic runs only through the shared server adapter. A tester-owned
+   Gemini key is read only inside the Edge Function from Supabase Vault, with an
+   optional deployment-owned fallback. Provider secrets and the user's Google identity
+   token are never sent back to the client or forwarded as OAuth credentials.
 8. The trusted function stores the reserved assistant row and returns the versioned
    success envelope. The client verifies the reserved conversation ID, assistant ID,
    sequence, timestamp, content, and model before caching it locally.
@@ -59,3 +61,8 @@ normal Supabase JWT verification and server-only provider secrets. After deploym
 an authenticated smoke test must confirm a v1 envelope, a matching reserved
 assistant UUID, and a second identical request returning the saved row rather than
 creating another message.
+
+The same personal Gemini connection used for food photos supplies wellness replies.
+The server allows 10 contextual requests per account per UTC day, after the idempotent
+saved-reply check and before inference. This bounds JIEN traffic; it is not a Google
+billing guarantee and does not replace the tester's Google project controls.

@@ -16,7 +16,7 @@ const input = {
 
 test('wellness provider selection is explicit and auto prefers Gemini', () => {
   const both = {
-    GEMINI_API_KEY: 'gemini-key', GEMINI_MODEL: 'gemini-2.5-flash',
+    GEMINI_API_KEY: 'gemini-key', GEMINI_MODEL: 'gemini-3.5-flash-lite',
     ANTHROPIC_API_KEY: 'anthropic-key', ANTHROPIC_MODEL: 'claude-model',
   };
   const automatic = resolveWellnessProvider(both);
@@ -36,7 +36,7 @@ test('Gemini wellness guidance sends system and context with only the JIEN serve
   let requestUrl = '';
   let requestInit: RequestInit | undefined;
   const configuration: WellnessProviderConfiguration = {
-    provider: 'gemini', apiKey: 'server-gemini-key', model: 'gemini-2.5-flash',
+    provider: 'gemini', apiKey: 'server-gemini-key', model: 'gemini-3.5-flash-lite',
   };
   const result = await requestWellnessGuidance(configuration, input, {
     fetchImpl: async (url, init) => {
@@ -51,7 +51,7 @@ test('Gemini wellness guidance sends system and context with only the JIEN serve
 
   assert.equal(result.text, 'Hold the planned loads today. Not medical advice.');
   assert.equal(result.providerMessageId, 'gemini-response');
-  assert.equal(requestUrl, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+  assert.equal(requestUrl, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
   const headers = requestInit?.headers as Record<string, string>;
   assert.equal(headers['x-goog-api-key'], 'server-gemini-key');
   assert.equal(Object.hasOwn(headers, 'Authorization'), false, 'the user Google token must never be forwarded');
@@ -83,7 +83,7 @@ test('Anthropic wellness guidance remains behind the same normalized contract', 
 
 test('wellness provider failures are bounded and safely classified', async () => {
   const configuration: WellnessProviderConfiguration = {
-    provider: 'gemini', apiKey: 'secret', model: 'gemini-2.5-flash',
+    provider: 'gemini', apiKey: 'secret', model: 'gemini-3.5-flash-lite',
   };
   await assert.rejects(
     requestWellnessGuidance(configuration, input, {

@@ -14,7 +14,8 @@ a network service.
   supplies global community-contributed search and barcode matches. Its values can be
   incomplete, so JIEN displays the source and keeps every portion and macro editable.
 - Meal-photo estimates use the authenticated, consent-gated `analyze-food-photo` Edge
-  Function through a JIEN-owned Gemini or Anthropic provider key. The compressed image
+  Function through the tester's Vault-encrypted Gemini key, with an optional
+  deployment-owned Gemini or Anthropic fallback. The compressed image
   stays in the account-scoped local retry queue and is not added to the durable meal
   log by capture alone. Web images are capped at a snapshot-safe size. Capture or selection opens a review
   sheet immediately; a successful analysis inserts every normalized result into the
@@ -38,15 +39,22 @@ must remain attributed and logically distinguishable from proprietary datasets.
 
 ## Server configuration
 
-The client contains no provider secret. Deployment owners configure `USDA_FDC_API_KEY`,
+The client contains and stores no provider secret. Testers connect a personal key in
+Settings > AI connection; `ai-settings` verifies it server-side and stores it encrypted
+in Supabase Vault. Deployment owners may still configure `USDA_FDC_API_KEY`,
 `PHOTO_AI_PROVIDER`, and the selected provider pair (`GEMINI_API_KEY` plus
 `GEMINI_MODEL`, or `ANTHROPIC_API_KEY` plus `ANTHROPIC_MODEL`) as Supabase secrets and
 deploy the functions listed in `supabase/functions/README.md`. `auto` prefers a
 complete Gemini pair and then a complete Anthropic pair. Without those secrets,
 local/manual logging and Open Food Facts lookup remain available; the photo review
 sheet names the deployment action required instead of leaving a selected photo inert.
+The supported optional deployment-fallback setup is
+`powershell -ExecutionPolicy Bypass -File .\scripts\configure-photo-ai.ps1` from the
+repository root. It uses the stable low-cost `gemini-3.5-flash-lite` image/structured-output model
+and never writes the key into the Expo bundle or Git history.
 
 Google sign-in supplies only the Supabase identity used for authentication and RLS.
-No Google provider access token is sent to Gemini, and the user's Gemini consumer
-subscription is unrelated to inference. One JIEN-owned server key serves testers,
-subject to the deployment owner's quotas and budget controls.
+No Google provider access token is sent to Gemini, and a Gemini/ChatGPT consumer
+subscription is unrelated to inference. A separate Gemini API key is required. JIEN
+allows 5 meal-photo calls per account per UTC day; Google separately controls free-tier
+quota and any project billing.

@@ -1,4 +1,6 @@
 export { getDashboardSummary } from './dashboard';
+export { getAiConnectionStatus, removePersonalGeminiKey, savePersonalGeminiKey } from './ai-settings';
+export type { AiConnectionStatus } from './ai-settings';
 export { syncAccountData } from './cloud-sync';
 export type { AccountSyncResult } from './cloud-sync';
 export { listCalendarActivity } from './calendar';

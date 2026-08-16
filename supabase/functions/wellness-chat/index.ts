@@ -11,6 +11,11 @@ import {
   parseWellnessChatRequest,
   storedReplyMatchesRequest,
 } from '../_shared/wellness-contract.ts';
+import {
+  claimAiUsage,
+  loadPersonalAiConfiguration,
+  resolveSupabaseServerKey,
+} from '../_shared/user-ai.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,7 +36,10 @@ Deno.serve(async (request) => {
 
     const url = Deno.env.get('SUPABASE_URL');
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const serviceKey = resolveSupabaseServerKey({
+      SUPABASE_SERVICE_ROLE_KEY: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+      SUPABASE_SECRET_KEYS: Deno.env.get('SUPABASE_SECRET_KEYS'),
+    });
     if (!url || !anonKey || !serviceKey) {
       return failure('SERVICE_NOT_CONFIGURED', 'The wellness service is not configured.', true, 503, requestId);
     }
@@ -120,13 +128,21 @@ Deno.serve(async (request) => {
       return failure('INVALID_SEQUENCE', 'The reply sequence does not follow the question.', false, 409, requestId);
     }
 
-    const provider = resolveWellnessProvider({
-      WELLNESS_AI_PROVIDER: Deno.env.get('WELLNESS_AI_PROVIDER'),
-      GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
-      GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
-      ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
-      ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
-    });
+    let personalConfiguration = null;
+    try {
+      personalConfiguration = await loadPersonalAiConfiguration(admin, userId);
+    } catch {
+      // Retain the deployment-owned provider while the per-user migration rolls out.
+    }
+    const provider = personalConfiguration
+      ? { ok: true, configuration: personalConfiguration }
+      : resolveWellnessProvider({
+        WELLNESS_AI_PROVIDER: Deno.env.get('WELLNESS_AI_PROVIDER'),
+        GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
+        GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
+        ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
+        ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
+      });
     if (!provider.ok) {
       return failure('AI_NOT_CONFIGURED', 'AI guidance is not configured yet.', false, 503, requestId);
     }
@@ -138,6 +154,20 @@ Deno.serve(async (request) => {
       return failure('CONTEXT_UNAVAILABLE', 'Your recent context could not be loaded. Try again.', true, 503, requestId);
     }
     const safePlan = planBrief;
+    try {
+      const usage = await claimAiUsage(admin, userId, 'context');
+      if (!usage.allowed) {
+        return failure(
+          'AI_DAILY_LIMIT_REACHED',
+          `Today's JIEN contextual AI allowance is used. It resets at ${usage.resetsAt ?? '00:00 UTC'}.`,
+          false,
+          429,
+          requestId,
+        );
+      }
+    } catch {
+      return failure('AI_USAGE_UNAVAILABLE', 'The AI allowance could not be checked. Try again.', true, 503, requestId);
+    }
     let providerResult;
     try {
       providerResult = await requestWellnessGuidance(provider.configuration, {

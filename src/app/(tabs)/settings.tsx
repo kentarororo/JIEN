@@ -141,6 +141,13 @@ export default function SettingsScreen() {
         {(['system', 'light', 'dark'] as ThemePreference[]).map((preference) => <Pill key={preference} label={preference[0]!.toUpperCase() + preference.slice(1)} active={theme.preference === preference} onPress={() => theme.setPreference(preference)} />)}
       </Card>
 
+      <SectionHeading title="AI connection" detail="One secured Gemini connection" />
+      <Card>
+        <AppText style={styles.cardTitle}>Meal photos + contextual wellness</AppText>
+        <AppText style={{ color: theme.colors.textMuted }}>Connect a personal Gemini free-tier key through a guided setup. JIEN verifies it server-side and encrypts it in Supabase Vault.</AppText>
+        <Button label="Set up Gemini" onPress={() => router.push('/settings/ai' as never)} variant="secondary" />
+      </Card>
+
       <SectionHeading title="Contextual reminders" detail="Off until you opt in" />
       <Card>
         <View style={styles.row}>

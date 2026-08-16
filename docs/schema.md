@@ -265,6 +265,30 @@ not duplicate the full message stream.
 | `last_message_at` | `timestamptz` | Optional ordering timestamp |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
 
+### Server-only AI credential and allowance state
+
+Migration `20260816000200_user_ai_credentials.sql` creates two tables in the
+non-exposed `private` schema. They are not application-sync tables, are never mirrored
+to SQLite, and have no `anon` or `authenticated` grants or policies.
+
+- `private.user_ai_credentials` maps an authenticated user UUID to a provider/model
+  and a Supabase Vault secret UUID. The plaintext Gemini API key exists only in
+  Vault's encrypted storage and the short-lived Edge Function process that performs
+  inference. It is never stored in a public table, browser storage, Expo environment,
+  sync queue, export, log, or API response. A versioned server timestamp records the
+  required billing-control and free-tier-data acknowledgements without storing the
+  key or duplicating its value.
+- `private.ai_usage_daily` records server-claimed photo/context request counts by UTC
+  day. The trusted functions enforce 5 photo requests and 10 contextual requests per
+  account per day. This is an application abuse/cost bound, not provider billing data
+  or a guarantee against charges on a Google project used elsewhere.
+
+Four `public` RPC entry points are exposed only to `service_role`: set, resolve, and
+delete the encrypted credential, plus atomically claim a daily allowance. All execute
+privileges are explicitly revoked from `public`, `anon`, and `authenticated`. The
+authenticated browser calls only the `ai-settings` Edge Function, which verifies the
+Gemini key before writing Vault and returns non-secret status metadata.
+
 ### `ai_messages`
 
 Normalized messages within an AI conversation. `content` holds rendered text;

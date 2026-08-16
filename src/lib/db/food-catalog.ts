@@ -190,13 +190,17 @@ export async function getMealPhotoAnalysisCapability(): Promise<MealPhotoCapabil
       { action: 'capability' },
       8_000,
     );
-    parseMealPhotoCapabilityData(response.data);
+    const capability = parseMealPhotoCapabilityData(response.data);
+    const providerLabel = capability.provider === 'gemini' ? 'Gemini' : 'Anthropic';
     return {
       available: true,
       status: 'ready',
-      message: 'Ready. JIEN uses its server-side AI only after you choose Analyze photo. Google sign-in is used only to identify your JIEN account.',
+      message: `${providerLabel} is connected through JIEN's secure server. Nothing is sent until you choose Analyze photo; Google sign-in only identifies your JIEN account.`,
       retryable: false,
       requestId: response.requestId,
+      provider: capability.provider,
+      credentialSource: capability.credentialSource,
+      dailyLimit: capability.dailyLimit,
     };
   } catch (cause) {
     const failure = classifyMealPhotoAnalysisError(cause);

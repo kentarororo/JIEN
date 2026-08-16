@@ -8,6 +8,7 @@ import {
   getUserProfile,
   getLatestBodyMeasurement,
   saveUserProfile,
+  syncPendingChanges,
   type FitnessGoal,
   type LoadUnit,
   type TrainingExperience,
@@ -41,11 +42,15 @@ const DIET = [
 ] as const;
 
 export default function OnboardingScreen() {
-  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const { edit, section, returnTo } = useLocalSearchParams<{
+    edit?: string;
+    section?: string;
+    returnTo?: string;
+  }>();
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(edit === '1' && section === 'ai-consent' ? 7 : 0);
   const [goal, setGoal] = useState<FitnessGoal | null>(null);
   const [experience, setExperience] = useState<TrainingExperience | null>(null);
   const [heightCm, setHeightCm] = useState('');
@@ -131,7 +136,12 @@ export default function OnboardingScreen() {
         bodyFatPercent: bodyFatPercent.trim() ? Number(bodyFatPercent) : null,
         bodyFatIsEstimated: bodyFatPercent.trim() ? bodyFatIsEstimated : null,
       });
-      router.replace('/(tabs)/today');
+      if (returnTo === 'meal-photo') {
+        await syncPendingChanges(db, { trigger: 'manual' }).catch(() => undefined);
+        router.back();
+      } else {
+        router.replace('/(tabs)/today');
+      }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Please try again.';
       setSaveError(message);

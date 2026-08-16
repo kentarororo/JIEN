@@ -195,15 +195,19 @@ function requestGemini(
         contents: [{
           role: 'user',
           parts: [
-            { inlineData: { mimeType: input.mediaType, data: input.imageBase64 } },
+            { inline_data: { mime_type: input.mediaType, data: input.imageBase64 } },
             { text: buildPhotoEstimatePrompt(input.description) },
           ],
         }],
         generationConfig: {
-          temperature: 0,
           maxOutputTokens: 1200,
-          responseMimeType: 'application/json',
-          responseSchema: photoItemsSchema,
+          thinkingConfig: { thinkingLevel: 'low' },
+          responseFormat: {
+            text: {
+              mimeType: 'application/json',
+              schema: photoItemsSchema,
+            },
+          },
         },
       }),
     },

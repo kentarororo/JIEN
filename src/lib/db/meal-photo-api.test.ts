@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   classifyMealPhotoAnalysisError,
   parseMealPhotoAnalysisData,
+  parseMealPhotoCapabilityData,
 } from './meal-photo-api.ts';
 
 const validItem = {
@@ -33,6 +34,22 @@ test('rejects malformed provider-derived output instead of coercing it', () => {
     /item 1 was invalid/i,
   );
   assert.throws(() => parseMealPhotoAnalysisData({ items: [] }), /invalid food items/i);
+});
+
+test('confirms the configured server provider instead of a generic enabled flag', () => {
+  assert.deepEqual(
+    parseMealPhotoCapabilityData({
+      available: true,
+      provider: 'gemini',
+      credentialSource: 'personal',
+      dailyLimit: 5,
+    }),
+    { provider: 'gemini', credentialSource: 'personal', dailyLimit: 5 },
+  );
+  assert.throws(
+    () => parseMealPhotoCapabilityData({ available: true }),
+    /availability could not be confirmed/i,
+  );
 });
 
 test('maps stable service errors to explicit user-action states', () => {

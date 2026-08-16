@@ -7,6 +7,12 @@ import {
   requestPhotoEstimate,
   resolvePhotoProvider,
 } from '../_shared/photo-provider.ts';
+import {
+  AI_DAILY_LIMITS,
+  claimAiUsage,
+  loadPersonalAiConfiguration,
+  resolveSupabaseServerKey,
+} from '../_shared/user-ai.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,7 +35,11 @@ Deno.serve(async (request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-    if (!supabaseUrl || !anonKey) {
+    const serverKey = resolveSupabaseServerKey({
+      SUPABASE_SERVICE_ROLE_KEY: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+      SUPABASE_SECRET_KEYS: Deno.env.get('SUPABASE_SECRET_KEYS'),
+    });
+    if (!supabaseUrl || !anonKey || !serverKey) {
       return failure(requestId, 'SERVICE_NOT_CONFIGURED', 'Photo analysis is unavailable right now.', true, 503);
     }
     const supabase = createClient(supabaseUrl, anonKey, {
@@ -58,6 +68,10 @@ Deno.serve(async (request) => {
       );
     }
 
+    const admin = createClient(supabaseUrl, serverKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
     let envelope;
     try {
       envelope = await request.json();
@@ -73,13 +87,21 @@ Deno.serve(async (request) => {
       return failure(requestId, 'INVALID_REQUEST', 'Choose a supported photo-analysis action.', false, 400);
     }
 
-    const provider = resolvePhotoProvider({
-      PHOTO_AI_PROVIDER: Deno.env.get('PHOTO_AI_PROVIDER'),
-      GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
-      GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
-      ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
-      ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
-    });
+    let personalConfiguration = null;
+    try {
+      personalConfiguration = await loadPersonalAiConfiguration(admin, userData.user.id);
+    } catch {
+      // A project-owned provider remains a safe fallback during migration rollout.
+    }
+    const provider = personalConfiguration
+      ? { ok: true, configuration: personalConfiguration }
+      : resolvePhotoProvider({
+        PHOTO_AI_PROVIDER: Deno.env.get('PHOTO_AI_PROVIDER'),
+        GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
+        GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
+        ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
+        ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
+      });
     if (!provider.ok) {
       return failure(
         requestId,
@@ -89,7 +111,14 @@ Deno.serve(async (request) => {
         503,
       );
     }
-    if (action === 'capability') return success(requestId, { available: true });
+    if (action === 'capability') {
+      return success(requestId, {
+        available: true,
+        provider: provider.configuration.provider,
+        credentialSource: personalConfiguration ? 'personal' : 'app',
+        dailyLimit: AI_DAILY_LIMITS.photo,
+      });
+    }
 
     const imageBase64 = data.imageBase64;
     const mediaType = data.mediaType;
@@ -102,6 +131,21 @@ Deno.serve(async (request) => {
     }
     if (typeof mediaType !== 'string' || !allowedMediaTypes.has(mediaType)) {
       return failure(requestId, 'PHOTO_TYPE_UNSUPPORTED', 'Use a JPEG, PNG, or WebP meal photo.', false, 415);
+    }
+
+    try {
+      const usage = await claimAiUsage(admin, userData.user.id, 'photo');
+      if (!usage.allowed) {
+        return failure(
+          requestId,
+          'AI_DAILY_LIMIT_REACHED',
+          `Today's JIEN photo allowance is used. It resets at ${usage.resetsAt ?? '00:00 UTC'}.`,
+          false,
+          429,
+        );
+      }
+    } catch {
+      return failure(requestId, 'AI_USAGE_UNAVAILABLE', 'The photo allowance could not be checked. Try again.', true, 503);
     }
 
     let providerText;

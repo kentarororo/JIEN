@@ -21,7 +21,7 @@ const providerJson = JSON.stringify({ items: [{
 
 test('provider selection is explicit and auto mode deterministically prefers Gemini', () => {
   const both = {
-    GEMINI_API_KEY: 'gemini-key', GEMINI_MODEL: 'gemini-2.5-flash',
+    GEMINI_API_KEY: 'gemini-key', GEMINI_MODEL: 'gemini-3.5-flash-lite',
     ANTHROPIC_API_KEY: 'anthropic-key', ANTHROPIC_MODEL: 'claude-vision',
   };
   const automatic = resolvePhotoProvider(both);
@@ -46,7 +46,7 @@ test('Gemini generateContent sends inline image data and a structured JSON schem
   let requestUrl = '';
   let requestInit: RequestInit | undefined;
   const configuration: PhotoProviderConfiguration = {
-    provider: 'gemini', apiKey: 'server-gemini-key', model: 'gemini-2.5-flash',
+    provider: 'gemini', apiKey: 'server-gemini-key', model: 'gemini-3.5-flash-lite',
   };
   const text = await requestPhotoEstimate(configuration, input, {
     fetchImpl: async (url, init) => {
@@ -59,17 +59,19 @@ test('Gemini generateContent sends inline image data and a structured JSON schem
   });
 
   assert.equal(text, providerJson);
-  assert.equal(requestUrl, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+  assert.equal(requestUrl, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
   const headers = requestInit?.headers as Record<string, string>;
   assert.equal(headers['x-goog-api-key'], 'server-gemini-key');
   assert.equal(Object.hasOwn(headers, 'Authorization'), false, 'a Google OAuth access token must never be passed');
   const body = JSON.parse(String(requestInit?.body));
-  assert.deepEqual(body.contents[0].parts[0].inlineData, {
-    mimeType: 'image/jpeg', data: input.imageBase64,
+  assert.deepEqual(body.contents[0].parts[0].inline_data, {
+    mime_type: 'image/jpeg', data: input.imageBase64,
   });
   assert.match(body.contents[0].parts[1].text, /chicken rice with sauce/);
-  assert.equal(body.generationConfig.responseMimeType, 'application/json');
-  assert.equal(body.generationConfig.responseSchema.properties.items.maxItems, 12);
+  assert.equal(body.generationConfig.responseFormat.text.mimeType, 'application/json');
+  assert.equal(body.generationConfig.responseFormat.text.schema.properties.items.maxItems, 12);
+  assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'low');
+  assert.equal(Object.hasOwn(body.generationConfig, 'temperature'), false, 'Gemini 3.5 avoids unnecessary sampling parameters');
   assert.equal(parseProviderPhotoItems(text)[0]?.name, 'Chicken rice');
 });
 
@@ -93,7 +95,7 @@ test('Anthropic remains available behind the same normalized adapter contract', 
 
 test('provider failures are finite, safely classified, and never expose raw output', async () => {
   const configuration: PhotoProviderConfiguration = {
-    provider: 'gemini', apiKey: 'secret', model: 'gemini-2.5-flash',
+    provider: 'gemini', apiKey: 'secret', model: 'gemini-3.5-flash-lite',
   };
   await assert.rejects(
     requestPhotoEstimate(configuration, input, {
