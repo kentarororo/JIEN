@@ -23,20 +23,14 @@ import type {
   WellnessHubSummary,
 } from './types';
 
-export async function getLatestBodyMeasurement(db: SQLiteDatabase): Promise<BodyMeasurement | null> {
-  const row = await db.getFirstAsync<{
-    id: string;
-    logged_at: string;
-    body_weight_kg: number;
-    metadata: string;
-  }>(
-    `SELECT id, logged_at, body_weight_kg, metadata
-     FROM wellness_logs
-     WHERE kind = 'body_measurement' AND deleted_at IS NULL
-     ORDER BY logged_at DESC
-     LIMIT 1`,
-  );
-  if (!row) return null;
+type BodyMeasurementRow = {
+  id: string;
+  logged_at: string;
+  body_weight_kg: number;
+  metadata: string;
+};
+
+function mapBodyMeasurement(row: BodyMeasurementRow): BodyMeasurement {
   const metadata = JSON.parse(row.metadata) as {
     height_cm?: number;
     body_fat_percent?: number | null;
@@ -50,6 +44,41 @@ export async function getLatestBodyMeasurement(db: SQLiteDatabase): Promise<Body
     bodyFatPercent: metadata.body_fat_percent ?? null,
     bodyFatIsEstimated: metadata.body_fat_is_estimated ?? null,
   };
+}
+
+export async function getLatestBodyMeasurement(db: SQLiteDatabase): Promise<BodyMeasurement | null> {
+  const row = await db.getFirstAsync<BodyMeasurementRow>(
+    `SELECT id, logged_at, body_weight_kg, metadata
+     FROM wellness_logs
+     WHERE kind = 'body_measurement' AND deleted_at IS NULL
+     ORDER BY logged_at DESC
+     LIMIT 1`,
+  );
+  return row ? mapBodyMeasurement(row) : null;
+}
+
+export async function listBodyMeasurements(db: SQLiteDatabase, limit = 90): Promise<BodyMeasurement[]> {
+  const safeLimit = Math.max(1, Math.min(365, Math.floor(limit)));
+  const rows = await db.getAllAsync<BodyMeasurementRow>(
+    `SELECT id, logged_at, body_weight_kg, metadata
+     FROM wellness_logs
+     WHERE kind = 'body_measurement' AND deleted_at IS NULL
+     ORDER BY logged_at DESC
+     LIMIT ?`,
+    [safeLimit],
+  );
+  return rows.map(mapBodyMeasurement);
+}
+
+export async function listBodyMeasurementsForDate(db: SQLiteDatabase, date: string): Promise<BodyMeasurement[]> {
+  const rows = await db.getAllAsync<BodyMeasurementRow>(
+    `SELECT id, logged_at, body_weight_kg, metadata
+     FROM wellness_logs
+     WHERE kind = 'body_measurement' AND logged_on = ? AND deleted_at IS NULL
+     ORDER BY logged_at DESC`,
+    [date],
+  );
+  return rows.map(mapBodyMeasurement);
 }
 
 export async function insertBodyMeasurement(
@@ -96,10 +125,14 @@ export async function insertBodyMeasurement(
   return { id, loggedAt: now, ...input };
 }
 
-export async function saveBodyMeasurement(db: SQLiteDatabase, input: SaveBodyMeasurementInput): Promise<BodyMeasurement> {
+export async function saveBodyMeasurement(
+  db: SQLiteDatabase,
+  input: SaveBodyMeasurementInput,
+  loggedAt = new Date().toISOString(),
+): Promise<BodyMeasurement> {
   let measurement: BodyMeasurement | null = null;
   await withExclusiveTransaction(db, async (db) => {
-    measurement = await insertBodyMeasurement(db, input);
+    measurement = await insertBodyMeasurement(db, input, loggedAt);
   });
   if (!measurement) throw new Error('Body measurement was not saved.');
   return measurement;

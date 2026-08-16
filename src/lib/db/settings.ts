@@ -84,18 +84,100 @@ export async function setScheduledNotificationId(
   );
 }
 
+export async function markNotificationDelivered(
+  db: SQLiteDatabase,
+  type: NotificationType,
+  deliveredAt: string,
+): Promise<void> {
+  const delivered = new Date(deliveredAt);
+  if (!Number.isFinite(delivered.getTime())) return;
+  const existing = await db.getFirstAsync<{
+    id: string;
+    enabled: number;
+    quiet_hours_start: string | null;
+    quiet_hours_end: string | null;
+    timezone: string;
+    minimum_interval_minutes: number;
+    last_notified_at: string | null;
+    conditions: string;
+    created_at: string;
+    deleted_at: string | null;
+  }>(
+    `SELECT id, enabled, quiet_hours_start, quiet_hours_end, timezone,
+      minimum_interval_minutes, last_notified_at, conditions, created_at, deleted_at
+     FROM notification_preferences WHERE type = ?`,
+    [type],
+  );
+  if (!existing || existing.deleted_at) return;
+  const now = new Date().toISOString();
+  const normalizedDeliveredAt = delivered.toISOString();
+  const previousDelivery = existing.last_notified_at ? new Date(existing.last_notified_at) : null;
+  if (previousDelivery && Number.isFinite(previousDelivery.getTime()) && previousDelivery >= delivered) {
+    return;
+  }
+  let conditions: Record<string, unknown> = {};
+  try {
+    conditions = JSON.parse(existing.conditions) as Record<string, unknown>;
+  } catch {
+    conditions = {};
+  }
+  const payload = {
+    id: existing.id,
+    type,
+    enabled: existing.enabled === 1,
+    quiet_hours_start: existing.quiet_hours_start,
+    quiet_hours_end: existing.quiet_hours_end,
+    timezone: existing.timezone,
+    minimum_interval_minutes: existing.minimum_interval_minutes,
+    last_notified_at: normalizedDeliveredAt,
+    conditions,
+    created_at: existing.created_at,
+    client_updated_at: now,
+    deleted_at: null,
+  };
+
+  await withExclusiveTransaction(db, async (db) => {
+    const result = await db.runAsync(
+      `UPDATE notification_preferences
+       SET last_notified_at = ?, scheduled_notification_id = NULL,
+           updated_at = ?, client_updated_at = ?
+       WHERE type = ?
+         AND (last_notified_at IS NULL OR last_notified_at < ?)`,
+      [normalizedDeliveredAt, now, now, type, normalizedDeliveredAt],
+    );
+    if (result.changes > 0) {
+      await enqueueUpsert(db, 'notification_preferences', existing.id, payload);
+    }
+  });
+}
+
 export async function saveNotificationPreference(
   db: SQLiteDatabase,
   type: NotificationType,
   enabled: boolean,
 ): Promise<NotificationPreference> {
-  const existing = await db.getFirstAsync<{ id: string; created_at: string; conditions: string }>(
-    'SELECT id, created_at, conditions FROM notification_preferences WHERE type = ?',
+  const existing = await db.getFirstAsync<{
+    id: string;
+    created_at: string;
+    conditions: string;
+    quiet_hours_start: string | null;
+    quiet_hours_end: string | null;
+    timezone: string;
+    minimum_interval_minutes: number;
+    last_notified_at: string | null;
+  }>(
+    `SELECT id, created_at, conditions, quiet_hours_start, quiet_hours_end,
+      timezone, minimum_interval_minutes, last_notified_at
+     FROM notification_preferences WHERE type = ?`,
     [type],
   );
   const id = existing?.id ?? Crypto.randomUUID();
   const now = new Date().toISOString();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const quietHoursStart = existing?.quiet_hours_start ?? '22:00';
+  const quietHoursEnd = existing?.quiet_hours_end ?? '08:00';
+  const minimumIntervalMinutes = existing?.minimum_interval_minutes ?? 720;
+  const lastNotifiedAt = existing?.last_notified_at ?? null;
   const defaultConditions = type === 'meal_gap'
     ? { expectedMeals: 2, checkHour: 20 }
     : type === 'workout_plan'
@@ -114,11 +196,11 @@ export async function saveNotificationPreference(
     id,
     type,
     enabled,
-    quiet_hours_start: '22:00',
-    quiet_hours_end: '08:00',
-    timezone,
-    minimum_interval_minutes: 720,
-    last_notified_at: null,
+    quiet_hours_start: quietHoursStart,
+    quiet_hours_end: quietHoursEnd,
+    timezone: existing?.timezone ?? timezone,
+    minimum_interval_minutes: minimumIntervalMinutes,
+    last_notified_at: lastNotifiedAt,
     conditions,
     created_at: existing?.created_at ?? now,
     client_updated_at: now,
@@ -137,7 +219,7 @@ export async function saveNotificationPreference(
         conditions = excluded.conditions,
         updated_at = excluded.updated_at,
         client_updated_at = excluded.client_updated_at`,
-      [id, type, enabled ? 1 : 0, timezone, JSON.stringify(conditions), now, now, now],
+      [id, type, enabled ? 1 : 0, payload.timezone, JSON.stringify(conditions), now, now, now],
     );
     await enqueueUpsert(db, 'notification_preferences', id, payload);
   });
@@ -146,11 +228,11 @@ export async function saveNotificationPreference(
     id,
     type,
     enabled,
-    quietHoursStart: '22:00',
-    quietHoursEnd: '08:00',
-    timezone,
-    minimumIntervalMinutes: 720,
-    lastNotifiedAt: null,
+    quietHoursStart,
+    quietHoursEnd,
+    timezone: existing?.timezone ?? timezone,
+    minimumIntervalMinutes,
+    lastNotifiedAt,
     conditions,
   };
 }

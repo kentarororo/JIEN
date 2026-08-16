@@ -36,6 +36,8 @@ export {
   getLatestBodyMeasurement,
   getLatestWellnessCheckIn,
   getWellnessHubSummary,
+  listBodyMeasurements,
+  listBodyMeasurementsForDate,
   saveBodyMeasurement,
   saveWellnessCheckIn,
 } from './wellness';
@@ -43,6 +45,7 @@ export { retryWellnessMessage, sendWellnessMessage } from './wellness-chat';
 export {
   deleteMeal,
   ensureStartingNutritionTarget,
+  getAdaptiveNutritionHistory,
   getDailyNutrition,
   getMealLoggingPattern,
   getMealDetail,
@@ -58,6 +61,7 @@ export {
   getScheduledNotificationId,
   getSetting,
   listNotificationPreferences,
+  markNotificationDelivered,
   saveNotificationPreference,
   setScheduledNotificationId,
   setSetting,

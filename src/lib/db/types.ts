@@ -311,6 +311,7 @@ export type UpdateMealInput = {
 export type NutritionTarget = MacroTotals & {
   id: string;
   effectiveFrom: string;
+  desiredWeeklyWeightChangePercent: number;
 };
 
 export type DailyNutrition = {
@@ -329,6 +330,7 @@ export type CalendarDayActivity = {
   mealCount: number;
   caloriesKcal: number;
   proteinG: number;
+  bodyMeasurementCount: number;
 };
 
 export type NotificationPreference = {

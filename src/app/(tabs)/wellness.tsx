@@ -11,12 +11,14 @@ import {
   acknowledgeMedicalDisclaimer,
   getUserProfile,
   getWellnessHubSummary,
+  listBodyMeasurements,
   retryWellnessMessage,
   saveWellnessCheckIn,
   sendWellnessMessage,
   type AiMessage,
   type WellnessCheckInInput,
 } from '@/lib/db';
+import { buildBodyWeightTrend } from '@/lib/wellness/body-trend';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 const PROMPTS = [
@@ -26,12 +28,13 @@ const PROMPTS = [
 ];
 
 async function loadWellness(db: ReturnType<typeof useSQLiteContext>) {
-  const [summary, profile, account] = await Promise.all([
+  const [summary, profile, account, bodyMeasurements] = await Promise.all([
     getWellnessHubSummary(db),
     getUserProfile(db),
     getAccountState(),
+    listBodyMeasurements(db, 90),
   ]);
-  return { summary, profile, account };
+  return { summary, profile, account, bodyMeasurements };
 }
 
 export default function WellnessScreen() {
@@ -54,6 +57,7 @@ export default function WellnessScreen() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const summary = data?.summary;
+  const bodyTrend = buildBodyWeightTrend(data?.bodyMeasurements ?? []);
   const unresolvedMessage = summary?.messages.find((message) => message.role === 'user' && message.localStatus !== 'complete');
   const aiReady = Boolean(
     data?.account.configured
@@ -203,6 +207,21 @@ export default function WellnessScreen() {
         </Card>
       </View>
 
+      <SectionHeading title="Body trend" detail="Descriptive averages from your own entries" />
+      <Card>
+        <View style={styles.cardHeading}>
+          <View style={[styles.iconWell, { backgroundColor: colors.surfaceMuted }]}><Ionicons name="analytics-outline" size={22} color={colors.wood} /></View>
+          <View style={styles.flex}>
+            <AppText style={styles.cardTitle}>{bodyTrend.latestKg == null ? 'Start a body baseline' : `${bodyTrend.latestKg.toFixed(1)} kg latest`}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{bodyTrend.averageChangeKg == null
+              ? bodyTrend.latestChangeKg == null ? 'A second logged day begins the trend.' : `${formatWeightChange(bodyTrend.latestChangeKg)} since the prior logged day.`
+              : `${formatWeightChange(bodyTrend.averageChangeKg)} between adjacent logged-week averages.`}</AppText>
+          </View>
+          <Button label="Log or review" onPress={() => router.push('/wellness/body' as never)} variant="secondary" />
+        </View>
+        <AppText style={{ color: colors.textMuted }}>JIEN keeps this neutral: daily fluctuation is expected, and macro targets never change from one reading.</AppText>
+      </Card>
+
       <SectionHeading title="Ask JIEN" detail="Recent guidance is cached for offline reading" />
 
       {!data.profile?.aiDataConsent ? (
@@ -297,6 +316,10 @@ function formatPercent(value: number | null): string {
 
 function formatPlanAction(action: string): string {
   return ({ add_load: 'Add load', add_reps: 'Add reps', hold: 'Hold', start: 'Start' } as Record<string, string>)[action] ?? action;
+}
+
+function formatWeightChange(value: number): string {
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)} kg`;
 }
 
 function formatRelative(value: string): string {

@@ -14,6 +14,7 @@ import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } fr
 import WaSQLiteFactory from '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js';
 import { migrateDatabase } from './migrate.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
+import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
@@ -54,8 +55,12 @@ test('main-thread database persists committed work and isolates delayed transact
     await migrateDatabase(database);
     const version = await database.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
     const exercises = await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM exercises');
-    assert.equal(version?.user_version, 10);
+    const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
+    const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
+    assert.equal(version?.user_version, 11);
     assert.ok((exercises?.count ?? 0) >= 50);
+    assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
+    assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
 
     await database.runAsync(
       'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
@@ -126,6 +131,74 @@ test('main-thread database persists committed work and isolates delayed transact
     releaseFirst();
     await Promise.all([first, second]);
     assert.deepEqual(transactionOrder, ['first:start', 'first:end', 'second:start', 'second:end']);
+
+    let releaseNutritionSaves!: () => void;
+    let markNutritionBlockerStarted!: () => void;
+    const nutritionSavesMayStart = new Promise<void>((resolve) => { releaseNutritionSaves = resolve; });
+    const nutritionBlockerStarted = new Promise<void>((resolve) => { markNutritionBlockerStarted = resolve; });
+    const nutritionBlocker = withExclusiveTransaction(database, async () => {
+      markNutritionBlockerStarted();
+      await nutritionSavesMayStart;
+    });
+    await nutritionBlockerStarted;
+
+    const queuedPayloads: Array<{ entityId: string; payload: Record<string, unknown> }> = [];
+    let createdIdCount = 0;
+    const nutritionDependencies = {
+      createId: () => {
+        createdIdCount += 1;
+        return '22222222-2222-4222-8222-222222222222';
+      },
+      now: () => new Date('2099-01-10T08:00:00.000Z'),
+      toLocalDateKey: (date = new Date('2099-01-10T08:00:00.000Z')) => date.toISOString().slice(0, 10),
+      enqueueUpsert: async (_database: SQLiteDatabase, entityId: string, payload: Record<string, unknown>) => {
+        queuedPayloads.push({ entityId, payload });
+      },
+    };
+    const firstTargetSave = saveNutritionTargetAtomically(database, {
+      caloriesKcal: 2_200,
+      proteinG: 150,
+      carbohydrateG: 250,
+      fatG: 70,
+      fibreG: 30,
+      desiredWeeklyWeightChangePercent: 0,
+    }, { source: 'manual' }, nutritionDependencies);
+    const secondTargetSave = saveNutritionTargetAtomically(database, {
+      caloriesKcal: 2_300,
+      proteinG: 155,
+      carbohydrateG: 260,
+      fatG: 72,
+      fibreG: 32,
+      desiredWeeklyWeightChangePercent: 0.1,
+    }, { source: 'adaptive', rationale: '  deterministic retry  ' }, nutritionDependencies);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseNutritionSaves();
+    const [, firstTarget, secondTarget] = await Promise.all([
+      nutritionBlocker,
+      firstTargetSave,
+      secondTargetSave,
+    ]);
+    assert.equal(createdIdCount, 1);
+    assert.equal(firstTarget.id, secondTarget.id);
+    assert.equal(firstTarget.id, '22222222-2222-4222-8222-222222222222');
+    assert.deepEqual(
+      await database.getAllAsync(
+        `SELECT id, effective_from, effective_to, calories_kcal, source, rationale
+         FROM nutrition_targets WHERE effective_to IS NULL AND deleted_at IS NULL`,
+      ),
+      [{
+        id: '22222222-2222-4222-8222-222222222222',
+        effective_from: '2099-01-10',
+        effective_to: null,
+        calories_kcal: 2_300,
+        source: 'adaptive',
+        rationale: 'deterministic retry',
+      }],
+    );
+    assert.equal(queuedPayloads.length, 2);
+    assert.deepEqual(queuedPayloads.map(({ entityId }) => entityId), [firstTarget.id, firstTarget.id]);
+    assert.equal(queuedPayloads.at(-1)?.payload.calories_kcal, 2_300);
+    assert.equal(queuedPayloads.at(-1)?.payload.effective_to, null);
 
     let releaseDelayed!: () => void;
     let markDelayedStarted!: () => void;

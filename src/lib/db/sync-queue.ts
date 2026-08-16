@@ -201,6 +201,7 @@ export async function syncPendingChanges(
         throw error;
       }
       await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
+      announceQueuedLocalWrite();
       processed += 1;
     } catch (error) {
       const update = buildSyncQueueFailureUpdate(
@@ -224,6 +225,7 @@ export async function syncPendingChanges(
           row.id,
         ],
       );
+      announceQueuedLocalWrite();
       return update.retryPaused
         ? { state: 'action_required', processed, error: update.safeMessage, code: update.failureCode }
         : { state: 'partial', processed, error: update.safeMessage, retryAt: update.nextAttemptAt! };

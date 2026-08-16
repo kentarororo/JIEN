@@ -126,6 +126,7 @@ function mapNutritionTarget(row: ExportDatabaseRow): JsonObject {
     id: value(row, 'id'), effectiveFrom: value(row, 'effective_from'), effectiveTo: value(row, 'effective_to'),
     caloriesKcal: value(row, 'calories_kcal'), proteinG: value(row, 'protein_g'),
     carbohydrateG: value(row, 'carbohydrate_g'), fatG: value(row, 'fat_g'), fibreG: value(row, 'fibre_g'),
+    desiredWeeklyWeightChangePercent: value(row, 'desired_weekly_weight_change_percent'),
     source: value(row, 'source'), rationale: value(row, 'rationale'), createdAt: value(row, 'created_at'),
     updatedAt: value(row, 'updated_at'), clientUpdatedAt: value(row, 'client_updated_at'), deletedAt: value(row, 'deleted_at'),
   };

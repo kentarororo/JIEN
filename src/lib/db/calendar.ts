@@ -11,6 +11,7 @@ const emptyDay = (date: string): CalendarDayActivity => ({
   mealCount: 0,
   caloriesKcal: 0,
   proteinG: 0,
+  bodyMeasurementCount: 0,
 });
 
 export async function listCalendarActivity(
@@ -18,7 +19,7 @@ export async function listCalendarActivity(
   startDate: string,
   endDate: string,
 ): Promise<CalendarDayActivity[]> {
-  const [workouts, meals] = await Promise.all([
+  const [workouts, bodyMeasurements, meals] = await Promise.all([
     db.getAllAsync<{
       date: string;
       workout_count: number;
@@ -40,6 +41,13 @@ export async function listCalendarActivity(
          AND w.status IN ('completed', 'planned')
          AND w.deleted_at IS NULL
        GROUP BY w.performed_on`,
+      [startDate, endDate],
+    ),
+    db.getAllAsync<{ date: string; measurement_count: number }>(
+      `SELECT logged_on AS date, COUNT(*) AS measurement_count
+       FROM wellness_logs
+       WHERE kind = 'body_measurement' AND logged_on BETWEEN ? AND ? AND deleted_at IS NULL
+       GROUP BY logged_on`,
       [startDate, endDate],
     ),
     db.getAllAsync<{
@@ -78,6 +86,10 @@ export async function listCalendarActivity(
       caloriesKcal: row.calories_kcal ?? 0,
       proteinG: row.protein_g ?? 0,
     });
+  }
+  for (const row of bodyMeasurements) {
+    const current = byDate.get(row.date) ?? emptyDay(row.date);
+    byDate.set(row.date, { ...current, bodyMeasurementCount: row.measurement_count });
   }
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }

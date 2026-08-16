@@ -49,7 +49,7 @@ test('builds a complete versioned active-record export with structured JSON valu
     workoutSets: [{ id: 'set-1', workout_id: 'workout-1', exercise_id: 'exercise-1', sort_order: 1 }],
     meals: [{ id: 'meal-1', name: 'Breakfast', is_user_edited: 1 }],
     foodItems: [{ id: 'food-1', meal_id: 'meal-1', sort_order: 1, source: 'ai_photo', original_source: 'ai_photo', confidence: 0.8, original_confidence: 0.9, is_user_edited: 1 }],
-    nutritionTargets: [{ id: 'target-1', effective_from: '2026-08-01', source: 'calculated' }],
+    nutritionTargets: [{ id: 'target-1', effective_from: '2026-08-01', source: 'adaptive', desired_weekly_weight_change_percent: -0.25 }],
     wellnessLogs: [{ id: 'wellness-1', logged_at: '2026-08-01T00:00:00.000Z', injury_flags: '[]', metadata: '{"height_cm":180}' }],
     aiConversations: [{ id: 'conversation-1', created_at: '2026-08-01T00:00:00.000Z' }],
     aiMessages: [{ id: 'message-1', conversation_id: 'conversation-1', sequence: 1, structured_content: '{"plan":true}', metadata: '{"source":"local"}' }],
@@ -69,6 +69,7 @@ test('builds a complete versioned active-record export with structured JSON valu
   assert.equal(result.exercises[0].scope, 'built_in');
   assert.equal(result.meals[0].isUserEdited, true);
   assert.equal(result.foodItems[0].originalConfidence, 0.9);
+  assert.equal(result.nutritionTargets[0].desiredWeeklyWeightChangePercent, -0.25);
   assert.deepEqual(result.wellnessLogs[0].metadata, { height_cm: 180 });
   assert.deepEqual(result.ai.messages[0].structuredContent, { plan: true });
   assert.deepEqual(result.notificationPreferences[0].conditions, { expectedMeals: 2 });

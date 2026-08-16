@@ -4,7 +4,7 @@ import { DATABASE_JOURNAL_MODE } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 
-export const LATEST_DATABASE_VERSION = 10;
+export const LATEST_DATABASE_VERSION = 11;
 
 const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -181,6 +181,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       carbohydrate_g REAL NOT NULL,
       fat_g REAL NOT NULL,
       fibre_g REAL,
+      desired_weekly_weight_change_percent REAL NOT NULL DEFAULT 0,
       source TEXT NOT NULL DEFAULT 'manual',
       rationale TEXT,
       created_at TEXT NOT NULL,
@@ -474,5 +475,15 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         WHERE status = 'planned' AND deleted_at IS NULL;
       PRAGMA user_version = 10;
     `);
+  }
+
+  if (currentVersion < 11) {
+    await addColumnIfMissing(
+      db,
+      'nutrition_targets',
+      'desired_weekly_weight_change_percent',
+      'REAL NOT NULL DEFAULT 0',
+    );
+    await db.execAsync('PRAGMA user_version = 11;');
   }
 }

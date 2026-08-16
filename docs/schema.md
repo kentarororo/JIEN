@@ -207,8 +207,10 @@ attempts until the user explicitly retries or discards the photo.
 
 Historical daily macro targets, effective from a local date and optionally through
 another local date. The source is `manual` or `adaptive`. Clients select the latest
-active row for a date. Adaptive target logic arrives later, but Phase 1 can already
-display and preserve manual targets without overwriting history.
+active row for a date. The deterministic evaluator remains pure and review-only;
+only an explicit user action can copy its suggestion into the editable form and a
+second save action persists the accepted target as a new `adaptive` history row.
+See `docs/adaptive-nutrition.md`.
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -217,6 +219,7 @@ display and preserve manual targets without overwriting history.
 | `calories_kcal` | `numeric(10,2)` | Positive daily energy target |
 | `protein_g`, `carbohydrate_g`, `fat_g` | `numeric(10,2)` | Non-negative daily macro targets |
 | `fibre_g` | `numeric(10,2)` | Optional non-negative daily fibre target |
+| `desired_weekly_weight_change_percent` | `numeric(5,2)` | User-chosen trend from `-1` through `+1`; never inferred from a broad goal |
 | `source` | `nutrition_target_source` | `manual` or `adaptive` |
 | `rationale` | `text` | Optional plain-language reason for a change |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |

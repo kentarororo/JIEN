@@ -49,6 +49,7 @@ function AppNavigator() {
         <Stack.Screen name="workouts/[id]" options={{ title: 'Workout' }} />
         <Stack.Screen name="meals/new" options={{ title: 'Log meal', presentation: 'modal' }} />
         <Stack.Screen name="meals/[id]" options={{ title: 'Meal' }} />
+        <Stack.Screen name="wellness/body" options={{ title: 'Body measurements', presentation: 'modal' }} />
         <Stack.Screen name="settings/macros" options={{ title: 'Macro targets', presentation: 'modal' }} />
         <Stack.Screen name="settings/account" options={{ title: 'Account', presentation: 'modal' }} />
       </Stack>

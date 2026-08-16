@@ -98,7 +98,8 @@ export async function getCompleteExportSnapshot(
     ),
     db.getAllAsync<ExportDatabaseRow>(
       `SELECT id, effective_from, effective_to, calories_kcal, protein_g,
-              carbohydrate_g, fat_g, fibre_g, source, rationale, created_at,
+              carbohydrate_g, fat_g, fibre_g, desired_weekly_weight_change_percent,
+              source, rationale, created_at,
               updated_at, client_updated_at, deleted_at
        FROM nutrition_targets
        WHERE deleted_at IS NULL

@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, moveMonthSelection } from '@/lib/calendar';
-import { getDashboardSummary, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listWorkoutsForDate } from '@/lib/db';
+import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listWorkoutsForDate } from '@/lib/db';
 import { formatShortDate, formatTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -21,14 +21,15 @@ export default function TodayScreen() {
   const loader = useCallback(async () => {
     const rangeStart = cells[0]?.dateKey ?? todayKey;
     const rangeEnd = cells.at(-1)?.dateKey ?? todayKey;
-    const [summary, activity, selectedWorkouts, selectedPlans, selectedMeals] = await Promise.all([
+    const [summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements] = await Promise.all([
       getDashboardSummary(db),
       listCalendarActivity(db, rangeStart, rangeEnd),
       listWorkoutsForDate(db, selectedDate),
       listPlannedWorkoutsForDate(db, selectedDate),
       listMealsForDate(db, selectedDate),
+      listBodyMeasurementsForDate(db, selectedDate),
     ]);
-    return { summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedDate };
+    return { summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements, selectedDate };
   }, [cells, db, selectedDate, todayKey]);
   const { data, error, loading, reload } = useScreenData(loader);
 
@@ -43,6 +44,7 @@ export default function TodayScreen() {
   const selectedWorkouts = data.selectedDate === selectedDate ? data.selectedWorkouts : [];
   const selectedPlans = data.selectedDate === selectedDate ? data.selectedPlans : [];
   const selectedMeals = data.selectedDate === selectedDate ? data.selectedMeals : [];
+  const selectedBodyMeasurements = data.selectedDate === selectedDate ? data.selectedBodyMeasurements : [];
   const selectedInFuture = selectedDate > todayKey;
   const selectedInPast = selectedDate < todayKey;
   const changeMonth = (delta: number) => {
@@ -59,7 +61,7 @@ export default function TodayScreen() {
         <Link href="/meals/new" asChild><Pressable><Card style={styles.actionCard}><AppText style={styles.actionTitle}>Log a meal</AppText><AppText style={{ color: colors.textMuted }}>Calories and macros</AppText></Card></Pressable></Link>
       </View>
 
-      <SectionHeading title="Calendar" detail="Training and food, together" />
+      <SectionHeading title="Calendar" detail="Training, food, and body trends together" />
       <Card style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
           <Button label="‹" onPress={() => changeMonth(-1)} variant="quiet" />
@@ -78,7 +80,7 @@ export default function TodayScreen() {
               <Pressable
                 key={cell.dateKey}
                 accessibilityRole="button"
-                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals` : ''}`}
+                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals, ${day.bodyMeasurementCount} body measurements` : ''}`}
                 onPress={() => setSelectedDate(cell.dateKey)}
                 style={({ pressed }) => [
                   styles.dayCell,
@@ -92,6 +94,7 @@ export default function TodayScreen() {
                   {day?.workoutCount ? <View accessibilityLabel="Workout logged" style={[styles.dot, { backgroundColor: colors.success }]} /> : null}
                   {day?.plannedWorkoutCount ? <View accessibilityLabel="Workout planned" style={[styles.dot, { backgroundColor: colors.accent }]} /> : null}
                   {day?.mealCount ? <View accessibilityLabel="Food logged" style={[styles.dot, { backgroundColor: colors.wood }]} /> : null}
+                  {day?.bodyMeasurementCount ? <View accessibilityLabel="Body measurement logged" style={[styles.dot, { backgroundColor: colors.warning }]} /> : null}
                 </View>
               </Pressable>
             );
@@ -104,13 +107,14 @@ export default function TodayScreen() {
               <AppText style={{ color: colors.textMuted }}>{selectedInFuture
                 ? `${selectedPlans.length} planned workout${selectedPlans.length === 1 ? '' : 's'} · completed logs stay on today or earlier.`
                 : selectedActivity
-                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${Math.round(selectedActivity.caloriesKcal)} kcal`
+                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${Math.round(selectedActivity.caloriesKcal)} kcal`
                   : 'No activity logged'}</AppText>
             </View>
             <View style={styles.selectedDayActions}>
               <Button label={selectedWorkouts.length ? 'Log another workout' : 'Log workout'} onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
               <Button label={selectedPlans.length ? 'Plan another' : 'Plan workout'} onPress={() => router.push({ pathname: '/workouts/plan', params: { date: selectedDate } } as never)} disabled={selectedInPast} variant="quiet" />
               <Button label={selectedActivity?.mealCount ? 'Log another meal' : 'Log meal'} onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
+              <Button label={selectedBodyMeasurements.length ? 'Log body again' : 'Log body'} onPress={() => router.push({ pathname: '/wellness/body', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
             </View>
           </View>
           {selectedPlans.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Planned workouts</AppText>{selectedPlans.map((workout) => (
@@ -136,6 +140,12 @@ export default function TodayScreen() {
                 <View style={styles.recordEnd}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)}</AppText></View>
               </Pressable>
             </Link>
+          ))}</View> : null}
+          {selectedBodyMeasurements.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Body measurements</AppText>{selectedBodyMeasurements.map((measurement) => (
+            <View key={measurement.id} style={[styles.selectedRecord, { borderColor: colors.border }]}>
+              <View style={styles.flex}><AppText style={styles.value}>{measurement.bodyWeightKg.toFixed(1)} kg</AppText><AppText style={{ color: colors.textMuted }}>{measurement.heightCm} cm height</AppText></View>
+              {measurement.bodyFatPercent != null ? <AppText style={{ color: colors.textMuted }}>{measurement.bodyFatPercent}% {measurement.bodyFatIsEstimated ? 'estimated' : 'measured'}</AppText> : null}
+            </View>
           ))}</View> : null}
         </View>
       </Card>
@@ -175,6 +185,7 @@ export default function TodayScreen() {
             <View><AppText style={styles.metric}>{summary.latestBodyMeasurement.heightCm}</AppText><AppText style={{ color: colors.textMuted }}>cm height</AppText></View>
             {summary.latestBodyMeasurement.bodyFatPercent != null ? <View><AppText style={styles.metric}>{summary.latestBodyMeasurement.bodyFatPercent}%</AppText><AppText style={{ color: colors.textMuted }}>{summary.latestBodyMeasurement.bodyFatIsEstimated ? 'estimated' : 'measured'} body fat</AppText></View> : null}
           </Card>
+          <Button label="Log or review body trend" onPress={() => router.push('/wellness/body' as never)} variant="secondary" />
         </>
       ) : null}
 

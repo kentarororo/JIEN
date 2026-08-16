@@ -16,3 +16,31 @@ test('meal-gap reminder is not scheduled after its contextual check time', () =>
   assert.equal(before?.getHours(), 20);
   assert.equal(after, null);
 });
+
+test('meal-gap reminder respects quiet hours without spilling into another day', () => {
+  const trigger = getMealGapTrigger({
+    enabled: true,
+    patternEstablished: true,
+    mealCount: 1,
+    expectedMeals: 2,
+    checkHour: 23,
+    quietHoursStart: '22:00',
+    quietHoursEnd: '08:00',
+    now: new Date('2026-08-11T12:00:00'),
+  });
+  assert.equal(trigger, null);
+});
+
+test('meal-gap cooldown suppresses a reminder that is no longer actionable today', () => {
+  const trigger = getMealGapTrigger({
+    enabled: true,
+    patternEstablished: true,
+    mealCount: 1,
+    expectedMeals: 2,
+    checkHour: 20,
+    lastNotifiedAt: '2026-08-11T19:30:00',
+    minimumIntervalMinutes: 720,
+    now: new Date('2026-08-11T12:00:00'),
+  });
+  assert.equal(trigger, null);
+});

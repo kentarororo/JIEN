@@ -4,6 +4,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { toLocalDateKey } from '@/lib/time';
 import { calculateStartingNutritionTarget } from '@/lib/nutrition/targets';
 import { inferMealLoggingPattern } from '@/lib/nutrition/meal-pattern';
+import type { AdaptiveNutritionHistoryDay } from '@/lib/nutrition/adaptive-targets';
 import {
   activeRecordPredicate,
   calculateMealTotals,
@@ -14,6 +15,7 @@ import {
 
 import { enqueueUpsert } from './sync-queue';
 import { withExclusiveTransaction } from './exclusive-transaction';
+import { saveNutritionTargetAtomically } from './nutrition-target-save';
 import { getUserProfile } from './profile';
 import { getLatestBodyMeasurement } from './wellness';
 import type {
@@ -501,10 +503,13 @@ export async function ensureStartingNutritionTarget(
   if (!measurement || !profile) return null;
   return saveNutritionTarget(
     db,
-    calculateStartingNutritionTarget({
-      bodyWeightKg: measurement.bodyWeightKg,
-      goals: profile.goals,
-    }),
+    {
+      ...calculateStartingNutritionTarget({
+        bodyWeightKg: measurement.bodyWeightKg,
+        goals: profile.goals,
+      }),
+      desiredWeeklyWeightChangePercent: 0,
+    },
     {
       source: 'adaptive',
       rationale: `Starting estimate from ${measurement.bodyWeightKg} kg body weight and onboarding goal. Edit at any time.`,
@@ -524,8 +529,10 @@ export async function getNutritionTarget(
     carbohydrate_g: number;
     fat_g: number;
     fibre_g: number | null;
+    desired_weekly_weight_change_percent: number;
   }>(
-    `SELECT id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g
+    `SELECT id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g,
+      desired_weekly_weight_change_percent
      FROM nutrition_targets
      WHERE effective_from <= ?
        AND (effective_to IS NULL OR effective_to >= ?)
@@ -543,7 +550,56 @@ export async function getNutritionTarget(
     carbohydrateG: row.carbohydrate_g,
     fatG: row.fat_g,
     fibreG: row.fibre_g ?? 0,
+    desiredWeeklyWeightChangePercent: row.desired_weekly_weight_change_percent,
   };
+}
+
+export async function getAdaptiveNutritionHistory(
+  db: SQLiteDatabase,
+  days = 35,
+): Promise<AdaptiveNutritionHistoryDay[]> {
+  const safeDays = Math.max(21, Math.min(90, Math.floor(days)));
+  const start = new Date();
+  start.setDate(start.getDate() - safeDays + 1);
+  const startDate = toLocalDateKey(start);
+  const [weights, nutrition] = await Promise.all([
+    db.getAllAsync<{ date: string; body_weight_kg: number }>(
+      `SELECT w.logged_on AS date, w.body_weight_kg
+       FROM wellness_logs w
+       WHERE w.kind = 'body_measurement'
+         AND w.logged_on >= ?
+         AND w.deleted_at IS NULL
+         AND w.logged_at = (
+           SELECT MAX(latest.logged_at)
+           FROM wellness_logs latest
+           WHERE latest.kind = 'body_measurement'
+             AND latest.logged_on = w.logged_on
+             AND latest.deleted_at IS NULL
+         )
+       ORDER BY w.logged_on`,
+      [startDate],
+    ),
+    db.getAllAsync<{ date: string; calories_kcal: number; protein_g: number }>(
+      `SELECT m.eaten_on AS date,
+        COALESCE(SUM(f.calories_kcal), 0) AS calories_kcal,
+        COALESCE(SUM(f.protein_g), 0) AS protein_g
+       FROM meals m
+       LEFT JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
+       WHERE m.eaten_on >= ? AND m.deleted_at IS NULL
+       GROUP BY m.eaten_on
+       ORDER BY m.eaten_on`,
+      [startDate],
+    ),
+  ]);
+  const byDate = new Map<string, AdaptiveNutritionHistoryDay>();
+  for (const row of weights) {
+    byDate.set(row.date, { date: row.date, bodyWeightKg: row.body_weight_kg, caloriesKcal: null, proteinG: null });
+  }
+  for (const row of nutrition) {
+    const current = byDate.get(row.date) ?? { date: row.date, bodyWeightKg: null, caloriesKcal: null, proteinG: null };
+    byDate.set(row.date, { ...current, caloriesKcal: row.calories_kcal, proteinG: row.protein_g });
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function saveNutritionTarget(
@@ -554,113 +610,19 @@ export async function saveNutritionTarget(
   if (input.caloriesKcal <= 0 || input.proteinG < 0 || input.carbohydrateG < 0 || input.fatG < 0) {
     throw new Error('Macro targets must be valid non-negative values.');
   }
-  const now = new Date().toISOString();
-  const effectiveFrom = toLocalDateKey();
-  const current = await db.getFirstAsync<{
-    id: string;
-    effective_from: string;
-    calories_kcal: number;
-    protein_g: number;
-    carbohydrate_g: number;
-    fat_g: number;
-    fibre_g: number | null;
-    source: string;
-    rationale: string | null;
-    created_at: string;
-  }>(
-    `SELECT id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g,
-      fibre_g, source, rationale, created_at
-     FROM nutrition_targets
-     WHERE effective_to IS NULL AND deleted_at IS NULL
-     ORDER BY effective_from DESC LIMIT 1`,
-  );
-  const updateCurrentDay = current?.effective_from === effectiveFrom;
-  const id = updateCurrentDay && current ? current.id : Crypto.randomUUID();
-  const source = options.source ?? 'manual';
-  const rationale = options.rationale?.trim() || null;
-  const payload = {
-    id,
-    effective_from: effectiveFrom,
-    effective_to: null,
-    calories_kcal: input.caloriesKcal,
-    protein_g: input.proteinG,
-    carbohydrate_g: input.carbohydrateG,
-    fat_g: input.fatG,
-    fibre_g: input.fibreG,
-    source,
-    rationale,
-    created_at: updateCurrentDay && current ? current.created_at : now,
-    client_updated_at: now,
-    deleted_at: null,
-  };
-
-  await withExclusiveTransaction(db, async (db) => {
-    if (updateCurrentDay) {
-      await db.runAsync(
-        `UPDATE nutrition_targets SET
-          calories_kcal = ?, protein_g = ?, carbohydrate_g = ?, fat_g = ?, fibre_g = ?,
-          source = ?, rationale = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
-        [
-          input.caloriesKcal,
-          input.proteinG,
-          input.carbohydrateG,
-          input.fatG,
-          input.fibreG,
-          source,
-          rationale,
-          now,
-          now,
-          id,
-        ],
-      );
-    } else {
-      if (current) {
-        const closedOn = toLocalDateKey(new Date(Date.now() - 86_400_000));
-        await db.runAsync(
-          `UPDATE nutrition_targets SET effective_to = ?, updated_at = ?, client_updated_at = ?
-           WHERE id = ?`,
-          [closedOn, now, now, current.id],
-        );
-        await enqueueUpsert(db, 'nutrition_targets', current.id, {
-          id: current.id,
-          effective_from: current.effective_from,
-          effective_to: closedOn,
-          calories_kcal: current.calories_kcal,
-          protein_g: current.protein_g,
-          carbohydrate_g: current.carbohydrate_g,
-          fat_g: current.fat_g,
-          fibre_g: current.fibre_g,
-          source: current.source,
-          rationale: current.rationale,
-          created_at: current.created_at,
-          client_updated_at: now,
-          deleted_at: null,
-        });
-      }
-      await db.runAsync(
-        `INSERT INTO nutrition_targets (
-          id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g,
-          source, rationale, created_at, updated_at, client_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          effectiveFrom,
-          input.caloriesKcal,
-          input.proteinG,
-          input.carbohydrateG,
-          input.fatG,
-          input.fibreG,
-          source,
-          rationale,
-          now,
-          now,
-          now,
-        ],
-      );
-    }
-    await enqueueUpsert(db, 'nutrition_targets', id, payload);
+  if (!Number.isFinite(input.desiredWeeklyWeightChangePercent)
+    || input.desiredWeeklyWeightChangePercent < -1
+    || input.desiredWeeklyWeightChangePercent > 1) {
+    throw new Error('Desired weekly weight change must be between -1% and 1%.');
+  }
+  return saveNutritionTargetAtomically(db, input, options, {
+    createId: Crypto.randomUUID,
+    now: () => new Date(),
+    toLocalDateKey,
+    enqueueUpsert: (database, entityId, payload) => (
+      enqueueUpsert(database, 'nutrition_targets', entityId, payload)
+    ),
   });
-  return { id, effectiveFrom, ...input };
 }
 
 export async function listNutritionExportRows(
