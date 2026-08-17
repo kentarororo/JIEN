@@ -62,6 +62,14 @@ an authenticated smoke test must confirm a v1 envelope, a matching reserved
 assistant UUID, and a second identical request returning the saved row rather than
 creating another message.
 
+On Windows, `scripts/deploy-ai-slice.ps1` resolves a globally available Supabase CLI,
+pnpm's hashed CLI link directory, or an explicit `SUPABASE_CLI_PATH`. Validate CLI
+discovery without changing the remote project by running the script with
+`-ResolveOnly`; omit that switch to apply pending migrations and deploy all three AI
+functions. Function deployment uses Supabase's `--use-api` server-side bundler, so
+Docker Desktop is not required. The script finishes by listing the remote functions;
+the success message is printed only after that verification passes.
+
 The same personal Gemini connection used for food photos supplies wellness replies.
 The server allows 10 contextual requests per account per UTC day, after the idempotent
 saved-reply check and before inference. This bounds JIEN traffic; it is not a Google
