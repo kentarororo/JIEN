@@ -1,20 +1,24 @@
 import { useEffect, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Linking, StyleSheet, Switch, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import {
+  describeAiConnectionIssue,
   getAiConnectionStatus,
   removePersonalGeminiKey,
   savePersonalGeminiKey,
+  type AiConnectionIssue,
   type AiConnectionStatus,
 } from '@/lib/db';
-import { spacing, typography, useJienTheme } from '@/theme';
+import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 const GEMINI_KEY_URL = 'https://aistudio.google.com/apikey';
 const GEMINI_SPEND_URL = 'https://aistudio.google.com/app/billing/spend';
 
 export default function AiSettingsScreen() {
   const { colors } = useJienTheme();
+  const router = useRouter();
   const [status, setStatus] = useState<AiConnectionStatus | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [acknowledgesFreeTierDataUse, setAcknowledgesFreeTierDataUse] = useState(false);
@@ -22,16 +26,17 @@ export default function AiSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadIssue, setLoadIssue] = useState<AiConnectionIssue | null>(null);
+  const [actionIssue, setActionIssue] = useState<AiConnectionIssue | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    setError(null);
+    setLoadIssue(null);
     try {
       setStatus(await getAiConnectionStatus());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'AI connection status is unavailable.');
+      setLoadIssue(describeAiConnectionIssue(cause));
     } finally {
       setLoading(false);
     }
@@ -40,18 +45,39 @@ export default function AiSettingsScreen() {
   useEffect(() => { void load(); }, []);
 
   const save = async () => {
+    setActionIssue(null);
+    setActionMessage(null);
+    if (!apiKey.trim()) {
+      setActionIssue({
+        code: 'AI_KEY_REQUIRED',
+        title: 'Paste your Gemini key first',
+        message: 'Create or copy the key in Google AI Studio, then paste the full key above.',
+        requestId: null,
+        retryable: false,
+      });
+      return;
+    }
+    if (!acknowledgesBillingControl || !acknowledgesFreeTierDataUse) {
+      setActionIssue({
+        code: 'ACKNOWLEDGEMENT_REQUIRED',
+        title: 'Confirm both notes first',
+        message: 'Turn on both switches above so JIEN can verify and store the key.',
+        requestId: null,
+        retryable: false,
+      });
+      return;
+    }
     setBusy(true);
-    setError(null);
-    setMessage(null);
     try {
       const next = await savePersonalGeminiKey(apiKey);
       setStatus(next);
       setApiKey('');
       setAcknowledgesBillingControl(false);
       setAcknowledgesFreeTierDataUse(false);
-      setMessage('Gemini is connected. The same secured connection now powers meal-photo estimates and contextual wellness guidance.');
+      setLoadIssue(null);
+      setActionMessage('Connected. Gemini now powers meal-photo estimates and contextual wellness guidance.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The Gemini key could not be connected.');
+      setActionIssue(describeAiConnectionIssue(cause));
     } finally {
       setBusy(false);
     }
@@ -59,14 +85,14 @@ export default function AiSettingsScreen() {
 
   const remove = async () => {
     setBusy(true);
-    setError(null);
-    setMessage(null);
+    setActionIssue(null);
+    setActionMessage(null);
     try {
       setStatus(await removePersonalGeminiKey());
       setConfirmRemove(false);
-      setMessage('Your personal Gemini key was removed from JIEN. Revoke it in Google AI Studio too if you no longer need it.');
+      setActionMessage('Your personal Gemini key was removed from JIEN. Revoke it in Google AI Studio too if you no longer need it.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The Gemini connection could not be removed.');
+      setActionIssue(describeAiConnectionIssue(cause));
     } finally {
       setBusy(false);
     }
@@ -81,8 +107,14 @@ export default function AiSettingsScreen() {
       </Card>
 
       {loading ? <StatePanel title="Checking AI connection" body="Reading only your secure connection status—not the key itself." loading /> : null}
-      {error ? <StatePanel title="AI connection needs attention" body={error} actionLabel="Check again" onAction={() => void load()} /> : null}
-      {message ? <Card style={{ backgroundColor: colors.successSoft }}><AppText>{message}</AppText></Card> : null}
+      {loadIssue ? (
+        <StatePanel
+          title={loadIssue.title}
+          body={issueBody(loadIssue)}
+          actionLabel="Check again"
+          onAction={() => void load()}
+        />
+      ) : null}
 
       {status ? (
         <Card>
@@ -100,6 +132,9 @@ export default function AiSettingsScreen() {
             <Pill label={status.configured ? 'Connected' : 'Off'} active={status.configured} />
           </View>
           <AppText style={{ color: colors.textMuted }}>JIEN allowance: {status.limits.photoPerUtcDay} photo analyses and {status.limits.contextPerUtcDay} contextual replies per account per UTC day.</AppText>
+          {status.configured ? (
+            <Button label="Test with a meal photo" onPress={() => router.push('/meals/new')} variant="secondary" />
+          ) : null}
         </Card>
       ) : null}
 
@@ -138,8 +173,22 @@ export default function AiSettingsScreen() {
           label={status?.credentialSource === 'personal' ? 'Verify and replace key' : 'Verify and connect key'}
           onPress={() => void save()}
           busy={busy}
-          disabled={!apiKey.trim() || !acknowledgesBillingControl || !acknowledgesFreeTierDataUse}
         />
+        <View accessibilityLiveRegion="polite">
+          {busy ? <AppText style={{ color: colors.textMuted }}>Checking the key with Gemini and securing it to your JIEN account…</AppText> : null}
+          {actionIssue ? (
+            <View style={[styles.inlineResult, { backgroundColor: colors.dangerSoft }]}>
+              <AppText style={styles.cardTitle}>{actionIssue.title}</AppText>
+              <AppText>{issueBody(actionIssue)}</AppText>
+            </View>
+          ) : null}
+          {actionMessage ? (
+            <View style={[styles.inlineResult, { backgroundColor: colors.successSoft }]}>
+              <AppText style={styles.cardTitle}>Gemini is ready</AppText>
+              <AppText>{actionMessage}</AppText>
+            </View>
+          ) : null}
+        </View>
       </Card>
 
       <SectionHeading title="3. Keep costs bounded" detail="Two independent safeguards" />
@@ -167,6 +216,12 @@ export default function AiSettingsScreen() {
   );
 }
 
+function issueBody(issue: AiConnectionIssue) {
+  return issue.requestId
+    ? `${issue.message} Reference: ${issue.requestId}`
+    : issue.message;
+}
+
 function Acknowledgement({ label, value, onValueChange }: { label: string; value: boolean; onValueChange: (value: boolean) => void }) {
   const { colors } = useJienTheme();
   return (
@@ -190,5 +245,6 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   ackRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 52 },
   actions: { gap: spacing.sm },
+  inlineResult: { borderRadius: radii.control, padding: spacing.md, gap: spacing.xs },
   flex: { flex: 1 },
 });

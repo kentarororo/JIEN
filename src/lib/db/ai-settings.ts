@@ -1,7 +1,8 @@
 import { invokeEdgeFunctionEnvelope } from './supabase';
 import { parseAiConnectionStatus, type AiConnectionStatus } from './ai-settings-contract';
 
-export type { AiConnectionStatus } from './ai-settings-contract';
+export { describeAiConnectionIssue } from './ai-settings-contract';
+export type { AiConnectionIssue, AiConnectionStatus } from './ai-settings-contract';
 
 export async function getAiConnectionStatus(): Promise<AiConnectionStatus> {
   const response = await invokeEdgeFunctionEnvelope<unknown>('ai-settings', { action: 'status' }, 10_000);

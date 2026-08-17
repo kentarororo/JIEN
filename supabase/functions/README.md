@@ -33,6 +33,16 @@ documentation.
 
 ### Tester-owned key flow (default for the current beta)
 
+For a complete Windows deployment from the repository root, run:
+
+```powershell
+& .\scripts\deploy-ai-slice.ps1
+```
+
+This applies the Vault-backed credential migration and deploys `ai-settings`,
+`analyze-food-photo`, and `wellness-chat` together so the settings UI and both AI
+features use the same backend contract.
+
 Apply migration `20260816000200_user_ai_credentials.sql`, then deploy the three AI
 functions:
 
