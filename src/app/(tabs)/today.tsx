@@ -3,10 +3,11 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, moveMonthSelection } from '@/lib/calendar';
 import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listWorkoutsForDate } from '@/lib/db';
+import { muscleGroupLabel } from '@/lib/progression';
 import { formatShortDate, formatTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -120,7 +121,7 @@ export default function TodayScreen() {
           {selectedPlans.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Planned workouts</AppText>{selectedPlans.map((workout) => (
             <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border, backgroundColor: colors.accentSoft }, pressed && styles.pressed]}>
-                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText></View>
+                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
                 <AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? formatTime(workout.scheduledAt) : 'Planned'}</AppText>
               </Pressable>
             </Link>
@@ -128,7 +129,7 @@ export default function TodayScreen() {
           {selectedWorkouts.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged workouts</AppText>{selectedWorkouts.map((workout) => (
             <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border }, pressed && styles.pressed]}>
-                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg</AppText></View>
+                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg·reps</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
                 <AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText>
               </Pressable>
             </Link>
@@ -153,7 +154,7 @@ export default function TodayScreen() {
       <SectionHeading title="This week" detail="Completed training" />
       <Card style={styles.metricCard}>
         <View><AppText style={styles.metric}>{summary.workoutCountThisWeek}</AppText><AppText style={{ color: colors.textMuted }}>workouts</AppText></View>
-        <View><AppText style={styles.metric}>{Math.round(summary.weeklyVolumeKg).toLocaleString()}</AppText><AppText style={{ color: colors.textMuted }}>kg training work</AppText></View>
+        <View><AppText style={styles.metric}>{Math.round(summary.weeklyVolumeKg).toLocaleString()}</AppText><AppText style={{ color: colors.textMuted }}>kg·reps work</AppText></View>
       </Card>
 
       {summary.workoutProgress ? (
@@ -209,7 +210,7 @@ export default function TodayScreen() {
       <SectionHeading title="Last session" />
       {summary.latestWorkout ? (
         <Link href={{ pathname: '/workouts/[id]', params: { id: summary.latestWorkout.id } }} asChild>
-          <Pressable><Card><AppText style={styles.actionTitle}>{summary.latestWorkout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(summary.latestWorkout.completedAt ?? summary.latestWorkout.performedOn)} · {summary.latestWorkout.setCount} sets · {Math.round(summary.latestWorkout.totalVolumeKg).toLocaleString()} kg</AppText></Card></Pressable>
+          <Pressable><Card><AppText style={styles.actionTitle}>{summary.latestWorkout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(summary.latestWorkout.completedAt ?? summary.latestWorkout.performedOn)} · {summary.latestWorkout.setCount} sets · {Math.round(summary.latestWorkout.totalVolumeKg).toLocaleString()} kg·reps</AppText></Card></Pressable>
         </Link>
       ) : <StatePanel title="Your first session starts here" body="Log the work you actually completed. JIEN will build progression guidance from it." actionLabel="Log workout" onAction={() => router.push('/workouts/new')} />}
     </Screen>
@@ -247,6 +248,7 @@ const styles = StyleSheet.create({
   selectedRecords: { gap: spacing.xs },
   selectedRecordsTitle: { ...typography.label, fontWeight: '800' },
   selectedRecord: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },
+  workoutTags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   recordEnd: { alignItems: 'flex-end' },
   todayMeals: { gap: spacing.xs, marginTop: spacing.xs },
   todayMeal: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },

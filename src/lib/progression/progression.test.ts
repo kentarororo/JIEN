@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   aggregateWeeklyVolume,
+  buildMuscleGroupTrends,
   buildSetProgressionPlan,
   calculateOverloadChangePercent,
   calculateSetVolumeKg,
@@ -144,6 +145,68 @@ test('keeps rear delts and core as explicit volume buckets', () => {
   assert.equal(result[0]?.muscleGroups.rear_delts, 120);
   assert.equal(result[0]?.muscleGroups.upper_back, 60);
   assert.equal(result[0]?.muscleGroups.core, 300);
+  assert.equal(result[0]?.muscleGroupSets.rear_delts, 1);
+  assert.equal(result[0]?.muscleGroupSets.upper_back, 0.5);
+});
+
+test('turns a month of logged workouts into readable body-part trends and a next-session cue', () => {
+  const weeks = aggregateWeeklyVolume([
+    ...session('2026-07-20T10:00:00.000Z', 8),
+    ...session('2026-07-27T10:00:00.000Z', 9),
+    ...session('2026-08-03T10:00:00.000Z', 10),
+    ...session('2026-08-10T10:00:00.000Z', 12),
+    {
+      reps: 15, loadValue: 0, loadUnit: 'kg', completedAt: '2026-08-10T10:30:00.000Z',
+      movementPattern: 'hip_flexion', primaryMuscleGroup: 'core', secondaryMuscleGroups: [],
+    },
+  ]);
+  const trends = buildMuscleGroupTrends(weeks, 4, new Date('2026-08-17T12:00:00.000Z'));
+  const chest = trends.find((trend) => trend.muscleGroup === 'chest');
+  const triceps = trends.find((trend) => trend.muscleGroup === 'triceps');
+  const core = trends.find((trend) => trend.muscleGroup === 'core');
+
+  assert.equal(weeks.length, 4);
+  assert.equal(chest?.activeWeeks, 4);
+  assert.equal(chest?.currentSetEquivalents, 3);
+  assert.equal(chest?.previousSetEquivalents, 3);
+  assert.equal(chest?.workChangePercent, 20);
+  assert.equal(chest?.status, 'up');
+  assert.equal(triceps?.currentSetEquivalents, 1.5, 'secondary muscles receive half-set credit');
+  assert.equal(core?.currentSetEquivalents, 1, 'zero-load bodyweight work still counts as a working set');
+
+  const next = buildSetProgressionPlan({
+    sets: [8, 8, 8].map(() => ({ reps: 12, loadValue: 40, loadUnit: 'kg' as const, rpe: 8 })),
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(next.action, 'add_load');
+  assert.deepEqual(next.cues.map((cue) => [cue.loadValue, cue.targetReps]), [[42.5, 8], [42.5, 8], [42.5, 8]]);
+});
+
+test('does not call a partially logged current week a body-part decline', () => {
+  const weeks = aggregateWeeklyVolume([
+    ...session('2026-08-10T10:00:00.000Z', 12),
+    { ...session('2026-08-17T10:00:00.000Z', 8)[0]! },
+  ]);
+  const chest = buildMuscleGroupTrends(weeks, 4, new Date('2026-08-17T12:00:00.000Z'))
+    .find((trend) => trend.muscleGroup === 'chest');
+  assert.equal(chest?.isPartialWeek, true);
+  assert.equal(chest?.status, 'partial');
+});
+
+test('does not call an untrained body part inactive while the current week is still partial', () => {
+  const weeks = aggregateWeeklyVolume([
+    ...session('2026-08-10T10:00:00.000Z', 12),
+    {
+      completedAt: '2026-08-17T10:00:00.000Z', reps: 8, loadValue: 40, loadUnit: 'kg', kind: 'working',
+      movementPattern: 'horizontal_push', primaryMuscleGroup: 'chest', secondaryMuscleGroups: ['triceps'],
+    },
+  ]);
+  const frontDelts = buildMuscleGroupTrends(weeks, 4, new Date('2026-08-17T12:00:00.000Z'))
+    .find((trend) => trend.muscleGroup === 'front_delts');
+  assert.equal(frontDelts?.currentSetEquivalents, 0);
+  assert.equal(frontDelts?.status, 'partial');
 });
 
 test('flags sustained stagnation and a twenty percent drop', () => {
@@ -151,3 +214,15 @@ test('flags sustained stagnation and a twenty percent drop', () => {
   assert.equal(detectDeloadSignal([1200, 900]).kind, 'volume_drop');
   assert.equal(detectDeloadSignal([1000, 1100]).kind, 'none');
 });
+
+function session(completedAt: string, reps: number) {
+  return [0, 1, 2].map(() => ({
+    reps,
+    loadValue: 40,
+    loadUnit: 'kg' as const,
+    completedAt,
+    movementPattern: 'horizontal_push',
+    primaryMuscleGroup: 'chest',
+    secondaryMuscleGroups: ['triceps', 'front_delts'],
+  }));
+}

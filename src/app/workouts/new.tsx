@@ -19,6 +19,8 @@ import {
 } from '@/lib/db';
 import {
   buildSetProgressionPlan,
+  MUSCLE_GROUP_OPTIONS,
+  muscleGroupLabel,
   type ProgressionSet,
   type SetProgressionCue,
   type SetProgressionPlan,
@@ -37,7 +39,6 @@ type DraftExercise = {
 };
 
 const COMMON_EXERCISE_COUNT = 12;
-const MUSCLE_GROUPS = ['chest', 'back', 'quadriceps', 'hamstrings', 'glutes', 'shoulders', 'arms', 'core'];
 const newSet = (load = '', reps = '', rpe = ''): DraftSet => ({ key: Crypto.randomUUID(), load, reps, rpe });
 const newBlock = (exerciseId: string): DraftExercise => ({
   key: Crypto.randomUUID(),
@@ -70,7 +71,8 @@ export default function NewWorkoutScreen() {
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customNotes, setCustomNotes] = useState('');
-  const [customMuscle, setCustomMuscle] = useState(MUSCLE_GROUPS[0]!);
+  const [customMuscle, setCustomMuscle] = useState<string>(MUSCLE_GROUP_OPTIONS[0].value);
+  const [customSecondaryMuscles, setCustomSecondaryMuscles] = useState<string[]>([]);
   const [customSaving, setCustomSaving] = useState(false);
 
   const loadCatalog = useCallback(async () => {
@@ -164,6 +166,7 @@ export default function NewWorkoutScreen() {
         name,
         movementPattern: `custom_${customMuscle}`,
         primaryMuscleGroup: customMuscle,
+        secondaryMuscleGroups: customSecondaryMuscles,
         equipment: 'custom',
         targetRepMin: 8,
         targetRepMax: 12,
@@ -180,6 +183,7 @@ export default function NewWorkoutScreen() {
       });
       setCustomName('');
       setCustomNotes('');
+      setCustomSecondaryMuscles([]);
       setCustomOpen(false);
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'Could not add that exercise.');
@@ -289,7 +293,7 @@ export default function NewWorkoutScreen() {
         const query = exerciseQueries[block.key]?.trim().toLocaleLowerCase() ?? '';
         const browserOpen = exerciseBrowsers[block.key] ?? false;
         const results = query || browserOpen
-          ? catalog?.filter((exercise) => !query || `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(query)) ?? []
+          ? catalog?.filter((exercise) => !query || `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.secondaryMuscleGroups.join(' ')} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(query)) ?? []
           : [];
         return (
           <Card key={block.key} style={styles.exerciseCard}>
@@ -317,7 +321,7 @@ export default function NewWorkoutScreen() {
                 <ScrollView style={[styles.exerciseResultScroll, { borderColor: colors.border }]} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                   {results.length ? results.map((exercise) => (
                     <Pressable key={exercise.id} accessibilityRole="button" onPress={() => setExercise(block.key, exercise.id)} style={({ pressed }) => [styles.exerciseResult, { borderBottomColor: colors.border }, pressed && styles.pressed]}>
-                      <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{exercise.primaryMuscleGroup.replaceAll('_', ' ')} · {exercise.equipment ?? 'bodyweight'}</AppText></View>
+                      <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{muscleGroupLabel(exercise.primaryMuscleGroup)} · {exercise.equipment ?? 'bodyweight'}</AppText></View>
                       <AppText style={{ color: exercise.id === block.exerciseId ? colors.success : colors.accent, fontWeight: '700' }}>{exercise.id === block.exerciseId ? 'Selected' : 'Choose'}</AppText>
                     </Pressable>
                   )) : <AppText style={[styles.noResult, { color: colors.textMuted }]}>No match. Add your own exercise below.</AppText>}
@@ -325,7 +329,7 @@ export default function NewWorkoutScreen() {
               ) : null}
             </View>
 
-            {selected ? <AppText style={[styles.range, { color: colors.textMuted }]}>{selected.primaryMuscleGroup.replaceAll('_', ' ')} · target {selected.targetRepMin}–{selected.targetRepMax} reps{selected.notes ? ` · ${selected.notes}` : ''}</AppText> : null}
+            {selected ? <AppText style={[styles.range, { color: colors.textMuted }]}>{muscleGroupLabel(selected.primaryMuscleGroup)} primary{selected.secondaryMuscleGroups.length ? ` · ${selected.secondaryMuscleGroups.map(muscleGroupLabel).join(', ')} assist` : ''} · target {selected.targetRepMin}–{selected.targetRepMax} reps{selected.notes ? ` · ${selected.notes}` : ''}</AppText> : null}
             {block.progression ? (
               <View style={[styles.suggestion, { backgroundColor: block.progression.action === 'hold' ? colors.warningSoft : colors.successSoft }]}>
                 <View style={styles.suggestionCopy}>
@@ -396,7 +400,14 @@ export default function NewWorkoutScreen() {
           <View style={styles.customForm}>
             <Field label="Exercise name" placeholder="e.g. Cable high row" value={customName} onChangeText={setCustomName} autoFocus />
             <Field label="Short description (optional)" placeholder="Machine, grip, setup, or cue" value={customNotes} onChangeText={setCustomNotes} multiline />
-            <View style={styles.customForm}><AppText style={styles.label}>Primary area</AppText><View style={styles.searchResults}>{MUSCLE_GROUPS.map((group) => <Pill key={group} label={group} active={customMuscle === group} onPress={() => setCustomMuscle(group)} />)}</View></View>
+            <View style={styles.customForm}>
+              <View><AppText style={styles.label}>Primary muscle</AppText><AppText style={{ color: colors.textMuted }}>Gets one full working-set credit in the body-part dashboard.</AppText></View>
+              <View style={styles.searchResults}>{MUSCLE_GROUP_OPTIONS.map((group) => <Pill key={group.value} label={group.label} active={customMuscle === group.value} onPress={() => { setCustomMuscle(group.value); setCustomSecondaryMuscles((current) => current.filter((item) => item !== group.value)); }} />)}</View>
+            </View>
+            <View style={styles.customForm}>
+              <View><AppText style={styles.label}>Secondary muscles (optional)</AppText><AppText style={{ color: colors.textMuted }}>Each selected assisting muscle gets half-set credit.</AppText></View>
+              <View style={styles.searchResults}>{MUSCLE_GROUP_OPTIONS.filter((group) => group.value !== customMuscle).map((group) => <Pill key={group.value} label={group.label} active={customSecondaryMuscles.includes(group.value)} onPress={() => setCustomSecondaryMuscles((current) => current.includes(group.value) ? current.filter((item) => item !== group.value) : [...current, group.value])} />)}</View>
+            </View>
             <Button label="Save and use exercise" onPress={() => void addCustomExercise()} busy={customSaving} />
           </View>
         ) : null}

@@ -21,8 +21,45 @@ export type WeeklyVolume = {
   week: string;
   movementPatterns: Record<string, number>;
   muscleGroups: Record<string, number>;
+  muscleGroupSets: Record<string, number>;
   totalKg: number;
 };
+
+export type MuscleGroupTrend = {
+  muscleGroup: string;
+  label: string;
+  currentWeek: string;
+  previousWeek: string | null;
+  currentWorkKg: number;
+  previousWorkKg: number;
+  currentSetEquivalents: number;
+  previousSetEquivalents: number;
+  workChangePercent: number | null;
+  activeWeeks: number;
+  isPartialWeek: boolean;
+  status: 'new' | 'up' | 'steady' | 'down' | 'inactive' | 'partial';
+};
+
+export const MUSCLE_GROUP_OPTIONS = [
+  { value: 'chest', label: 'Chest' },
+  { value: 'upper_chest', label: 'Upper chest' },
+  { value: 'lats', label: 'Lats' },
+  { value: 'upper_back', label: 'Upper back' },
+  { value: 'front_delts', label: 'Front delts' },
+  { value: 'side_delts', label: 'Side delts' },
+  { value: 'rear_delts', label: 'Rear delts' },
+  { value: 'biceps', label: 'Biceps' },
+  { value: 'triceps', label: 'Triceps' },
+  { value: 'forearms', label: 'Forearms' },
+  { value: 'quads', label: 'Quadriceps' },
+  { value: 'hamstrings', label: 'Hamstrings' },
+  { value: 'glutes', label: 'Glutes' },
+  { value: 'adductors', label: 'Adductors' },
+  { value: 'calves', label: 'Calves' },
+  { value: 'core', label: 'Core' },
+  { value: 'lower_back', label: 'Lower back' },
+  { value: 'rotator_cuff', label: 'Rotator cuff' },
+] as const;
 
 export type ProgressionSuggestion =
   | { action: 'start'; reason: string }
@@ -80,26 +117,95 @@ export function isoWeekKey(value: string): string {
 export function aggregateWeeklyVolume(sets: VolumeSet[]): WeeklyVolume[] {
   const weeks = new Map<string, WeeklyVolume>();
   for (const set of sets) {
+    if ((set.kind ?? 'working') !== 'working') continue;
     const volume = calculateSetVolumeKg(set);
-    if (volume === 0) continue;
     const week = isoWeekKey(set.completedAt);
     const aggregate = weeks.get(week) ?? {
       week,
       movementPatterns: {},
       muscleGroups: {},
+      muscleGroupSets: {},
       totalKg: 0,
     };
+    const primary = normalizeMuscleGroupKey(set.primaryMuscleGroup);
+    const secondaryGroups = [...new Set(set.secondaryMuscleGroups.map(normalizeMuscleGroupKey))]
+      .filter((secondary) => secondary !== primary);
     aggregate.totalKg += volume;
     aggregate.movementPatterns[set.movementPattern] =
       (aggregate.movementPatterns[set.movementPattern] ?? 0) + volume;
-    aggregate.muscleGroups[set.primaryMuscleGroup] =
-      (aggregate.muscleGroups[set.primaryMuscleGroup] ?? 0) + volume;
-    for (const secondary of set.secondaryMuscleGroups) {
+    aggregate.muscleGroups[primary] = (aggregate.muscleGroups[primary] ?? 0) + volume;
+    aggregate.muscleGroupSets[primary] = (aggregate.muscleGroupSets[primary] ?? 0) + 1;
+    for (const secondary of secondaryGroups) {
       aggregate.muscleGroups[secondary] = (aggregate.muscleGroups[secondary] ?? 0) + volume * 0.5;
+      aggregate.muscleGroupSets[secondary] = (aggregate.muscleGroupSets[secondary] ?? 0) + 0.5;
     }
     weeks.set(week, aggregate);
   }
   return [...weeks.values()].sort((a, b) => a.week.localeCompare(b.week));
+}
+
+export function buildMuscleGroupTrends(
+  weeks: WeeklyVolume[],
+  lookbackWeeks = 4,
+  asOf = new Date(),
+): MuscleGroupTrend[] {
+  const recent = weeks.slice(-Math.max(2, lookbackWeeks));
+  const current = recent.at(-1);
+  if (!current) return [];
+  const previous = recent.at(-2) ?? null;
+  const isPartialWeek = current.week === isoWeekKey(asOf.toISOString());
+  const groups = new Set<string>();
+  for (const week of recent) {
+    Object.keys(week.muscleGroupSets).forEach((group) => groups.add(group));
+    Object.keys(week.muscleGroups).forEach((group) => groups.add(group));
+  }
+  return [...groups].map((muscleGroup): MuscleGroupTrend => {
+    const currentWorkKg = current.muscleGroups[muscleGroup] ?? 0;
+    const previousWorkKg = previous?.muscleGroups[muscleGroup] ?? 0;
+    const currentSetEquivalents = current.muscleGroupSets[muscleGroup] ?? 0;
+    const previousSetEquivalents = previous?.muscleGroupSets[muscleGroup] ?? 0;
+    const workChangePercent = calculateOverloadChangePercent(currentWorkKg, previousWorkKg);
+    const status = currentSetEquivalents <= 0
+      ? isPartialWeek && previousSetEquivalents > 0 ? 'partial' : 'inactive'
+      : previousSetEquivalents <= 0
+        ? 'new'
+        : isPartialWeek && (workChangePercent == null || workChangePercent < 2)
+          ? 'partial'
+          : workChangePercent != null && workChangePercent <= -20
+          ? 'down'
+          : workChangePercent != null && workChangePercent >= 2
+            ? 'up'
+            : 'steady';
+    return {
+      muscleGroup,
+      label: muscleGroupLabel(muscleGroup),
+      currentWeek: current.week,
+      previousWeek: previous?.week ?? null,
+      currentWorkKg,
+      previousWorkKg,
+      currentSetEquivalents,
+      previousSetEquivalents,
+      workChangePercent,
+      activeWeeks: recent.filter((week) => (week.muscleGroupSets[muscleGroup] ?? 0) > 0).length,
+      isPartialWeek,
+      status,
+    };
+  }).sort((a, b) => b.currentSetEquivalents - a.currentSetEquivalents
+    || b.activeWeeks - a.activeWeeks
+    || a.label.localeCompare(b.label));
+}
+
+export function normalizeMuscleGroupKey(value: string): string {
+  const clean = value.trim().toLocaleLowerCase().replaceAll(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (clean === 'quadriceps') return 'quads';
+  if (clean === 'shoulders') return 'front_delts';
+  return clean || 'other';
+}
+
+export function muscleGroupLabel(value: string): string {
+  const normalized = normalizeMuscleGroupKey(value);
+  return MUSCLE_GROUP_OPTIONS.find((option) => option.value === normalized)?.label
+    ?? normalized.replaceAll('_', ' ').replace(/^./, (character) => character.toLocaleUpperCase());
 }
 
 export function suggestDoubleProgression(input: {

@@ -156,7 +156,7 @@ export default function WorkoutDetailScreen() {
       <Card style={styles.summary}>
         <View><AppText style={styles.metric}>{detail.setCount}</AppText><AppText style={{ color: colors.textMuted }}>sets</AppText></View>
         <View><AppText style={styles.metric}>{detail.exerciseCount}</AppText><AppText style={{ color: colors.textMuted }}>exercises</AppText></View>
-        <View><AppText style={styles.metric}>{Math.round(detail.totalVolumeKg).toLocaleString()}</AppText><AppText style={{ color: colors.textMuted }}>kg training work</AppText></View>
+        <View><AppText style={styles.metric}>{Math.round(detail.totalVolumeKg).toLocaleString()}</AppText><AppText style={{ color: colors.textMuted }}>kg·reps work</AppText></View>
       </Card>
 
       {data?.progress ? (

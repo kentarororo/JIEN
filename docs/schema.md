@@ -71,6 +71,12 @@ equipment, target rep range, and load increment supply deterministic double
 progression without encoding 1RM concepts. Built-in starter exercises are copied
 into each user's catalog, rather than exposed as global RLS exceptions.
 
+The exercise editor offers a canonical body-part list and explicitly distinguishes
+one primary muscle from optional assisting muscles. The columns remain text/text[]
+so future anatomy refinements do not require an enum migration. Analytics normalize
+legacy broad tags (for example `shoulders`) before applying one full primary-set
+credit and half secondary-set credit.
+
 Starter exercise IDs are deliberately stable so workout templates remain portable
 between a user's devices. Their primary key is `(id, user_id)`, not globally unique
 `id`, so multiple accounts can safely own the same starter ID. Set ownership uses the

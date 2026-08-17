@@ -116,6 +116,10 @@ test('wellness Edge Function delegates provider traffic through the shared adapt
   assert.match(source, /IDEMPOTENCY_CONFLICT/);
   assert.doesNotMatch(source, /api\.anthropic\.com|generativelanguage\.googleapis\.com/);
   assert.match(source, /safeRequestId/);
+  assert.match(source, /summarizeTrainingMuscleContext/);
+  assert.match(source, /bodyPartWorkload/);
+  assert.match(source, /summarizeLoggedNutrition/);
+  assert.match(source, /nutrition_targets/);
   assert.ok(
     source.indexOf('if (existingReply)') < source.indexOf('requestWellnessGuidance(provider.configuration'),
     'a retry must return the reserved assistant row before making another provider call',

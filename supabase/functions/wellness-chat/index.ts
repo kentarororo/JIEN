@@ -16,6 +16,8 @@ import {
   loadPersonalAiConfiguration,
   resolveSupabaseServerKey,
 } from '../_shared/user-ai.ts';
+import { summarizeTrainingMuscleContext } from '../_shared/training-context.ts';
+import { summarizeLoggedNutrition } from '../_shared/nutrition-context.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -221,15 +223,17 @@ Deno.serve(async (request) => {
 
 async function loadLiveContext(client, userId, conversationId, profile) {
   const now = new Date();
+  const today = now.toISOString().slice(0, 10);
   const since30 = new Date(now.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
   const since14 = new Date(now.getTime() - 14 * 86_400_000).toISOString().slice(0, 10);
-  const [workoutResult, mealResult, wellnessResult, historyResult] = await Promise.all([
+  const [workoutResult, mealResult, wellnessResult, historyResult, targetResult] = await Promise.all([
     client.from('workouts').select('id, title, performed_on, completed_at').eq('user_id', userId).eq('status', 'completed').gte('performed_on', since30).is('deleted_at', null).order('performed_on', { ascending: false }).limit(20),
     client.from('meals').select('id, eaten_on').eq('user_id', userId).gte('eaten_on', since14).is('deleted_at', null).limit(100),
     client.from('wellness_logs').select('kind, logged_at, mood_score, energy_score, stress_score, soreness_score, motivation_score, sleep_duration_minutes, sleep_quality_score, injury_flags, notes').eq('user_id', userId).gte('logged_on', since30).is('deleted_at', null).order('logged_at', { ascending: false }).limit(30),
     client.from('ai_messages').select('role, content').eq('conversation_id', conversationId).is('deleted_at', null).order('sequence', { ascending: false }).limit(8),
+    client.from('nutrition_targets').select('calories_kcal, protein_g, carbohydrate_g, fat_g').eq('user_id', userId).lte('effective_from', today).or(`effective_to.is.null,effective_to.gte.${today}`).is('deleted_at', null).order('effective_from', { ascending: false }).limit(1),
   ]);
-  if (!contextQueriesSucceeded(workoutResult, mealResult, wellnessResult, historyResult)) {
+  if (!contextQueriesSucceeded(workoutResult, mealResult, wellnessResult, historyResult, targetResult)) {
     throw new Error('CONTEXT_QUERY_FAILED');
   }
   const workouts = workoutResult.data ?? [];
@@ -246,14 +250,19 @@ async function loadLiveContext(client, userId, conversationId, profile) {
   ]);
   if (!contextQueriesSucceeded(setResult, foodResult)) throw new Error('CONTEXT_QUERY_FAILED');
   const workingSets = (setResult.data ?? []).filter((set) => set.kind === 'working');
+  const exerciseIds = [...new Set(workingSets.map((set) => set.exercise_id))];
+  const exerciseResult = exerciseIds.length
+    ? await client.from('exercises')
+      .select('id, primary_muscle_group, secondary_muscle_groups')
+      .eq('user_id', userId)
+      .in('id', exerciseIds)
+      .is('deleted_at', null)
+      .limit(200)
+    : { data: [], error: null };
+  if (!contextQueriesSucceeded(exerciseResult)) throw new Error('CONTEXT_QUERY_FAILED');
   const volumeKg = workingSets.reduce((total, set) => total + Number(set.load_value) * Number(set.reps) * (set.load_unit === 'lb' ? 0.45359237 : 1), 0);
-  const foods = foodResult.data ?? [];
-  const foodTotals = foods.reduce((sum, item) => ({
-    caloriesKcal: sum.caloriesKcal + Number(item.calories_kcal || 0),
-    proteinG: sum.proteinG + Number(item.protein_g || 0),
-    carbohydrateG: sum.carbohydrateG + Number(item.carbohydrate_g || 0),
-    fatG: sum.fatG + Number(item.fat_g || 0),
-  }), { caloriesKcal: 0, proteinG: 0, carbohydrateG: 0, fatG: 0 });
+  const muscleContext = summarizeTrainingMuscleContext(workouts, workingSets, exerciseResult.data ?? []);
+  const nutritionContext = summarizeLoggedNutrition(meals, foodResult.data ?? [], targetResult.data?.[0] ?? null);
 
   return {
     profile: {
@@ -269,19 +278,16 @@ async function loadLiveContext(client, userId, conversationId, profile) {
       workingSetCount: workingSets.length,
       volumeKg: round(volumeKg),
       recentSessions: workouts.slice(0, 8),
+      bodyPartWorkload: muscleContext,
     },
-    nutrition14Days: {
-      daysLogged: new Set(meals.map((meal) => meal.eaten_on)).size,
-      mealCount: meals.length,
-      totals: mapRounded(foodTotals),
-    },
+    nutrition14Days: nutritionContext,
     recentWellness: (wellnessResult.data ?? []).slice(0, 12),
     recentConversation: (historyResult.data ?? []).reverse().slice(0, -1),
   };
 }
 
 function wellnessSystemPrompt() {
-  return `You are JIEN's restrained wellness planning assistant. Use only the supplied user-owned context. Be concise, warm, and practical. Never diagnose, prescribe treatment, recommend max-effort or 1RM testing, or invent missing measurements. The deterministic plan brief is computed by the app and is the sole numeric source of truth for progression: explain it exactly and never replace its action, load, reps, or deload state. If an active joint flag exists, prioritize caution and suggest a qualified clinician for concerning or persistent symptoms. State uncertainty plainly. End health-related guidance with a short "Not medical advice" reminder.`;
+  return `You are JIEN's restrained wellness planning assistant. Use only the supplied user-owned context. Be concise, warm, and practical. Never diagnose, prescribe treatment, recommend max-effort or 1RM testing, or invent missing measurements. The deterministic plan brief is computed by the app and is the sole numeric source of truth for progression: explain it exactly and never replace its action, load, reps, or deload state. Body-part workload uses one primary working set and half credit for tagged assisting muscles; load-times-reps is descriptive work, never measured muscle growth. Treat a partially logged week or missing nutrition days as incomplete evidence, not a decline. Connect food or recovery to training only when the supplied history supports it, and state uncertainty plainly. If an active joint flag exists, prioritize caution and suggest a qualified clinician for concerning or persistent symptoms. End health-related guidance with a short "Not medical advice" reminder.`;
 }
 
 function wellnessUserPrompt(mode, userMessage, context, safePlan) {
@@ -294,7 +300,6 @@ function safeRequestId(value) {
 }
 
 function round(value) { return Number.isFinite(value) ? Math.round(value * 10) / 10 : 0; }
-function mapRounded(value) { return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, round(Number(item))])); }
 function mapMessage(row) {
   return {
     id: row.id,

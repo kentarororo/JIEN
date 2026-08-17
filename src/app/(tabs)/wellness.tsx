@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
@@ -40,6 +40,7 @@ async function loadWellness(db: ReturnType<typeof useSQLiteContext>) {
 export default function WellnessScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { trainingReview } = useLocalSearchParams<{ trainingReview?: string }>();
   const { width } = useWindowDimensions();
   const { colors } = useJienTheme();
   const wide = width >= 900;
@@ -53,6 +54,8 @@ export default function WellnessScreen() {
   const [injuryNote, setInjuryNote] = useState('');
   const [checkInNote, setCheckInNote] = useState('');
   const [composer, setComposer] = useState('');
+  const [composerMode, setComposerMode] = useState<'chat' | 'plan_explanation'>('chat');
+  const appliedTrainingReviewRef = useRef(false);
   const [busy, setBusy] = useState<'check-in' | 'disclaimer' | 'chat' | string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -65,6 +68,13 @@ export default function WellnessScreen() {
       && data.profile?.aiDataConsent
       && data.profile.medicalDisclaimerAcknowledgedAt,
   );
+
+  useEffect(() => {
+    if (trainingReview !== '1' || appliedTrainingReviewRef.current) return;
+    appliedTrainingReviewRef.current = true;
+    setComposer('Review my last four logged training weeks by body part. Explain what moved up, stayed steady, or dropped, identify any obvious coverage gap, and connect it to my recent food and recovery context only where the data is sufficient. Keep every deterministic load and rep suggestion unchanged.');
+    setComposerMode('plan_explanation');
+  }, [trainingReview]);
 
   const submitCheckIn = async () => {
     const parsedHours = sleepHours.trim() ? Number(sleepHours) : null;
@@ -124,6 +134,7 @@ export default function WellnessScreen() {
     try {
       await sendWellnessMessage(db, text, summary.plan, mode);
       setComposer('');
+      setComposerMode('chat');
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'AI guidance is unavailable right now.');
     } finally {
@@ -157,7 +168,7 @@ export default function WellnessScreen() {
       <ScreenHeading eyebrow="Wellness hub" title="Read the whole picture." />
 
       <View style={[styles.metricGrid, wide && styles.rowWide]}>
-        <MetricCard label="7-day training" value={`${summary.workoutCount7Days} session${summary.workoutCount7Days === 1 ? '' : 's'}`} detail={`${Math.round(summary.trainingVolume7DaysKg).toLocaleString()} kg working volume`} />
+        <MetricCard label="7-day training" value={`${summary.workoutCount7Days} session${summary.workoutCount7Days === 1 ? '' : 's'}`} detail={`${Math.round(summary.trainingVolume7DaysKg).toLocaleString()} kg·reps work`} />
         <MetricCard label="Volume trend" value={formatPercent(summary.trainingVolumeChangePercent)} detail={summary.trainingVolumeChangePercent == null ? 'Previous week needed' : 'versus the prior 7 days'} tone={summary.trainingVolumeChangePercent != null && summary.trainingVolumeChangePercent < 0 ? 'warning' : 'success'} />
         <MetricCard label="Nutrition signal" value={`${Math.round(summary.averageProtein7Days)} g protein`} detail={`daily average · ${summary.nutritionDaysLogged}/7 days logged`} />
       </View>
@@ -264,12 +275,12 @@ export default function WellnessScreen() {
         )}
 
         <View style={styles.promptRow}>
-          {PROMPTS.map((prompt) => <Pill key={prompt} label={prompt} onPress={() => setComposer(prompt)} />)}
+          {PROMPTS.map((prompt) => <Pill key={prompt} label={prompt} onPress={() => { setComposer(prompt); setComposerMode('chat'); }} />)}
         </View>
         <Field
           label="Message"
           value={composer}
-          onChangeText={setComposer}
+          onChangeText={(value) => { setComposer(value); if (!value.trim()) setComposerMode('chat'); }}
           placeholder="Ask about your recent training, food, sleep, or recovery…"
           multiline
           maxLength={2_000}
@@ -277,7 +288,7 @@ export default function WellnessScreen() {
         />
         <View style={styles.composerActions}>
           <AppText style={{ color: colors.textMuted, flex: 1 }}>New replies need a connection. Not medical advice.</AppText>
-          <Button label="Send" onPress={() => void ask(composer)} busy={busy === 'chat'} disabled={!aiReady || !composer.trim() || Boolean(unresolvedMessage)} />
+          <Button label="Send" onPress={() => void ask(composer, composerMode)} busy={busy === 'chat'} disabled={!aiReady || !composer.trim() || Boolean(unresolvedMessage)} />
         </View>
       </Card>
 

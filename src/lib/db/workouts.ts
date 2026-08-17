@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toLocalDateKey } from '@/lib/time';
-import { calculateOverloadChangePercent, calculateSetVolumeKg } from '@/lib/progression';
+import { calculateOverloadChangePercent, calculateSetVolumeKg, normalizeMuscleGroupKey } from '@/lib/progression';
 import { parsePlannedWorkoutPlan } from '@/lib/planning/workout-plan';
 
 import { exerciseRemotePayload } from './exercises';
@@ -34,6 +34,7 @@ type WorkoutSummaryRow = {
   set_count: number;
   exercise_count: number;
   total_volume_kg: number | null;
+  muscle_groups: string | null;
 };
 
 function mapWorkoutSummary(row: WorkoutSummaryRow): WorkoutSummary {
@@ -48,6 +49,11 @@ function mapWorkoutSummary(row: WorkoutSummaryRow): WorkoutSummary {
     setCount: plan ? plan.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) : row.set_count,
     exerciseCount: plan ? plan.exercises.length : row.exercise_count,
     totalVolumeKg: row.total_volume_kg ?? 0,
+    muscleGroups: [...new Set((plan
+      ? plan.exercises.map((exercise) => exercise.primaryMuscleGroup)
+      : (row.muscle_groups ?? '').split(','))
+      .map(normalizeMuscleGroupKey)
+      .filter((group) => group !== 'other'))],
     scheduledAt: row.scheduled_at,
   };
 }
@@ -57,12 +63,14 @@ const WORKOUT_SUMMARY_SELECT = `
     w.status, w.notes, w.plan_json,
     COUNT(s.id) AS set_count,
     COUNT(DISTINCT s.exercise_id) AS exercise_count,
+    GROUP_CONCAT(DISTINCT e.primary_muscle_group) AS muscle_groups,
     COALESCE(SUM(CASE
       WHEN s.kind = 'working' AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
       WHEN s.kind = 'working' THEN s.load_value * s.reps
       ELSE 0 END), 0) AS total_volume_kg
   FROM workouts w
   LEFT JOIN workout_sets s ON s.workout_id = w.id AND s.deleted_at IS NULL
+  LEFT JOIN exercises e ON e.id = s.exercise_id AND e.deleted_at IS NULL
 `;
 
 export async function listRecentWorkouts(

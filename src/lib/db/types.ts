@@ -183,6 +183,7 @@ export type WorkoutSummary = {
   setCount: number;
   exerciseCount: number;
   totalVolumeKg: number;
+  muscleGroups: string[];
   scheduledAt: string | null;
 };
 

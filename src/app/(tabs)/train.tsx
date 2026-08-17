@@ -1,12 +1,12 @@
 import { Link, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getWorkoutProgressComparison, listRecentWorkouts, listUpcomingPlannedWorkouts, listVolumeHistory } from '@/lib/db';
-import { aggregateWeeklyVolume, detectDeloadSignal, type WeeklyVolume } from '@/lib/progression';
+import { aggregateWeeklyVolume, buildMuscleGroupTrends, detectDeloadSignal, muscleGroupLabel, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -14,6 +14,7 @@ export default function TrainScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
+  const [showAllMuscles, setShowAllMuscles] = useState(false);
   const loader = useCallback(async () => {
     const [workouts, planned, volumeSets, progress] = await Promise.all([
       listRecentWorkouts(db),
@@ -22,7 +23,14 @@ export default function TrainScreen() {
       getWorkoutProgressComparison(db),
     ]);
     const weeks = aggregateWeeklyVolume(volumeSets);
-    return { workouts, planned, weeks, progress, signal: detectDeloadSignal(weeks.map((week) => week.totalKg)) };
+    return {
+      workouts,
+      planned,
+      weeks,
+      muscleTrends: buildMuscleGroupTrends(weeks),
+      progress,
+      signal: detectDeloadSignal(weeks.map((week) => week.totalKg)),
+    };
   }, [db]);
   const { data, error, loading, reload } = useScreenData(loader);
 
@@ -93,11 +101,23 @@ export default function TrainScreen() {
         <Card>
           <View style={styles.row}><View><AppText style={styles.title}>Weekly training work</AppText><AppText style={{ color: colors.textMuted }}>{formatWork(data.weeks.at(-1)!.totalKg)} this logged week</AppText></View></View>
           <WeeklyWorkTrend weeks={data.weeks} />
-          {Object.entries(data.weeks.at(-1)!.muscleGroups).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([group, volume]) => <View key={group} style={styles.row}><AppText>{group.replaceAll('_', ' ')}</AppText><AppText style={{ fontWeight: '700' }}>{formatWork(volume)}</AppText></View>)}
           {data.signal.kind !== 'none' ? <AppText style={{ color: colors.warning }}>{data.signal.message}</AppText> : null}
           <AppText style={[styles.chartNote, { color: colors.textMuted }]}>This is completed working-set load × reps, not a strength or muscle-growth score.</AppText>
         </Card>
       ) : null}
+      {data?.muscleTrends.length ? <>
+        <SectionHeading title="Body-part workload" detail="Latest logged week versus the previous logged week" />
+        <Card>
+          <View style={styles.muscleGrid}>
+            {(showAllMuscles ? data.muscleTrends : data.muscleTrends.slice(0, 6)).map((trend) => (
+              <MuscleTrendCard key={trend.muscleGroup} trend={trend} recentWeekCount={Math.min(4, data.weeks.length)} />
+            ))}
+          </View>
+          {data.muscleTrends.length > 6 ? <Button label={showAllMuscles ? 'Show main areas' : `Show all ${data.muscleTrends.length} areas`} onPress={() => setShowAllMuscles((value) => !value)} variant="quiet" /> : null}
+          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>One primary working set counts as 1.0; each tagged assisting muscle counts as 0.5. Work change is load × reps within that body part—not measured muscle growth.</AppText>
+          <Button label="Ask JIEN to explain this month" onPress={() => router.push({ pathname: '/wellness', params: { trainingReview: '1' } } as never)} variant="secondary" />
+        </Card>
+      </> : null}
       {data?.workouts.length ? <SectionHeading title="Workout history" detail="Each card is one saved session" /> : null}
       <View style={styles.list}>
         {data?.workouts.map((workout) => (
@@ -105,7 +125,8 @@ export default function TrainScreen() {
             <Pressable>
               <Card>
                 <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(workout.completedAt ?? workout.performedOn)}{workout.completedAt ? ` · ${formatTime(workout.completedAt)}` : ''}</AppText></View>
-                <AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg</AppText>
+                <AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {formatWork(workout.totalVolumeKg)}</AppText>
+                {workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 5).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}
               </Card>
             </Pressable>
           </Link>
@@ -130,6 +151,14 @@ const styles = StyleSheet.create({
   comparisonLabel: { ...typography.caption, fontWeight: '700' },
   comparisonValue: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
   exerciseWork: { ...typography.caption, fontVariant: ['tabular-nums'] },
+  muscleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  muscleCard: { flexGrow: 1, flexBasis: 250, minWidth: 220, padding: spacing.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, gap: spacing.sm },
+  muscleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  muscleMetric: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  muscleBars: { gap: spacing.xs },
+  muscleBarRow: { gap: spacing.xxs },
+  muscleBarLabel: { ...typography.caption, fontVariant: ['tabular-nums'] },
+  workoutTags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
   trendPlot: { minHeight: 172, flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs, paddingTop: spacing.lg },
   trendColumn: { flex: 1, minWidth: 36, alignItems: 'center', justifyContent: 'flex-end', gap: spacing.xs },
   trendValue: { ...typography.caption, fontWeight: '700', fontVariant: ['tabular-nums'] },
@@ -142,6 +171,52 @@ const styles = StyleSheet.create({
 function formatPercent(value: number): string {
   const rounded = Math.abs(value) < 10 ? value.toFixed(1) : Math.round(value).toString();
   return `${value > 0 ? '+' : ''}${rounded}%`;
+}
+
+function MuscleTrendCard({ trend, recentWeekCount }: { trend: MuscleGroupTrend; recentWeekCount: number }) {
+  const { colors } = useJienTheme();
+  const maximumSets = Math.max(trend.currentSetEquivalents, trend.previousSetEquivalents, 1);
+  const tone = trend.status === 'down' || trend.status === 'inactive'
+    ? colors.warning
+    : trend.status === 'up' || trend.status === 'new'
+      ? colors.success
+      : colors.accent;
+  return (
+    <View style={[styles.muscleCard, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+      <View style={styles.muscleHeader}>
+        <AppText style={styles.title}>{trend.label}</AppText>
+        <AppText style={{ color: tone, fontWeight: '700' }}>{muscleStatusLabel(trend)}</AppText>
+      </View>
+      <View>
+        <AppText style={styles.muscleMetric}>{formatSetEquivalents(trend.currentSetEquivalents)}</AppText>
+        <AppText style={{ color: colors.textMuted }}>weighted working sets · {trend.activeWeeks}/{recentWeekCount} weeks</AppText>
+      </View>
+      <View style={styles.muscleBars}>
+        <View style={styles.muscleBarRow}>
+          <AppText style={[styles.muscleBarLabel, { color: colors.textMuted }]}>Previous {formatSetEquivalents(trend.previousSetEquivalents)}</AppText>
+          <ProgressBar value={trend.previousSetEquivalents / maximumSets} color={colors.wood} />
+        </View>
+        <View style={styles.muscleBarRow}>
+          <AppText style={[styles.muscleBarLabel, { color: colors.textMuted }]}>Latest {formatSetEquivalents(trend.currentSetEquivalents)}</AppText>
+          <ProgressBar value={trend.currentSetEquivalents / maximumSets} color={tone} />
+        </View>
+      </View>
+      <AppText style={{ color: colors.textMuted }}>{trend.workChangePercent == null ? 'New work baseline' : `${formatPercent(trend.workChangePercent)} work versus prior logged week`}</AppText>
+    </View>
+  );
+}
+
+function muscleStatusLabel(trend: MuscleGroupTrend): string {
+  if (trend.status === 'new') return 'New baseline';
+  if (trend.status === 'up') return 'More work';
+  if (trend.status === 'down') return 'Down 20%+';
+  if (trend.status === 'inactive') return 'Not this week';
+  if (trend.status === 'partial') return 'Week in progress';
+  return 'Steady';
+}
+
+function formatSetEquivalents(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function formatWork(value: number): string {
