@@ -43,6 +43,19 @@ export type MealDraftSnapshot = {
   updatedAt: string;
 };
 
+export type MealDraftSummary = {
+  completedFoodCount: number;
+  needsAttentionCount: number;
+  blankFoodCount: number;
+  totals: {
+    caloriesKcal: number;
+    proteinG: number;
+    carbohydrateG: number;
+    fatG: number;
+    fibreG: number;
+  };
+};
+
 const TYPES = new Set<MealDraftType>(['breakfast', 'lunch', 'dinner', 'snack', 'other']);
 const SOURCES = new Set<MealDraftFood['source']>(['manual', 'ai_photo', 'imported']);
 
@@ -71,6 +84,56 @@ export function mealDraftHasContent(
       || food.carbs.trim()
       || food.fat.trim(),
     ));
+}
+
+export function isBlankMealDraftFood(food: MealDraftFood): boolean {
+  return !food.name.trim()
+    && !food.calories.trim()
+    && !food.protein.trim()
+    && !food.carbs.trim()
+    && !food.fat.trim();
+}
+
+export function summarizeMealDraft(foods: MealDraftFood[]): MealDraftSummary {
+  const summary: MealDraftSummary = {
+    completedFoodCount: 0,
+    needsAttentionCount: 0,
+    blankFoodCount: 0,
+    totals: { caloriesKcal: 0, proteinG: 0, carbohydrateG: 0, fatG: 0, fibreG: 0 },
+  };
+  for (const food of foods) {
+    if (isBlankMealDraftFood(food)) {
+      summary.blankFoodCount += 1;
+      continue;
+    }
+    const quantity = Number(food.quantity);
+    const caloriesKcal = Number(food.calories);
+    const proteinG = Number(food.protein);
+    const carbohydrateG = Number(food.carbs);
+    const fatG = Number(food.fat);
+    const fibreG = food.fibre.trim() ? Number(food.fibre) : 0;
+    const valid = food.name.trim().length > 0
+      && food.quantity.trim().length > 0
+      && food.calories.trim().length > 0
+      && food.protein.trim().length > 0
+      && food.carbs.trim().length > 0
+      && food.fat.trim().length > 0
+      && Number.isFinite(quantity)
+      && quantity > 0
+      && [caloriesKcal, proteinG, carbohydrateG, fatG, fibreG]
+        .every((value) => Number.isFinite(value) && value >= 0);
+    if (!valid) {
+      summary.needsAttentionCount += 1;
+      continue;
+    }
+    summary.completedFoodCount += 1;
+    summary.totals.caloriesKcal += caloriesKcal;
+    summary.totals.proteinG += proteinG;
+    summary.totals.carbohydrateG += carbohydrateG;
+    summary.totals.fatG += fatG;
+    summary.totals.fibreG += fibreG;
+  }
+  return summary;
 }
 
 export function parseMealDraft(

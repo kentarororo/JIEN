@@ -17,6 +17,82 @@ export type RecoverableWorkoutDraft = {
   }>;
 };
 
+export type WorkoutEntrySet = { load: string; reps: string; rpe: string };
+
+export type WorkoutDraftSummary = {
+  completedSetCount: number;
+  needsAttentionCount: number;
+  blankSetCount: number;
+  work: number;
+};
+
+export function latestValidWorkoutLoad(sets: WorkoutEntrySet[]): string | null {
+  for (let index = sets.length - 1; index >= 0; index -= 1) {
+    const load = sets[index]!.load.trim();
+    const numeric = Number(load);
+    if (load && Number.isFinite(numeric) && numeric >= 0) return load;
+  }
+  return null;
+}
+
+export function fillBlankWorkoutLoads<T extends WorkoutEntrySet>(sets: T[]): {
+  sets: T[];
+  copiedLoad: string | null;
+  filledCount: number;
+} {
+  const copiedLoad = sets.find((set) => {
+    const load = set.load.trim();
+    const numeric = Number(load);
+    return load.length > 0 && Number.isFinite(numeric) && numeric >= 0;
+  })?.load.trim() ?? null;
+  if (copiedLoad == null) return { sets, copiedLoad: null, filledCount: 0 };
+  let filledCount = 0;
+  let previousValidLoad: string | null = null;
+  const nextSets = sets.map((set) => {
+    const load = set.load.trim();
+    const numeric = Number(load);
+    if (load.length > 0) {
+      if (Number.isFinite(numeric) && numeric >= 0) previousValidLoad = load;
+      return set;
+    }
+    filledCount += 1;
+    return { ...set, load: previousValidLoad ?? copiedLoad };
+  });
+  return { copiedLoad, sets: nextSets, filledCount };
+}
+
+export function summarizeWorkoutDraft(blocks: Array<{ sets: WorkoutEntrySet[] }>): WorkoutDraftSummary {
+  const summary: WorkoutDraftSummary = { completedSetCount: 0, needsAttentionCount: 0, blankSetCount: 0, work: 0 };
+  for (const { sets } of blocks) {
+    for (const set of sets) {
+      const loadText = set.load.trim();
+      const repsText = set.reps.trim();
+      const rpeText = set.rpe.trim();
+      if (!loadText && !repsText && !rpeText) {
+        summary.blankSetCount += 1;
+        continue;
+      }
+      const load = Number(loadText);
+      const reps = Number(repsText);
+      const rpe = rpeText ? Number(rpeText) : null;
+      const valid = loadText.length > 0
+        && repsText.length > 0
+        && Number.isFinite(load)
+        && load >= 0
+        && Number.isInteger(reps)
+        && reps > 0
+        && (rpe == null || (Number.isFinite(rpe) && rpe >= 1 && rpe <= 10));
+      if (!valid) {
+        summary.needsAttentionCount += 1;
+        continue;
+      }
+      summary.completedSetCount += 1;
+      summary.work += load * reps;
+    }
+  }
+  return summary;
+}
+
 export function workoutDraftStorageKey(ownerUserId: string, context = 'default'): string {
   return `jien:workout-draft:v${DRAFT_VERSION}:${ownerUserId.toLowerCase()}:${encodeURIComponent(context)}`;
 }

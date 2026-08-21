@@ -6,6 +6,7 @@ import {
   mealDraftHasContent,
   mealDraftStorageKey,
   parseMealDraft,
+  summarizeMealDraft,
   type MealDraftSnapshot,
 } from './meal-draft.ts';
 
@@ -61,4 +62,27 @@ test('draft persistence contains no raw photo payload and ignores untouched defa
   assert.equal(serialized.includes('mediaType'), false);
   assert.equal(mealDraftHasContent({ name: 'Meal', type: 'dinner', foods: [{ ...draft().foods[0]!, name: '', calories: '', protein: '', carbs: '', fat: '', fibre: '' }], photoAnalyses: [] }, 'dinner'), false);
   assert.equal(mealDraftHasContent(draft(), 'dinner'), true);
+});
+
+test('live meal summary matches the durable save boundary and ignores untouched rows', () => {
+  const base = draft().foods[0]!;
+  const summary = summarizeMealDraft([
+    base,
+    { ...base, key: 'food-2', name: 'Rice', quantity: '2', calories: '260', protein: '5', carbs: '56', fat: '1', fibre: '' },
+    { ...base, key: 'partial', name: 'Sauce', calories: '', protein: '0', carbs: '0', fat: '0', fibre: '' },
+    { ...base, key: 'negative', name: 'Invalid', quantity: '-1' },
+    { ...base, key: 'blank', name: '', calories: '', protein: '', carbs: '', fat: '', fibre: '' },
+  ]);
+  assert.deepEqual(summary, {
+    completedFoodCount: 2,
+    needsAttentionCount: 2,
+    blankFoodCount: 1,
+    totals: {
+      caloriesKcal: 910,
+      proteinG: 47,
+      carbohydrateG: 134,
+      fatG: 19,
+      fibreG: 4,
+    },
+  });
 });

@@ -34,7 +34,10 @@ import { hasStoredJointConsideration } from '@/lib/planning/workout-plan';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
 import {
+  fillBlankWorkoutLoads,
+  latestValidWorkoutLoad,
   parseWorkoutDraft,
+  summarizeWorkoutDraft,
   workoutDraftContext,
   workoutDraftStorageKey,
 } from '@/lib/workout-draft';
@@ -121,6 +124,7 @@ export default function NewWorkoutScreen() {
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
 
   const draftContext = useMemo(() => workoutDraftContext({ date, templateWorkoutId, planWorkoutId, editWorkoutId }), [date, editWorkoutId, planWorkoutId, templateWorkoutId]);
+  const draftSummary = useMemo(() => summarizeWorkoutDraft(blocks), [blocks]);
 
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web') return;
@@ -203,6 +207,23 @@ export default function NewWorkoutScreen() {
       ...block,
       sets: block.sets.map((set) => set.key === setKey ? { ...set, [field]: value } : set),
     } : block));
+  };
+
+  const addSet = (blockKey: string) => {
+    setFormError(null);
+    setBlocks((current) => current.map((block) => block.key === blockKey ? {
+      ...block,
+      sets: [...block.sets, newSet(latestValidWorkoutLoad(block.sets) ?? '')],
+    } : block));
+  };
+
+  const fillBlankLoads = (blockKey: string) => {
+    setFormError(null);
+    setBlocks((current) => current.map((block) => {
+      if (block.key !== blockKey) return block;
+      const filled = fillBlankWorkoutLoads(block.sets);
+      return filled.filledCount ? { ...block, sets: filled.sets } : block;
+    }));
   };
 
   const applySetCue = (blockKey: string, cue: SetProgressionCue) => {
@@ -380,6 +401,8 @@ export default function NewWorkoutScreen() {
         const results = query || browserOpen
           ? catalog?.filter((exercise) => !query || `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.secondaryMuscleGroups.join(' ')} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(query)) ?? []
           : [];
+        const loadFill = fillBlankWorkoutLoads(block.sets);
+        const latestLoad = latestValidWorkoutLoad(block.sets);
         return (
           <Card key={block.key} style={styles.exerciseCard}>
             <View style={styles.blockHeader}>
@@ -469,7 +492,13 @@ export default function NewWorkoutScreen() {
                 ))}
               </View>
             )}
-            <View style={styles.setActions}><Button label="Add set" onPress={() => setBlocks((current) => current.map((item) => item.key === block.key ? { ...item, sets: [...item.sets, newSet()] } : item))} variant="secondary" /></View>
+            <View style={styles.setActions}>
+              <Button label="Add set" onPress={() => addSet(block.key)} variant="secondary" />
+              {loadFill.filledCount > 0 ? <Button label={`Fill ${loadFill.filledCount} blank load${loadFill.filledCount === 1 ? '' : 's'}`} onPress={() => fillBlankLoads(block.key)} variant="quiet" /> : null}
+              <AppText style={[styles.setActionNote, { color: colors.textMuted }]}>{latestLoad
+                ? `A new set reuses ${latestLoad} ${unit}; reps and RPE stay blank.`
+                : 'Enter one load to unlock quick fill. Existing loads are never overwritten.'}</AppText>
+            </View>
           </Card>
         );
       })}
@@ -498,7 +527,23 @@ export default function NewWorkoutScreen() {
         ) : null}
       </Card>
 
-      <SectionHeading title="Finish" detail={editWorkoutId ? 'Removed sets are removed from progression totals; new sets are added to this same session.' : planWorkoutId ? 'Completing this session replaces the calendar plan with the work you actually did.' : 'Blank rows are ignored. Your completed sets save to this device first.'} />
+      <SectionHeading title="Finish" detail={editWorkoutId ? 'Removed sets are removed from progression totals; new sets are added to this same session.' : planWorkoutId ? 'Completing this session replaces the calendar plan with the work you actually did.' : 'Review exactly what will be saved to this device first.'} />
+      <Card style={{ backgroundColor: draftSummary.needsAttentionCount ? colors.warningSoft : colors.surfaceMuted, borderColor: draftSummary.needsAttentionCount ? colors.warning : colors.border }}>
+        <View style={styles.draftSummaryHeader}>
+          <View style={styles.flex}>
+            <AppText style={styles.suggestionTitle}>{draftSummary.needsAttentionCount
+              ? `${draftSummary.needsAttentionCount} set row${draftSummary.needsAttentionCount === 1 ? '' : 's'} need attention`
+              : draftSummary.completedSetCount ? 'Ready when you are' : 'Complete your first set'}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{draftSummary.needsAttentionCount
+              ? 'Every started row needs a valid load and whole-number reps. RPE is optional from 1–10.'
+              : `${draftSummary.blankSetCount} blank row${draftSummary.blankSetCount === 1 ? '' : 's'} will be ignored.`}</AppText>
+          </View>
+        </View>
+        <View style={styles.draftSummaryMetrics}>
+          <View style={styles.draftSummaryMetric}><AppText style={styles.draftSummaryValue}>{draftSummary.completedSetCount}</AppText><AppText style={{ color: colors.textMuted }}>sets ready</AppText></View>
+          <View style={styles.draftSummaryMetric}><AppText style={styles.draftSummaryValue}>{formatDraftWork(draftSummary.work)}</AppText><AppText style={{ color: colors.textMuted }}>{unit}·reps work</AppText></View>
+        </View>
+      </Card>
       <Button label={editWorkoutId ? 'Save workout changes' : planWorkoutId ? 'Complete planned workout' : 'Save completed workout'} onPress={() => void submit()} busy={saving} />
     </Screen>
   );
@@ -551,7 +596,12 @@ const styles = StyleSheet.create({
   setCueCopy: { flex: 1, ...typography.caption, fontWeight: '700' },
   removeColumn: { width: 44 },
   removeSet: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
-  setActions: { flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.md },
+  setActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md },
+  setActionNote: { ...typography.caption, flexGrow: 1, flexBasis: 220 },
+  draftSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  draftSummaryMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  draftSummaryMetric: { flexGrow: 1, flexBasis: 160 },
+  draftSummaryValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
   mobileSetList: { paddingHorizontal: spacing.md, gap: spacing.sm },
   mobileSetCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.sm, gap: spacing.sm },
   mobileSetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -563,6 +613,10 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.72 },
   disabled: { opacity: 0.35 },
 });
+
+function formatDraftWork(value: number): string {
+  return (Math.round(value * 10) / 10).toLocaleString();
+}
 
 function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
   const grouped = new Map<string, DraftExercise>();

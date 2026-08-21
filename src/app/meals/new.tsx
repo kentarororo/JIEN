@@ -50,6 +50,8 @@ import {
   mealDraftHasContent,
   mealDraftStorageKey,
   parseMealDraft,
+  isBlankMealDraftFood,
+  summarizeMealDraft,
   type MealDraftFood,
 } from '@/lib/meal-draft';
 import { buildRepeatMealDraft } from '@/lib/nutrition/meal-template';
@@ -125,6 +127,7 @@ export default function NewMealScreen() {
     () => mealDraftContext(date ?? todayKeyRef.current, photoJob, templateMealId),
     [date, photoJob, templateMealId],
   );
+  const draftSummary = useMemo(() => summarizeMealDraft(foods), [foods]);
 
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web') return;
@@ -650,6 +653,12 @@ export default function NewMealScreen() {
     setSaving(true);
     setFormError(null);
     try {
+      if (!draftSummary.completedFoodCount && !draftSummary.needsAttentionCount) {
+        throw new Error('Add at least one food before saving.');
+      }
+      if (draftSummary.needsAttentionCount) {
+        throw new Error('Enter a food name, positive portion, and valid non-negative calories and macros for every started row.');
+      }
       const completedFoods = foods.filter((food) => !isBlankFood(food));
       const items = completedFoods.map((food) => ({
         name: food.name,
@@ -955,7 +964,26 @@ export default function NewMealScreen() {
       ))}
       <Button label="Add a blank food" onPress={() => setFoods((current) => [...current, emptyFood()])} variant="secondary" />
       </View>
-      <SectionHeading title="Finish" detail="Saved locally, even without a connection" />
+      <SectionHeading title="Finish" detail="Review exactly what will be saved locally, even without a connection" />
+      <Card style={{ backgroundColor: draftSummary.needsAttentionCount ? colors.warningSoft : colors.surfaceMuted, borderColor: draftSummary.needsAttentionCount ? colors.warning : colors.border }}>
+        <View style={styles.draftSummaryHeader}>
+          <View style={styles.flex}>
+            <AppText style={styles.sectionTitle}>{draftSummary.needsAttentionCount
+              ? `${draftSummary.needsAttentionCount} food row${draftSummary.needsAttentionCount === 1 ? '' : 's'} need attention`
+              : draftSummary.completedFoodCount ? 'Meal ready to save' : 'Add your first food'}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{draftSummary.needsAttentionCount
+              ? 'Every started row needs a food name, a positive portion, and non-negative calories and macros.'
+              : `${draftSummary.blankFoodCount} untouched row${draftSummary.blankFoodCount === 1 ? '' : 's'} will be ignored.`}</AppText>
+          </View>
+        </View>
+        <View style={styles.mealSummaryGrid}>
+          <MealSummaryMetric label="foods ready" value={String(draftSummary.completedFoodCount)} />
+          <MealSummaryMetric label="kcal" value={formatFoodNumber(draftSummary.totals.caloriesKcal)} />
+          <MealSummaryMetric label="protein" value={`${formatFoodNumber(draftSummary.totals.proteinG)} g`} />
+          <MealSummaryMetric label="carbs" value={`${formatFoodNumber(draftSummary.totals.carbohydrateG)} g`} />
+          <MealSummaryMetric label="fat" value={`${formatFoodNumber(draftSummary.totals.fatG)} g`} />
+        </View>
+      </Card>
       <Button label="Save meal" onPress={() => void submit()} busy={saving} />
     </Screen>
   );
@@ -1063,8 +1091,11 @@ function readFileAsDataUrl(file: Blob): Promise<string> {
   });
 }
 
-function isBlankFood(food: DraftFood): boolean {
-  return !food.name.trim() && !food.calories.trim() && !food.protein.trim() && !food.carbs.trim() && !food.fat.trim();
+const isBlankFood = isBlankMealDraftFood;
+
+function MealSummaryMetric({ label, value }: { label: string; value: string }) {
+  const { colors } = useJienTheme();
+  return <View style={styles.mealSummaryMetric}><AppText style={styles.mealSummaryValue}>{value}</AppText><AppText style={{ color: colors.textMuted }}>{label}</AppText></View>;
 }
 
 function sourceName(source: FoodCatalogItem['source']): string {
@@ -1116,6 +1147,10 @@ const styles = StyleSheet.create({
   unitSection: { flex: 1, minWidth: 220, gap: spacing.xs },
   unitLabel: { ...typography.label, fontWeight: '700' },
   autoNote: { ...typography.caption },
+  draftSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  mealSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  mealSummaryMetric: { flexGrow: 1, flexBasis: 112 },
+  mealSummaryValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
   mealItemsSection: { gap: spacing.lg },
   gridField: { flexGrow: 1, flexBasis: 240, minWidth: 140 },
   macroField: { flexGrow: 1, flexBasis: 150, minWidth: 118 },
