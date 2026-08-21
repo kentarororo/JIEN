@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toLocalDateKey } from '@/lib/time';
+import { normalizeSleepInput } from '@/lib/wellness/sleep-record';
 import {
   aggregateWeeklyVolume,
   calculateOverloadChangePercent,
@@ -18,6 +19,8 @@ import type {
   BodyMeasurement,
   DeterministicPlanBrief,
   SaveBodyMeasurementInput,
+  SleepLog,
+  SleepLogInput,
   WellnessCheckIn,
   WellnessCheckInInput,
   WellnessHubSummary,
@@ -241,6 +244,234 @@ export async function saveWellnessCheckIn(
   });
 
   return { id, loggedAt: now, ...input, injuryFlags: cleanedFlags, notes };
+}
+
+type SleepLogRow = {
+  id: string;
+  logged_on: string;
+  logged_at: string;
+  source: SleepLog['source'];
+  sleep_duration_minutes: number | null;
+  sleep_quality_score: number | null;
+  notes: string | null;
+  created_at: string;
+};
+
+function mapSleepLog(row: SleepLogRow): SleepLog {
+  return {
+    id: row.id,
+    loggedOn: row.logged_on,
+    loggedAt: row.logged_at,
+    source: row.source,
+    sleepDurationMinutes: row.sleep_duration_minutes,
+    sleepQualityScore: row.sleep_quality_score,
+    notes: row.notes ?? '',
+  };
+}
+
+const sleepLogColumns = `id, logged_on, logged_at, source, sleep_duration_minutes,
+  sleep_quality_score, notes, created_at`;
+
+export async function getSleepLog(db: SQLiteDatabase, id: string): Promise<SleepLog | null> {
+  const row = await db.getFirstAsync<SleepLogRow>(
+    `SELECT ${sleepLogColumns}
+     FROM wellness_logs
+     WHERE id = ? AND kind = 'sleep' AND deleted_at IS NULL`,
+    [id],
+  );
+  return row ? mapSleepLog(row) : null;
+}
+
+export async function listSleepLogs(db: SQLiteDatabase, limit = 60): Promise<SleepLog[]> {
+  const safeLimit = Math.max(1, Math.min(365, Math.floor(limit)));
+  const rows = await db.getAllAsync<SleepLogRow>(
+    `SELECT ${sleepLogColumns}
+     FROM wellness_logs
+     WHERE kind = 'sleep' AND deleted_at IS NULL
+     ORDER BY logged_at DESC
+     LIMIT ?`,
+    [safeLimit],
+  );
+  return rows.map(mapSleepLog);
+}
+
+export async function listSleepLogsForDate(db: SQLiteDatabase, date: string): Promise<SleepLog[]> {
+  const rows = await db.getAllAsync<SleepLogRow>(
+    `SELECT ${sleepLogColumns}
+     FROM wellness_logs
+     WHERE kind = 'sleep' AND logged_on = ? AND deleted_at IS NULL
+     ORDER BY logged_at DESC`,
+    [date],
+  );
+  return rows.map(mapSleepLog);
+}
+
+export async function saveSleepLog(
+  db: SQLiteDatabase,
+  input: SleepLogInput,
+  loggedAt = new Date().toISOString(),
+): Promise<SleepLog> {
+  const normalized = normalizeSleepInput(input);
+  const id = Crypto.randomUUID();
+  const loggedOn = toLocalDateKey(new Date(loggedAt));
+  const payload = buildSleepLogPayload({
+    id,
+    loggedOn,
+    loggedAt,
+    source: 'manual',
+    createdAt: loggedAt,
+    updatedAt: loggedAt,
+    input: normalized,
+    deletedAt: null,
+  });
+
+  await withExclusiveTransaction(db, async (db) => {
+    await db.runAsync(
+      `INSERT INTO wellness_logs (
+        id, kind, logged_on, logged_at, source, sleep_duration_minutes,
+        sleep_quality_score, injury_flags, notes, metadata, created_at,
+        updated_at, client_updated_at
+      ) VALUES (?, 'sleep', ?, ?, 'manual', ?, ?, '[]', ?, '{}', ?, ?, ?)`,
+      [
+        id,
+        loggedOn,
+        loggedAt,
+        normalized.sleepDurationMinutes,
+        normalized.sleepQualityScore,
+        normalized.notes || null,
+        loggedAt,
+        loggedAt,
+        loggedAt,
+      ],
+    );
+    await enqueueUpsert(db, 'wellness_logs', id, payload);
+  });
+
+  return { id, loggedOn, loggedAt, source: 'manual', ...normalized };
+}
+
+export async function updateSleepLog(
+  db: SQLiteDatabase,
+  id: string,
+  input: SleepLogInput,
+): Promise<SleepLog> {
+  const normalized = normalizeSleepInput(input);
+  const updatedAt = new Date().toISOString();
+  let updated: SleepLog | null = null;
+
+  await withExclusiveTransaction(db, async (db) => {
+    const existing = await db.getFirstAsync<SleepLogRow>(
+      `SELECT ${sleepLogColumns}
+       FROM wellness_logs
+       WHERE id = ? AND kind = 'sleep' AND deleted_at IS NULL`,
+      [id],
+    );
+    if (!existing) throw new Error('This sleep entry is no longer available.');
+    if (existing.source !== 'manual') throw new Error('Imported sleep entries are read-only. Edit them in the connected health source.');
+
+    await db.runAsync(
+      `UPDATE wellness_logs
+       SET sleep_duration_minutes = ?, sleep_quality_score = ?, notes = ?,
+         updated_at = ?, client_updated_at = ?
+       WHERE id = ? AND kind = 'sleep' AND deleted_at IS NULL`,
+      [
+        normalized.sleepDurationMinutes,
+        normalized.sleepQualityScore,
+        normalized.notes || null,
+        updatedAt,
+        updatedAt,
+        id,
+      ],
+    );
+    await enqueueUpsert(db, 'wellness_logs', id, buildSleepLogPayload({
+      id,
+      loggedOn: existing.logged_on,
+      loggedAt: existing.logged_at,
+      source: existing.source,
+      createdAt: existing.created_at,
+      updatedAt,
+      input: normalized,
+      deletedAt: null,
+    }));
+    updated = {
+      id,
+      loggedOn: existing.logged_on,
+      loggedAt: existing.logged_at,
+      source: existing.source,
+      ...normalized,
+    };
+  });
+
+  if (!updated) throw new Error('The sleep entry could not be updated.');
+  return updated;
+}
+
+export async function deleteSleepLog(db: SQLiteDatabase, id: string): Promise<void> {
+  const deletedAt = new Date().toISOString();
+  await withExclusiveTransaction(db, async (db) => {
+    const existing = await db.getFirstAsync<SleepLogRow>(
+      `SELECT ${sleepLogColumns}
+       FROM wellness_logs
+       WHERE id = ? AND kind = 'sleep' AND deleted_at IS NULL`,
+      [id],
+    );
+    if (!existing) return;
+    if (existing.source !== 'manual') throw new Error('Imported sleep entries are read-only. Remove them from the connected health source.');
+
+    await db.runAsync(
+      `UPDATE wellness_logs
+       SET deleted_at = ?, updated_at = ?, client_updated_at = ?
+       WHERE id = ? AND kind = 'sleep' AND deleted_at IS NULL`,
+      [deletedAt, deletedAt, deletedAt, id],
+    );
+    await enqueueUpsert(db, 'wellness_logs', id, buildSleepLogPayload({
+      id,
+      loggedOn: existing.logged_on,
+      loggedAt: existing.logged_at,
+      source: existing.source,
+      createdAt: existing.created_at,
+      updatedAt: deletedAt,
+      input: {
+        sleepDurationMinutes: existing.sleep_duration_minutes,
+        sleepQualityScore: existing.sleep_quality_score,
+        notes: existing.notes ?? '',
+      },
+      deletedAt,
+    }));
+  });
+}
+
+function buildSleepLogPayload(input: {
+  id: string;
+  loggedOn: string;
+  loggedAt: string;
+  source: SleepLog['source'];
+  createdAt: string;
+  updatedAt: string;
+  input: SleepLogInput;
+  deletedAt: string | null;
+}): Record<string, unknown> {
+  return {
+    id: input.id,
+    kind: 'sleep',
+    logged_on: input.loggedOn,
+    logged_at: input.loggedAt,
+    source: input.source,
+    mood_score: null,
+    energy_score: null,
+    stress_score: null,
+    soreness_score: null,
+    motivation_score: null,
+    sleep_duration_minutes: input.input.sleepDurationMinutes,
+    sleep_quality_score: input.input.sleepQualityScore,
+    body_weight_kg: null,
+    injury_flags: [],
+    notes: input.input.notes || null,
+    metadata: {},
+    created_at: input.createdAt,
+    client_updated_at: input.updatedAt,
+    deleted_at: input.deletedAt,
+  };
 }
 
 export async function acknowledgeMedicalDisclaimer(db: SQLiteDatabase): Promise<string> {

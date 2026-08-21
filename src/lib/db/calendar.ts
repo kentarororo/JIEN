@@ -12,6 +12,8 @@ const emptyDay = (date: string): CalendarDayActivity => ({
   caloriesKcal: 0,
   proteinG: 0,
   bodyMeasurementCount: 0,
+  sleepLogCount: 0,
+  sleepDurationMinutes: 0,
 });
 
 export async function listCalendarActivity(
@@ -19,7 +21,7 @@ export async function listCalendarActivity(
   startDate: string,
   endDate: string,
 ): Promise<CalendarDayActivity[]> {
-  const [workouts, bodyMeasurements, meals] = await Promise.all([
+  const [workouts, bodyMeasurements, sleepLogs, meals] = await Promise.all([
     db.getAllAsync<{
       date: string;
       workout_count: number;
@@ -47,6 +49,14 @@ export async function listCalendarActivity(
       `SELECT logged_on AS date, COUNT(*) AS measurement_count
        FROM wellness_logs
        WHERE kind = 'body_measurement' AND logged_on BETWEEN ? AND ? AND deleted_at IS NULL
+       GROUP BY logged_on`,
+      [startDate, endDate],
+    ),
+    db.getAllAsync<{ date: string; sleep_count: number; sleep_minutes: number | null }>(
+      `SELECT logged_on AS date, COUNT(*) AS sleep_count,
+        COALESCE(SUM(sleep_duration_minutes), 0) AS sleep_minutes
+       FROM wellness_logs
+       WHERE kind = 'sleep' AND logged_on BETWEEN ? AND ? AND deleted_at IS NULL
        GROUP BY logged_on`,
       [startDate, endDate],
     ),
@@ -90,6 +100,14 @@ export async function listCalendarActivity(
   for (const row of bodyMeasurements) {
     const current = byDate.get(row.date) ?? emptyDay(row.date);
     byDate.set(row.date, { ...current, bodyMeasurementCount: row.measurement_count });
+  }
+  for (const row of sleepLogs) {
+    const current = byDate.get(row.date) ?? emptyDay(row.date);
+    byDate.set(row.date, {
+      ...current,
+      sleepLogCount: row.sleep_count,
+      sleepDurationMinutes: row.sleep_minutes ?? 0,
+    });
   }
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }

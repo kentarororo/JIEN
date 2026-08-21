@@ -6,9 +6,10 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, moveMonthSelection } from '@/lib/calendar';
-import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listWorkoutsForDate } from '@/lib/db';
+import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate } from '@/lib/db';
 import { muscleGroupLabel } from '@/lib/progression';
 import { formatShortDate, formatTime, toLocalDateKey } from '@/lib/time';
+import { formatSleepDuration } from '@/lib/wellness/sleep-record';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function TodayScreen() {
@@ -22,15 +23,16 @@ export default function TodayScreen() {
   const loader = useCallback(async () => {
     const rangeStart = cells[0]?.dateKey ?? todayKey;
     const rangeEnd = cells.at(-1)?.dateKey ?? todayKey;
-    const [summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements] = await Promise.all([
+    const [summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements, selectedSleepLogs] = await Promise.all([
       getDashboardSummary(db),
       listCalendarActivity(db, rangeStart, rangeEnd),
       listWorkoutsForDate(db, selectedDate),
       listPlannedWorkoutsForDate(db, selectedDate),
       listMealsForDate(db, selectedDate),
       listBodyMeasurementsForDate(db, selectedDate),
+      listSleepLogsForDate(db, selectedDate),
     ]);
-    return { summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements, selectedDate };
+    return { summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements, selectedSleepLogs, selectedDate };
   }, [cells, db, selectedDate, todayKey]);
   const { data, error, loading, reload } = useScreenData(loader);
 
@@ -46,6 +48,7 @@ export default function TodayScreen() {
   const selectedPlans = data.selectedDate === selectedDate ? data.selectedPlans : [];
   const selectedMeals = data.selectedDate === selectedDate ? data.selectedMeals : [];
   const selectedBodyMeasurements = data.selectedDate === selectedDate ? data.selectedBodyMeasurements : [];
+  const selectedSleepLogs = data.selectedDate === selectedDate ? data.selectedSleepLogs : [];
   const selectedInFuture = selectedDate > todayKey;
   const selectedInPast = selectedDate < todayKey;
   const changeMonth = (delta: number) => {
@@ -81,7 +84,7 @@ export default function TodayScreen() {
               <Pressable
                 key={cell.dateKey}
                 accessibilityRole="button"
-                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals, ${day.bodyMeasurementCount} body measurements` : ''}`}
+                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals, ${day.bodyMeasurementCount} body measurements, ${day.sleepLogCount} sleep logs` : ''}`}
                 onPress={() => setSelectedDate(cell.dateKey)}
                 style={({ pressed }) => [
                   styles.dayCell,
@@ -96,6 +99,7 @@ export default function TodayScreen() {
                   {day?.plannedWorkoutCount ? <View accessibilityLabel="Workout planned" style={[styles.dot, { backgroundColor: colors.accent }]} /> : null}
                   {day?.mealCount ? <View accessibilityLabel="Food logged" style={[styles.dot, { backgroundColor: colors.wood }]} /> : null}
                   {day?.bodyMeasurementCount ? <View accessibilityLabel="Body measurement logged" style={[styles.dot, { backgroundColor: colors.warning }]} /> : null}
+                  {day?.sleepLogCount ? <View accessibilityLabel="Sleep logged" style={[styles.dot, { backgroundColor: colors.textMuted }]} /> : null}
                 </View>
               </Pressable>
             );
@@ -108,7 +112,7 @@ export default function TodayScreen() {
               <AppText style={{ color: colors.textMuted }}>{selectedInFuture
                 ? `${selectedPlans.length} planned workout${selectedPlans.length === 1 ? '' : 's'} · completed logs stay on today or earlier.`
                 : selectedActivity
-                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${Math.round(selectedActivity.caloriesKcal)} kcal`
+                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${selectedActivity.sleepLogCount} sleep logs · ${Math.round(selectedActivity.caloriesKcal)} kcal`
                   : 'No activity logged'}</AppText>
             </View>
             <View style={styles.selectedDayActions}>
@@ -116,6 +120,7 @@ export default function TodayScreen() {
               <Button label={selectedPlans.length ? 'Plan another' : 'Plan workout'} onPress={() => router.push({ pathname: '/workouts/plan', params: { date: selectedDate } } as never)} disabled={selectedInPast} variant="quiet" />
               <Button label={selectedActivity?.mealCount ? 'Log another meal' : 'Log meal'} onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="quiet" />
               <Button label={selectedBodyMeasurements.length ? 'Log body again' : 'Log body'} onPress={() => router.push({ pathname: '/wellness/body', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
+              <Button label={selectedSleepLogs.length ? 'Log sleep again' : 'Log sleep'} onPress={() => router.push({ pathname: '/wellness/sleep', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
             </View>
           </View>
           {selectedPlans.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Planned workouts</AppText>{selectedPlans.map((workout) => (
@@ -147,6 +152,14 @@ export default function TodayScreen() {
               <View style={styles.flex}><AppText style={styles.value}>{measurement.bodyWeightKg.toFixed(1)} kg</AppText><AppText style={{ color: colors.textMuted }}>{measurement.heightCm} cm height</AppText></View>
               {measurement.bodyFatPercent != null ? <AppText style={{ color: colors.textMuted }}>{measurement.bodyFatPercent}% {measurement.bodyFatIsEstimated ? 'estimated' : 'measured'}</AppText> : null}
             </View>
+          ))}</View> : null}
+          {selectedSleepLogs.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Sleep</AppText>{selectedSleepLogs.map((sleep) => (
+            <Link key={sleep.id} href={{ pathname: '/wellness/sleep', params: { id: sleep.id, date: sleep.loggedOn } } as never} asChild>
+              <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border }, pressed && styles.pressed]}>
+                <View style={styles.flex}><AppText style={styles.value}>{formatSleepDuration(sleep.sleepDurationMinutes)}</AppText><AppText style={{ color: colors.textMuted }}>{sleep.sleepQualityScore == null ? 'Quality not rated' : `Quality ${sleep.sleepQualityScore}/5`}</AppText></View>
+                <View style={styles.recordEnd}><AppText style={{ color: colors.textMuted }}>{formatTime(sleep.loggedAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
+              </Pressable>
+            </Link>
           ))}</View> : null}
         </View>
       </Card>

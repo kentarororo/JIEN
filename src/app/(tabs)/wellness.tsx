@@ -187,6 +187,7 @@ export default function WellnessScreen() {
           <Field label="Active joint or injury note" value={injuryNote} onChangeText={setInjuryNote} placeholder="Optional — what feels active today?" />
           <Field label="Anything else" value={checkInNote} onChangeText={setCheckInNote} placeholder="Stress, motivation, recovery, context…" multiline style={styles.multiline} />
           <Button label="Save check-in" onPress={() => void submitCheckIn()} busy={busy === 'check-in'} />
+          <Button label="Open sleep history" onPress={() => router.push('/wellness/sleep' as never)} variant="secondary" />
           {summary.latestCheckIn ? <AppText style={{ color: colors.textMuted }}>Last check-in {formatRelative(summary.latestCheckIn.loggedAt)}.</AppText> : null}
         </Card>
 

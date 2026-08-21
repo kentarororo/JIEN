@@ -3,6 +3,7 @@ export type SetKind = 'working' | 'warmup' | 'drop' | 'failure';
 export type WorkoutStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 export type MealSource = 'manual' | 'ai_photo' | 'imported';
+export type WellnessSource = 'manual' | 'healthkit' | 'health_connect';
 export type NotificationType = 'meal_gap' | 'workout_plan' | 'sync_issue';
 export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
 export type FitnessGoal = 'composition' | 'strength' | 'both' | 'general_wellness';
@@ -49,6 +50,19 @@ export type WellnessCheckInInput = {
 export type WellnessCheckIn = WellnessCheckInInput & {
   id: string;
   loggedAt: string;
+};
+
+export type SleepLogInput = {
+  sleepDurationMinutes: number | null;
+  sleepQualityScore: number | null;
+  notes: string;
+};
+
+export type SleepLog = SleepLogInput & {
+  id: string;
+  loggedOn: string;
+  loggedAt: string;
+  source: WellnessSource;
 };
 
 export type AiMessageRole = 'user' | 'assistant';
@@ -335,6 +349,8 @@ export type CalendarDayActivity = {
   caloriesKcal: number;
   proteinG: number;
   bodyMeasurementCount: number;
+  sleepLogCount: number;
+  sleepDurationMinutes: number;
 };
 
 export type NotificationPreference = {

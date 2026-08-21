@@ -36,13 +36,19 @@ export { migrateDatabase } from './migrate';
 export { getUserProfile, hasCompletedOnboarding, saveUserProfile } from './profile';
 export {
   acknowledgeMedicalDisclaimer,
+  deleteSleepLog,
   getLatestBodyMeasurement,
   getLatestWellnessCheckIn,
+  getSleepLog,
   getWellnessHubSummary,
   listBodyMeasurements,
   listBodyMeasurementsForDate,
+  listSleepLogs,
+  listSleepLogsForDate,
   saveBodyMeasurement,
+  saveSleepLog,
   saveWellnessCheckIn,
+  updateSleepLog,
 } from './wellness';
 export { retryWellnessMessage, sendWellnessMessage } from './wellness-chat';
 export {

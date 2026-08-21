@@ -272,6 +272,14 @@ The SQLite mirror includes the same wellness columns. Onboarding writes a
 `body_measurement` row with canonical kilograms and centimetres; body-fat provenance
 is retained so an estimate is never presented as a measured value.
 
+Manual sleep history uses `kind = sleep`, the local wake-up day in `logged_on`, and
+the existing `sleep_duration_minutes`, `sleep_quality_score`, and `notes` columns.
+Create, edit, and removal are local-first; edits retain the UUID and removals sync as
+tombstones. HealthKit and Health Connect imports may later use the same rows with
+their explicit source value, without changing or pretending to enrich manual data.
+Imported entries are review-only inside JIEN; corrections belong in the connected
+health source so provenance remains accurate.
+
 ### `ai_conversations`
 
 AI thread metadata only: purpose, title, status, and last-message timestamp. It does

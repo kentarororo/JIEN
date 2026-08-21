@@ -12,6 +12,7 @@ and restored from a Supabase backend with row-level security.
 - deterministic session-over-session overload and weekly volume summaries (no 1RM flows)
 - searchable offline food starters, editable database/barcode results, and camera/library meal-photo analysis
 - meal, food-item, macro-total, and versioned nutrition-target logging
+- offline-first sleep duration/quality history with calendar review and editing
 - native share / web download for workout CSV, nutrition CSV, and complete JSON
 - opt-in planned-workout, history-aware meal-gap, and persistent sync-attention notifications with
   quiet hours, stale cancellation, and safe deep links

@@ -28,6 +28,12 @@ this technical document.
    success envelope. The client verifies the reserved conversation ID, assistant ID,
    sequence, timestamp, content, and model before caching it locally.
 
+Dedicated manual sleep entries use the same private wellness timeline and are
+available to the bounded recent-context query after sync. The app reports entered
+duration and quality descriptively; neither the deterministic progression engine nor
+adaptive nutrition changes a number from one sleep entry. Provider guidance must not
+invent sleep stages, diagnoses, or unrecorded nights.
+
 ## Retry and diagnostics
 
 The reserved assistant UUID is the idempotency key. A retry presents the same UUID;
