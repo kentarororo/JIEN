@@ -65,3 +65,10 @@ Google responses are classified separately: 401/403 means the key/project did no
 permit generation, 404 means the selected model is unavailable, 429 means project
 quota is exhausted, and 400 means JIEN's request contract needs updating. The app
 must not describe all of these as a rejected key.
+
+`scripts/deploy-ai-slice.ps1` resolves the installed Supabase CLI directly and uses
+server-side function bundling, so Docker is not required. Before `db push`, it checks
+that every local migration version has a matching remote version. If another release
+records a version concurrently, it rechecks the complete history and continues only
+when every local migration is confirmed remotely; genuine migration failures still
+stop the deployment.
