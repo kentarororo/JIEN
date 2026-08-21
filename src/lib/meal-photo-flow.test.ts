@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import './meal-draft.test.ts';
+
 import {
   applyPhotoAnalysisDrafts,
   initialMealPhotoFlowState,

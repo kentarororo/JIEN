@@ -148,3 +148,14 @@ Transient failures use bounded one-to-sixteen-minute exponential delays and stop
 after five attempts. Authentication, consent, and provider-configuration failures
 remain visible as action-required rather than retrying in a loop. Processing rows
 older than five minutes are safely reclaimed after an interrupted app session.
+
+## In-progress core-loop recovery
+
+On authenticated web builds, workout and meal forms keep a small, account-scoped
+recovery draft so a mobile-browser refresh does not discard an unfinished log. Meal
+drafts include editable portions, macros, and AI provenance, but never raw photo
+bytes, auth material, or search state. A queued photo continues to use the separate
+IndexedDB payload store described above. Recovery keys include the signed-in user
+UUID and logging context, and are removed only after the corresponding SQLite write
+commits successfully. Reminder reconciliation is best-effort after that commit so a
+notification failure cannot invite a duplicate meal retry.

@@ -5,10 +5,11 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { createElement, useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
+import { getAccountState } from '@/lib/auth';
 import {
   analyzeMealPhoto,
   cacheFoodCatalogItems,
@@ -34,7 +35,7 @@ import {
   type ServingMacros,
 } from '@/lib/nutrition/serving';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
-import { formatShortDate, localTimestampForDate } from '@/lib/time';
+import { formatShortDate, localTimestampForDate, toLocalDateKey } from '@/lib/time';
 import { MAX_WEB_MEAL_PHOTO_BASE64_LENGTH, resolveMealPhotoPickerResult } from '@/lib/media/image-picker';
 import {
   applyPhotoAnalysisDrafts,
@@ -43,25 +44,15 @@ import {
   serializeMealPhotoProvenance,
   type PendingMealPhoto,
 } from '@/lib/meal-photo-flow';
+import {
+  mealDraftContext,
+  mealDraftHasContent,
+  mealDraftStorageKey,
+  parseMealDraft,
+  type MealDraftFood,
+} from '@/lib/meal-draft';
 
-type DraftFood = {
-  key: string;
-  catalogId: string | null;
-  name: string;
-  quantity: string;
-  unit: string;
-  calories: string;
-  protein: string;
-  carbs: string;
-  fat: string;
-  fibre: string;
-  source: 'manual' | 'ai_photo' | 'imported';
-  sourceLabel: string | null;
-  confidence: number | null;
-  referenceQuantity: number;
-  referenceUnit: string;
-  referenceMacros: ServingMacros;
-};
+type DraftFood = MealDraftFood;
 
 type CameraMode = 'barcode' | 'photo' | null;
 const emptyFood = (): DraftFood => ({
@@ -83,12 +74,16 @@ export default function NewMealScreen() {
   const mealItemsYRef = useRef(0);
   const photoAnalysisLockRef = useRef(false);
   const photoQueueLockRef = useRef(false);
+  const submitLockRef = useRef(false);
+  const draftClearedRef = useRef(false);
   const queuedPhotoRecoveryRef = useRef<string | null>(null);
   const barcodeLockRef = useRef(false);
   const pendingPickerResultRef = useRef<ReturnType<typeof ImagePicker.getPendingResultAsync> | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const now = new Date();
   const inferred: MealType = now.getHours() < 11 ? 'breakfast' : now.getHours() < 15 ? 'lunch' : now.getHours() < 19 ? 'dinner' : 'snack';
+  const initialMealTypeRef = useRef(inferred);
+  const todayKeyRef = useRef(toLocalDateKey(now));
   const [name, setName] = useState('Meal');
   const [type, setType] = useState<MealType>(inferred);
   const [foods, setFoods] = useState<DraftFood[]>([emptyFood()]);
@@ -111,11 +106,81 @@ export default function NewMealScreen() {
   const [toolMessage, setToolMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [draftOwnerUserId, setDraftOwnerUserId] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(process.env.EXPO_OS !== 'web');
+  const [draftRecovered, setDraftRecovered] = useState(false);
+  const [draftWarning, setDraftWarning] = useState<string | null>(null);
   const photoAccessStatus = photoFlow.failure?.status ?? photoFlow.capability?.status ?? null;
   const photoReference = photoFlow.failure?.requestId ?? photoFlow.capability?.requestId ?? null;
   const photoCanAnalyze = photoFlow.phase === 'failed'
     ? photoFlow.failure?.retryable === true
     : photoFlow.capability?.available === true;
+  const draftContext = useMemo(
+    () => mealDraftContext(date ?? todayKeyRef.current, photoJob),
+    [date, photoJob],
+  );
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web') return;
+    void getAccountState().then((account) => {
+      const ownerUserId = account.configured ? account.user?.id ?? null : null;
+      setDraftOwnerUserId(ownerUserId);
+      if (!ownerUserId) setDraftReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web' || !draftOwnerUserId || draftReady) return;
+    let recovered = null;
+    try {
+      recovered = parseMealDraft(
+        globalThis.localStorage?.getItem(mealDraftStorageKey(draftOwnerUserId, draftContext)) ?? '',
+        draftOwnerUserId,
+        draftContext,
+      );
+    } catch {
+      setDraftWarning('This browser blocked meal-draft recovery. You can still log and save normally.');
+    }
+    if (recovered) {
+      setName(recovered.name);
+      setType(recovered.type);
+      setFoods(recovered.foods);
+      setAppliedPhotoRequestIds(recovered.appliedPhotoRequestIds);
+      setPhotoAnalyses(recovered.photoAnalyses);
+      setDraftRecovered(true);
+    }
+    setDraftReady(true);
+  }, [draftContext, draftOwnerUserId, draftReady]);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web' || !draftReady || !draftOwnerUserId) return;
+    const storageKey = mealDraftStorageKey(draftOwnerUserId, draftContext);
+    const snapshot = {
+      version: 1 as const,
+      ownerUserId: draftOwnerUserId,
+      context: draftContext,
+      name,
+      type,
+      foods,
+      appliedPhotoRequestIds,
+      photoAnalyses,
+      updatedAt: new Date().toISOString(),
+    };
+    const timer = setTimeout(() => {
+      if (draftClearedRef.current) return;
+      try {
+        if (mealDraftHasContent(snapshot, initialMealTypeRef.current)) {
+          globalThis.localStorage?.setItem(storageKey, JSON.stringify(snapshot));
+        } else {
+          globalThis.localStorage?.removeItem(storageKey);
+        }
+        setDraftWarning(null);
+      } catch {
+        setDraftWarning('This browser could not store a recovery copy. Save this meal before leaving the page.');
+      }
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [appliedPhotoRequestIds, draftContext, draftOwnerUserId, draftReady, foods, name, photoAnalyses, type]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -136,13 +201,17 @@ export default function NewMealScreen() {
   }, [photoFlow.selection]));
 
   useEffect(() => {
-    if (!photoJob || queuedPhotoRecoveryRef.current === photoJob) return;
+    if (!draftReady || !photoJob || queuedPhotoRecoveryRef.current === photoJob) return;
     queuedPhotoRecoveryRef.current = photoJob;
     let active = true;
     void getQueuedMealPhotoResult(db, photoJob).then(async (result) => {
       if (!active) return;
       if (!result) {
         setToolMessage('That queued photo result is no longer available.');
+        return;
+      }
+      if (appliedPhotoRequestIds.includes(result.requestId)) {
+        await consumeQueuedMealPhotoResult(db, result.id);
         return;
       }
       const drafts = result.items.map(toDraftFood);
@@ -162,7 +231,7 @@ export default function NewMealScreen() {
       if (active) setToolMessage(cause instanceof Error ? cause.message : 'The queued photo result could not be opened.');
     });
     return () => { active = false; };
-  }, [db, photoJob]);
+  }, [appliedPhotoRequestIds, db, draftReady, photoJob]);
 
   const update = (key: string, field: 'name', value: string) => {
     setFormError(null);
@@ -544,6 +613,8 @@ export default function NewMealScreen() {
   };
 
   const submit = async () => {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setSaving(true);
     setFormError(null);
     try {
@@ -570,11 +641,22 @@ export default function NewMealScreen() {
         .map((food) => food.key);
       const aiContext = serializeMealPhotoProvenance(photoAnalyses, activeAiItemKeys);
       await saveMeal(db, { name, type, eatenAt, aiContext, items });
-      await reconcileMealGapNotification(db);
+      draftClearedRef.current = true;
+      if (process.env.EXPO_OS === 'web' && draftOwnerUserId) {
+        try {
+          globalThis.localStorage?.removeItem(mealDraftStorageKey(draftOwnerUserId, draftContext));
+        } catch {
+          // The durable meal is committed; browser recovery cleanup is best-effort.
+        }
+      }
+      void reconcileMealGapNotification(db).catch(() => {
+        // A reminder failure must never turn a committed meal into a retry that creates a duplicate.
+      });
       router.back();
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'Please check the meal and try again.');
     } finally {
+      submitLockRef.current = false;
       setSaving(false);
     }
   };
@@ -582,6 +664,8 @@ export default function NewMealScreen() {
   return (
     <Screen scrollViewRef={screenRef} contentContainerStyle={styles.screenContent}>
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
+      {draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Your unfinished meal was restored. It will stay here until you save it.</AppText></View> : null}
+      {draftWarning ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{draftWarning}</AppText></View> : null}
       <Field label="Meal name" value={name} onChangeText={setName} placeholder="Dinner" />
       <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>
 
@@ -631,6 +715,10 @@ export default function NewMealScreen() {
 
         {results.length ? (
           <View style={styles.results}>
+            <View style={styles.resultHeading}>
+              <AppText style={styles.resultHeadingTitle}>{query.trim() ? 'Matching foods' : 'Recent & common'}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{query.trim() ? 'Tap a result to add it.' : 'Recent and starter foods stay one tap away.'}</AppText>
+            </View>
             {results.map((item) => (
               <Pressable key={item.id} accessibilityRole="button" onPress={() => void addCatalogFood(item)} style={({ pressed }) => pressed && styles.pressed}>
                 <View style={[styles.resultRow, { borderColor: colors.border }]}>
@@ -962,6 +1050,8 @@ const styles = StyleSheet.create({
   webPhotoLabel: { fontWeight: '700' },
   barcodeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.sm },
   results: { gap: 0 },
+  resultHeading: { gap: spacing.xs, paddingTop: spacing.sm, paddingBottom: spacing.xs },
+  resultHeadingTitle: { ...typography.label, fontWeight: '800' },
   resultRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
   resultName: { fontWeight: '700' },
   resultCalories: { fontWeight: '800', textAlign: 'right' },

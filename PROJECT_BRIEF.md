@@ -101,7 +101,7 @@ a thin onboarding produces a generic app.
 ## Tech stack
 Expo (React Native + Router) · Supabase (Postgres/Auth/Storage/Edge Functions) ·
 Gemini/Anthropic via Edge Functions · RevenueCat · EAS Build · react-native-health /
-react-native-health-connect (phase 3+)
+react-native-health-connect (deferred until after the core product and launch path)
 
 ## Roadmap
 | Phase | Focus | Time |
@@ -109,8 +109,12 @@ react-native-health-connect (phase 3+)
 | 0 — Foundation | Repo, CLAUDE.md, design system, schema, auth | 1–2 weeks |
 | 1 — Core loop | Offline-first lift logging + volume progression, diet/macro logging, CSV export, notification scaffolding | 4–6 weeks |
 | 2 — AI layer | Wellness chat wired to live context, AI food photo ID, AI-generated plan explanations | 4–6 weeks |
-| 3 — Health + polish | HealthKit/Health Connect, sleep input, Google Sheets export, notification tuning, UI polish | 4–6 weeks |
+| 3 — Core polish | Training and food logging speed/recovery, calendar and history refinement, notification tuning, UI and device QA | 4–6 weeks |
 | 4 — Launch | TestFlight beta, App Store + Play Store submission, RevenueCat paywall, privacy policy | 2–3 weeks |
+
+HealthKit and Health Connect remain compatible with the wellness schema, but are
+deferred until the training and food loops are reliable, fast, and validated by
+real users. Manual sleep and body tracking remain available in the meantime.
 
 ## Monetization
 Free tier: manual lift + diet logging, basic history. Paid tier ($8–12/month or
@@ -128,4 +132,5 @@ public launch.
 - No 1RM / max-effort testing flows
 - No social feed or community layer
 - No wearable hardware partnership
+- No HealthKit or Health Connect dependency before the first validated launch
 - No broad Google `drive` scope — `drive.file` only
