@@ -1,4 +1,4 @@
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -12,7 +12,7 @@ import {
   processPendingMealPhotoJobs,
   retryQueuedMealPhotos,
 } from '@/lib/db';
-import { formatTime } from '@/lib/time';
+import { historicalDateKey, shiftLocalDateKey, toLocalDateKey, formatTime } from '@/lib/time';
 import { spacing, typography, useJienTheme } from '@/theme';
 
 function Macro({ label, value, target, color }: { label: string; value: number; target?: number; color?: string }) {
@@ -49,18 +49,24 @@ function MacroCalorieSplit({ protein, carbs, fat }: { protein: number; carbs: nu
 export default function FoodScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const { date } = useLocalSearchParams<{ date?: string }>();
   const { colors } = useJienTheme();
+  const todayKey = toLocalDateKey();
+  const selectedDate = historicalDateKey(date, todayKey);
   const loader = useCallback(async () => {
     const [nutrition, photoQueue] = await Promise.all([
-      getDailyNutrition(db),
+      getDailyNutrition(db, selectedDate),
       getMealPhotoQueueSummary(db),
     ]);
     return { nutrition, photoQueue };
-  }, [db]);
+  }, [db, selectedDate]);
   const { data, error, loading, reload } = useScreenData(loader);
   const [queueBusy, setQueueBusy] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
-  const nutrition = data?.nutrition;
+  const nutrition = data?.nutrition.date === selectedDate ? data.nutrition : null;
+  const openDate = (nextDate: string) => {
+    router.replace({ pathname: '/food', params: nextDate === todayKey ? {} : { date: nextDate } } as never);
+  };
 
   const retryQueuedPhotos = async () => {
     setQueueBusy(true);
@@ -96,9 +102,25 @@ export default function FoodScreen() {
 
   return (
     <Screen>
-      <ScreenHeading title="Food" eyebrow="Today" action={<Button label="Add" onPress={() => router.push('/meals/new')} />} />
-      {loading && !data ? <StatePanel title="Loading meals" body="Reading today’s local log." loading /> : null}
+      <ScreenHeading
+        title="Food"
+        eyebrow={selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}
+        action={<Button label="Add meal" onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} />}
+      />
+      <Card style={[styles.dateNavigator, { backgroundColor: colors.surfaceMuted }]}>
+        <View style={styles.dateNavigatorRow}>
+          <Button label="‹" accessibilityLabel="Previous day" onPress={() => openDate(shiftLocalDateKey(selectedDate, -1))} variant="quiet" />
+          <View style={styles.dateNavigatorLabel}>
+            <AppText style={styles.mealName}>{selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{selectedDate}</AppText>
+          </View>
+          <Button label="›" accessibilityLabel="Next day" onPress={() => openDate(shiftLocalDateKey(selectedDate, 1))} disabled={selectedDate >= todayKey} variant="quiet" />
+        </View>
+        {selectedDate !== todayKey ? <Button label="Back to today" onPress={() => openDate(todayKey)} variant="secondary" /> : null}
+      </Card>
+      {loading && !data ? <StatePanel title="Loading meals" body="Reading this day’s local log." loading /> : null}
       {error ? <StatePanel title="Meals are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
+      {loading && data && !nutrition ? <StatePanel title="Loading this day" body="Reading its meals and macro totals." loading /> : null}
       {data && nutrition ? (
         <>
           {data.photoQueue.readyCount > 0 && data.photoQueue.latestReadyId ? (
@@ -140,8 +162,8 @@ export default function FoodScreen() {
             <Button label={nutrition.target ? 'Edit macro targets' : 'Set macro targets'} onPress={() => router.push('/settings/macros')} variant="secondary" />
           </Card>
 
-          <SectionHeading title="Meals" detail={`${nutrition.meals.length} logged`} />
-          {nutrition.meals.length === 0 ? <StatePanel title="No meals logged" body="Add the food and portions you know. Exact is useful, but consistent estimates count too." actionLabel="Log a meal" onAction={() => router.push('/meals/new')} /> : null}
+          <SectionHeading title="Meals" detail={`${nutrition.meals.length} logged on ${selectedDate === todayKey ? 'today' : formatFoodDate(selectedDate)}`} />
+          {nutrition.meals.length === 0 ? <StatePanel title="No meals logged" body="Add the food and portions you know. Exact is useful, but consistent estimates count too." actionLabel="Log a meal" onAction={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} /> : null}
           <View style={styles.list}>
             {nutrition.meals.map((meal) => (
               <Pressable
@@ -165,6 +187,9 @@ export default function FoodScreen() {
 }
 
 const styles = StyleSheet.create({
+  dateNavigator: { gap: spacing.xs },
+  dateNavigatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  dateNavigatorLabel: { flex: 1, minWidth: 0, alignItems: 'center' },
   calorieLine: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
   kicker: { ...typography.caption, fontWeight: '700', letterSpacing: 0.7 },
   calories: { ...typography.display, fontWeight: '700' },
@@ -179,3 +204,8 @@ const styles = StyleSheet.create({
   mealName: { ...typography.bodyLarge, fontWeight: '700' },
   pressed: { opacity: 0.68 },
 });
+
+function formatFoodDate(dateKey: string): string {
+  return new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    .format(new Date(`${dateKey}T12:00:00`));
+}

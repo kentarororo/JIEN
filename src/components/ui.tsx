@@ -74,18 +74,21 @@ export function Button({
   variant = 'primary',
   disabled,
   busy,
+  accessibilityLabel,
 }: {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'quiet' | 'danger';
   disabled?: boolean;
   busy?: boolean;
+  accessibilityLabel?: string;
 }) {
   const { colors } = useJienTheme();
   const background = variant === 'primary' ? colors.accent : variant === 'danger' ? colors.dangerSoft : variant === 'secondary' ? colors.accentSoft : 'transparent';
   const foreground = variant === 'primary' ? colors.textOnAccent : variant === 'danger' ? colors.danger : colors.accent;
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ disabled: disabled || busy }}
       disabled={disabled || busy}

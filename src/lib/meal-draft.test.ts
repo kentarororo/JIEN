@@ -35,6 +35,7 @@ test('meal drafts are isolated by account and logging context', () => {
   assert.equal(parseMealDraft(serialized, 'user-a', 'date:2026-08-22'), null);
   assert.notEqual(mealDraftStorageKey('user-a', 'date:2026-08-21'), mealDraftStorageKey('user-b', 'date:2026-08-21'));
   assert.equal(mealDraftContext('2026-08-21', 'job/id'), 'photo:job/id');
+  assert.equal(mealDraftContext('2026-08-21', undefined, 'meal-1'), 'repeat:meal-1:date:2026-08-21');
 });
 
 test('meal draft recovery preserves editable rows and AI provenance', () => {

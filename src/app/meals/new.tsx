@@ -8,7 +8,7 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { createElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, Field, Pill, Screen, SectionHeading } from '@/components/ui';
+import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import { getAccountState } from '@/lib/auth';
 import {
   analyzeMealPhoto,
@@ -16,6 +16,7 @@ import {
   classifyMealPhotoAnalysisError,
   consumeQueuedMealPhotoResult,
   getMealPhotoAnalysisCapability,
+  getMealDetail,
   getQueuedMealPhotoResult,
   lookupFoodBarcode,
   markFoodCatalogItemUsed,
@@ -51,6 +52,7 @@ import {
   parseMealDraft,
   type MealDraftFood,
 } from '@/lib/meal-draft';
+import { buildRepeatMealDraft } from '@/lib/nutrition/meal-template';
 
 type DraftFood = MealDraftFood;
 
@@ -67,7 +69,7 @@ const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'
 export default function NewMealScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { date, photoJob } = useLocalSearchParams<{ date?: string; photoJob?: string }>();
+  const { date, photoJob, templateMealId } = useLocalSearchParams<{ date?: string; photoJob?: string; templateMealId?: string }>();
   const { colors } = useJienTheme();
   const cameraRef = useRef<CameraView>(null);
   const screenRef = useRef<ScrollView>(null);
@@ -77,6 +79,7 @@ export default function NewMealScreen() {
   const submitLockRef = useRef(false);
   const draftClearedRef = useRef(false);
   const queuedPhotoRecoveryRef = useRef<string | null>(null);
+  const templateMealLoadRef = useRef<string | null>(null);
   const barcodeLockRef = useRef(false);
   const pendingPickerResultRef = useRef<ReturnType<typeof ImagePicker.getPendingResultAsync> | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -110,14 +113,17 @@ export default function NewMealScreen() {
   const [draftReady, setDraftReady] = useState(process.env.EXPO_OS !== 'web');
   const [draftRecovered, setDraftRecovered] = useState(false);
   const [draftWarning, setDraftWarning] = useState<string | null>(null);
+  const [templateLoaded, setTemplateLoaded] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateLoading, setTemplateLoading] = useState(Boolean(templateMealId));
   const photoAccessStatus = photoFlow.failure?.status ?? photoFlow.capability?.status ?? null;
   const photoReference = photoFlow.failure?.requestId ?? photoFlow.capability?.requestId ?? null;
   const photoCanAnalyze = photoFlow.phase === 'failed'
     ? photoFlow.failure?.retryable === true
     : photoFlow.capability?.available === true;
   const draftContext = useMemo(
-    () => mealDraftContext(date ?? todayKeyRef.current, photoJob),
-    [date, photoJob],
+    () => mealDraftContext(date ?? todayKeyRef.current, photoJob, templateMealId),
+    [date, photoJob, templateMealId],
   );
 
   useEffect(() => {
@@ -148,9 +154,35 @@ export default function NewMealScreen() {
       setAppliedPhotoRequestIds(recovered.appliedPhotoRequestIds);
       setPhotoAnalyses(recovered.photoAnalyses);
       setDraftRecovered(true);
+      setTemplateLoading(false);
     }
     setDraftReady(true);
   }, [draftContext, draftOwnerUserId, draftReady]);
+
+  useEffect(() => {
+    if (!draftReady || draftRecovered || !templateMealId || templateMealLoadRef.current === templateMealId) return;
+    templateMealLoadRef.current = templateMealId;
+    let active = true;
+    void getMealDetail(db, templateMealId).then((detail) => {
+      if (!active) return;
+      if (!detail || detail.items.length === 0) {
+        setTemplateError('That saved meal is no longer available. You can still build this meal manually.');
+        return;
+      }
+      const repeated = buildRepeatMealDraft(detail, initialMealTypeRef.current, Crypto.randomUUID);
+      setName(repeated.name);
+      setType(repeated.type);
+      setFoods(repeated.foods);
+      setAppliedPhotoRequestIds([]);
+      setPhotoAnalyses([]);
+      setTemplateLoaded(true);
+    }).catch((cause) => {
+      if (active) setTemplateError(cause instanceof Error ? cause.message : 'The saved meal could not be copied.');
+    }).finally(() => {
+      if (active) setTemplateLoading(false);
+    });
+    return () => { active = false; };
+  }, [db, draftReady, draftRecovered, templateMealId]);
 
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web' || !draftReady || !draftOwnerUserId) return;
@@ -652,7 +684,8 @@ export default function NewMealScreen() {
       void reconcileMealGapNotification(db).catch(() => {
         // A reminder failure must never turn a committed meal into a retry that creates a duplicate.
       });
-      router.back();
+      if (templateMealId) router.replace('/food');
+      else router.back();
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'Please check the meal and try again.');
     } finally {
@@ -661,10 +694,16 @@ export default function NewMealScreen() {
     }
   };
 
+  if (templateMealId && templateLoading && !draftRecovered) {
+    return <Screen><StatePanel title="Copying saved meal" body="Loading its editable portions and macros from this device." loading /></Screen>;
+  }
+
   return (
     <Screen scrollViewRef={screenRef} contentContainerStyle={styles.screenContent}>
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
       {draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Your unfinished meal was restored. It will stay here until you save it.</AppText></View> : null}
+      {templateLoaded && !draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Saved meal copied. Adjust any portion or macro, then save it as a new log.</AppText></View> : null}
+      {templateError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{templateError}</AppText></View> : null}
       {draftWarning ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{draftWarning}</AppText></View> : null}
       <Field label="Meal name" value={name} onChangeText={setName} placeholder="Dinner" />
       <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>

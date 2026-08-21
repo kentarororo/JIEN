@@ -9,6 +9,7 @@ import {
   validateMealEdit,
 } from './meal-record.ts';
 import { toLocalDateKey } from '../time.ts';
+import { buildRepeatMealDraft } from './meal-template.ts';
 
 test('item edits recalculate all meal totals', () => {
   const eatenAt = localMealTimestamp('2026-08-12', '18:45');
@@ -51,4 +52,30 @@ test('shared active-row predicate excludes soft-deleted records', () => {
   assert.equal(activeRecordPredicate('m'), 'm.deleted_at IS NULL');
   assert.equal(activeRecordPredicate('food_items'), 'food_items.deleted_at IS NULL');
   assert.throws(() => activeRecordPredicate('m; DROP TABLE meals'), /Invalid query alias/);
+});
+
+test('repeating a saved meal copies editable snapshots without claiming a new AI analysis', () => {
+  let key = 0;
+  const repeated = buildRepeatMealDraft({
+    name: 'Chicken rice',
+    type: 'lunch',
+    items: [{
+      name: 'Chicken rice', quantity: 1.5, unit: 'serving', caloriesKcal: 700,
+      proteinG: 42, carbohydrateG: 88, fatG: 18, fibreG: 4,
+    }],
+  }, 'snack', () => `copy-${++key}`);
+
+  assert.equal(repeated.name, 'Chicken rice');
+  assert.equal(repeated.type, 'lunch');
+  assert.deepEqual(repeated.foods.map((food) => ({
+    key: food.key,
+    quantity: food.quantity,
+    calories: food.calories,
+    source: food.source,
+    confidence: food.confidence,
+    sourceLabel: food.sourceLabel,
+  })), [{
+    key: 'copy-1', quantity: '1.5', calories: '700', source: 'manual', confidence: null,
+    sourceLabel: 'Copied from saved meal',
+  }]);
 });

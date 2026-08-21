@@ -50,9 +50,11 @@ export function mealDraftStorageKey(ownerUserId: string, context: string): strin
   return `jien:meal-draft:v1:${encodeURIComponent(ownerUserId)}:${encodeURIComponent(context)}`;
 }
 
-export function mealDraftContext(dateKey: string, photoJob?: string): string {
+export function mealDraftContext(dateKey: string, photoJob?: string, templateMealId?: string): string {
   const job = boundedString(photoJob, 120);
-  return job ? `photo:${job}` : `date:${dateKey}`;
+  if (job) return `photo:${job}`;
+  const template = boundedString(templateMealId, 120);
+  return template ? `repeat:${template}:date:${dateKey}` : `date:${dateKey}`;
 }
 
 export function mealDraftHasContent(

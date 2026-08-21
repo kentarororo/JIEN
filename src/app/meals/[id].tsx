@@ -8,7 +8,7 @@ import { AppText, Button, Card, Field, Screen, ScreenHeading, SectionHeading, St
 import { useScreenData } from '@/hooks/use-screen-data';
 import { deleteMeal, getMealDetail, updateMeal, type MealDetail, type MealItemSnapshot } from '@/lib/db';
 import { calculateMealTotals, localMealTimestamp } from '@/lib/nutrition/meal-record';
-import { formatTime } from '@/lib/time';
+import { formatTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 type ItemDraft = {
@@ -158,6 +158,15 @@ export default function MealDetailScreen() {
       ) : (
         <>
           <MacroSummary totals={detail} />
+          <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}>
+            <AppText style={styles.itemTitle}>Eat this often?</AppText>
+            <AppText style={{ color: colors.textMuted }}>Copy these portions and macros into a new meal for today. The saved record stays unchanged.</AppText>
+            <Button
+              label="Log this again today"
+              onPress={() => router.push({ pathname: '/meals/new', params: { templateMealId: detail.id, date: toLocalDateKey() } })}
+              variant="secondary"
+            />
+          </Card>
           <SectionHeading title="Food items" detail={`${detail.itemCount} saved snapshot${detail.itemCount === 1 ? '' : 's'}`} />
           {detail.items.map((item) => (
             <Card key={item.id}>
