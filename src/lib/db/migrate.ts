@@ -4,7 +4,7 @@ import { DATABASE_JOURNAL_MODE } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 
-export const LATEST_DATABASE_VERSION = 11;
+export const LATEST_DATABASE_VERSION = 12;
 
 const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -57,6 +57,12 @@ const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000048', 'Assisted Pull-up', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000049', 'Cable External Rotation', 'external_rotation', 'rotator_cuff', '["rear_delts"]', 'cable', 12, 20, 0.5],
   ['10000000-0000-4000-8000-000000000050', 'Cable Wood Chop', 'rotation', 'core', '[]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000051', 'Dumbbell Shrug', 'scapular_elevation', 'upper_traps', '["forearms"]', 'dumbbell', 8, 15, 2],
+  ['10000000-0000-4000-8000-000000000052', 'Prone Y Raise', 'scapular_upward_rotation', 'lower_traps', '["rotator_cuff","rear_delts"]', 'dumbbell', 12, 20, 1],
+  ['10000000-0000-4000-8000-000000000053', 'Chest-supported Rear Row', 'scapular_retraction', 'middle_traps', '["rhomboids","rear_delts"]', 'dumbbell', 10, 15, 2],
+  ['10000000-0000-4000-8000-000000000054', 'Tibialis Raise', 'dorsiflexion', 'tibialis_anterior', '[]', 'bodyweight', 12, 25, 1],
+  ['10000000-0000-4000-8000-000000000055', 'Cable Serratus Punch', 'scapular_protraction', 'serratus_anterior', '["chest"]', 'cable', 12, 20, 1.25],
+  ['10000000-0000-4000-8000-000000000056', 'Standing Cable Hip Flexion', 'hip_flexion', 'hip_flexors', '["abs"]', 'cable', 10, 15, 1.25],
 ] as const;
 
 const STARTER_FOODS = [
@@ -485,5 +491,28 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       'REAL NOT NULL DEFAULT 0',
     );
     await db.execAsync('PRAGMA user_version = 11;');
+  }
+
+  if (currentVersion < 12) {
+    const exerciseNow = new Date().toISOString();
+    await withExclusiveTransaction(db, async (db) => {
+      for (const exercise of DEFAULT_EXERCISES) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO exercises (
+            id, name, movement_pattern, primary_muscle_group, secondary_muscle_groups,
+            equipment, target_rep_min, target_rep_max, load_increment,
+            created_at, updated_at, client_updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [...exercise, exerciseNow, exerciseNow, exerciseNow],
+        );
+      }
+      await db.runAsync(`UPDATE exercises SET secondary_muscle_groups = '["lats","biceps","middle_traps","rhomboids"]', updated_at = ?, client_updated_at = ? WHERE id = '10000000-0000-4000-8000-000000000003'`, [exerciseNow, exerciseNow]);
+      await db.runAsync(`UPDATE exercises SET secondary_muscle_groups = '["upper_back","middle_traps","rhomboids"]', updated_at = ?, client_updated_at = ? WHERE id IN ('10000000-0000-4000-8000-000000000006','10000000-0000-4000-8000-000000000025')`, [exerciseNow, exerciseNow]);
+      await db.runAsync(`UPDATE exercises SET secondary_muscle_groups = '["middle_traps","lower_traps","rotator_cuff"]', updated_at = ?, client_updated_at = ? WHERE id = '10000000-0000-4000-8000-000000000026'`, [exerciseNow, exerciseNow]);
+      await db.runAsync(`UPDATE exercises SET primary_muscle_group = 'hip_abductors', secondary_muscle_groups = '["glutes"]', updated_at = ?, client_updated_at = ? WHERE id = '10000000-0000-4000-8000-000000000033'`, [exerciseNow, exerciseNow]);
+      await db.runAsync(`UPDATE exercises SET primary_muscle_group = 'hip_flexors', secondary_muscle_groups = '["abs"]', updated_at = ?, client_updated_at = ? WHERE id = '10000000-0000-4000-8000-000000000041'`, [exerciseNow, exerciseNow]);
+      await db.runAsync(`UPDATE exercises SET primary_muscle_group = 'brachialis', secondary_muscle_groups = '["biceps","forearms"]', updated_at = ?, client_updated_at = ? WHERE id = '10000000-0000-4000-8000-000000000037'`, [exerciseNow, exerciseNow]);
+      await db.execAsync('PRAGMA user_version = 12;');
+    });
   }
 }

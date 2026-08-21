@@ -27,18 +27,21 @@ test('personal credential parsing accepts only a complete Gemini configuration',
   assert.equal(AI_DAILY_LIMITS.context, 10);
 });
 
-test('Gemini keys are verified against the low-cost multimodal model without sending content', async () => {
+test('Gemini keys are verified with a minimal real generateContent request', async () => {
   let seenUrl = '';
   let seenHeaders: HeadersInit | undefined;
+  let seenBody = '';
   await verifyGeminiApiKey('user-gemini-key-value-123456', {
     fetchImpl: async (input, init) => {
       seenUrl = String(input);
       seenHeaders = init?.headers;
-      return new Response(JSON.stringify({ name: `models/${PERSONAL_GEMINI_MODEL}` }), { status: 200 });
+      seenBody = String(init?.body);
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] }), { status: 200 });
     },
   });
-  assert.equal(seenUrl, `https://generativelanguage.googleapis.com/v1beta/models/${PERSONAL_GEMINI_MODEL}`);
+  assert.equal(seenUrl, `https://generativelanguage.googleapis.com/v1beta/models/${PERSONAL_GEMINI_MODEL}:generateContent`);
   assert.equal((seenHeaders as Record<string, string>)['x-goog-api-key'], 'user-gemini-key-value-123456');
+  assert.equal(JSON.parse(seenBody).generationConfig.thinkingConfig.thinkingLevel, 'minimal');
 });
 
 test('invalid Gemini credentials return only a stable safe code', async () => {

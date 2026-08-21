@@ -16,6 +16,8 @@ const snapshotStore = readFileSync(
   'utf8',
 );
 const html = readFileSync(new URL('../src/app/+html.tsx', import.meta.url), 'utf8');
+const photoPayloadStore = readFileSync(new URL('../src/lib/db/meal-photo-payload.web.ts', import.meta.url), 'utf8');
+const photoQueue = readFileSync(new URL('../src/lib/db/meal-photo-queue.ts', import.meta.url), 'utf8');
 
 test('web startup has one SQLite owner instead of a preflight connection', () => {
   assert.doesNotMatch(gate, /openDatabaseAsync/);
@@ -59,4 +61,14 @@ test('web SQLite uses a main-thread working database with account-scoped snapsho
   assert.doesNotMatch(html, /coi-serviceworker/);
   assert.match(gate, /retireLegacyIsolationServiceWorker/);
   assert.match(gate, /registration\.unregister\(\)/);
+});
+
+test('large retryable meal photos are outside the serialized SQLite snapshot on web', () => {
+  assert.match(photoPayloadStore, /jien-web-photo-payload-v1:/);
+  assert.match(photoPayloadStore, /ownerUserId/);
+  assert.match(photoQueue, /storeMealPhotoPayload/);
+  assert.match(photoQueue, /externalizeLegacyMealPhotoPayloads/);
+  assert.match(photoQueue, /resolveMealPhotoPayload/);
+  assert.match(photoQueue, /withDeferredPersistenceAsync/);
+  assert.match(readFileSync(new URL('../src/lib/db/main-thread-memory-database.ts', import.meta.url), 'utf8'), /directExecAsync\('VACUUM'\)/);
 });

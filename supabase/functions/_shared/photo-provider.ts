@@ -27,7 +27,9 @@ export type PhotoProviderInput = {
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 export class PhotoProviderError extends Error {
-  code: 'PROVIDER_TIMEOUT' | 'PROVIDER_UNAVAILABLE' | 'PROVIDER_CONFIGURATION_INVALID' | 'PROVIDER_OUTPUT_INVALID';
+  code: 'PROVIDER_TIMEOUT' | 'PROVIDER_UNAVAILABLE' | 'PROVIDER_AUTH_INVALID'
+    | 'PROVIDER_REQUEST_INVALID' | 'PROVIDER_MODEL_UNAVAILABLE'
+    | 'PROVIDER_QUOTA_EXCEEDED' | 'PROVIDER_OUTPUT_INVALID';
   retryable: boolean;
   httpStatus: number;
 
@@ -141,7 +143,7 @@ export async function requestPhotoEstimate(
     const response = configuration.provider === 'gemini'
       ? await requestGemini(configuration, input, fetchImpl, controller.signal)
       : await requestAnthropic(configuration, input, fetchImpl, controller.signal);
-    if (!response.ok) throw providerHttpError(response.status);
+    if (!response.ok) throw await providerHttpError(response, configuration.provider);
     const payload = await response.json().catch(() => null);
     const text = configuration.provider === 'gemini'
       ? extractGeminiText(payload)
@@ -201,13 +203,9 @@ function requestGemini(
         }],
         generationConfig: {
           maxOutputTokens: 1200,
-          thinkingConfig: { thinkingLevel: 'low' },
-          responseFormat: {
-            text: {
-              mimeType: 'application/json',
-              schema: photoItemsSchema,
-            },
-          },
+          thinkingConfig: { thinkingLevel: 'minimal' },
+          responseMimeType: 'application/json',
+          responseJsonSchema: photoItemsSchema,
         },
       }),
     },
@@ -243,21 +241,47 @@ function requestAnthropic(
   });
 }
 
-function providerHttpError(status: number): PhotoProviderError {
+async function providerHttpError(response: Response, provider: PhotoAiProvider): Promise<PhotoProviderError> {
+  const status = response.status;
   const retryable = status === 408 || status === 429 || status >= 500;
-  return retryable
-    ? new PhotoProviderError(
-      'PROVIDER_UNAVAILABLE',
-      'The photo service could not analyze this image. Try again.',
-      true,
-      502,
-    )
-    : new PhotoProviderError(
-      'PROVIDER_CONFIGURATION_INVALID',
-      'JIEN photo analysis needs a server configuration update.',
+  if (status === 401 || status === 403) {
+    return new PhotoProviderError(
+      'PROVIDER_AUTH_INVALID',
+      `${provider === 'gemini' ? 'Gemini' : 'The AI provider'} did not permit this key to generate content.`,
+      false,
+      403,
+    );
+  }
+  if (status === 404) {
+    return new PhotoProviderError(
+      'PROVIDER_MODEL_UNAVAILABLE',
+      'The configured AI model is not available to this project.',
       false,
       503,
     );
+  }
+  if (status === 400 || status === 422) {
+    return new PhotoProviderError(
+      'PROVIDER_REQUEST_INVALID',
+      'JIEN sent a request this AI model could not accept.',
+      false,
+      502,
+    );
+  }
+  if (status === 429) {
+    return new PhotoProviderError(
+      'PROVIDER_QUOTA_EXCEEDED',
+      'The AI project has reached a Google quota or rate limit. Try again after it resets.',
+      true,
+      429,
+    );
+  }
+  return new PhotoProviderError(
+    'PROVIDER_UNAVAILABLE',
+    'The photo service could not analyze this image. Try again.',
+    retryable,
+    retryable ? 502 : 503,
+  );
 }
 
 function extractGeminiText(value: unknown): string | null {

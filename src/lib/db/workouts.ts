@@ -11,6 +11,7 @@ import { enqueueUpsert } from './sync-queue';
 import type {
   LoadUnit,
   SaveWorkoutInput,
+  UpdateWorkoutInput,
   SavePlannedWorkoutInput,
   SetKind,
   WorkoutDetail,
@@ -378,6 +379,141 @@ export async function saveWorkout(
   });
 
   return id;
+}
+
+export async function updateWorkout(
+  db: SQLiteDatabase,
+  workoutId: string,
+  input: UpdateWorkoutInput,
+): Promise<string> {
+  if (input.exercises.length === 0 || input.exercises.some((entry) => entry.sets.length === 0)) {
+    throw new Error('Add at least one exercise with a completed set.');
+  }
+  if (input.exercises.some((entry) => entry.sets.some((set) => set.reps <= 0 || set.loadValue < 0))) {
+    throw new Error('Reps must be positive and load cannot be negative.');
+  }
+  const startedAt = new Date(input.startedAt);
+  if (!Number.isFinite(startedAt.getTime()) || startedAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Completed workouts must use today or an earlier calendar date.');
+  }
+  const changedAt = new Date().toISOString();
+  const completedAt = input.startedAt;
+  const performedOn = toLocalDateKey(startedAt);
+
+  await withExclusiveTransaction(db, async (db) => {
+    const workout = await db.getFirstAsync<{
+      id: string; status: WorkoutStatus; notes: string | null; created_at: string;
+    }>(
+      `SELECT id, status, notes, created_at FROM workouts
+       WHERE id = ? AND deleted_at IS NULL`,
+      [workoutId],
+    );
+    if (!workout || workout.status !== 'completed') throw new Error('This completed workout is no longer available to edit.');
+    const existingSets = await db.getAllAsync<{
+      id: string; workout_id: string; exercise_id: string; sort_order: number; kind: SetKind;
+      reps: number; load_value: number; load_unit: LoadUnit; rpe: number | null;
+      completed_at: string; notes: string | null; created_at: string;
+    }>(
+      `SELECT id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
+        rpe, completed_at, notes, created_at FROM workout_sets
+       WHERE workout_id = ? AND deleted_at IS NULL`,
+      [workoutId],
+    );
+    const existingById = new Map(existingSets.map((set) => [set.id, set]));
+    const retained = new Set<string>();
+    const workoutPayload = {
+      id: workoutId,
+      title: input.title.trim() || 'Workout',
+      status: 'completed',
+      performed_on: performedOn,
+      started_at: completedAt,
+      completed_at: completedAt,
+      scheduled_at: null,
+      notes: input.notes?.trim() || workout.notes,
+      plan_json: null,
+      created_at: workout.created_at,
+      client_updated_at: changedAt,
+      deleted_at: null,
+    };
+    await db.runAsync(
+      `UPDATE workouts SET title = ?, performed_on = ?, started_at = ?, completed_at = ?,
+        notes = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+      [workoutPayload.title, performedOn, completedAt, completedAt, workoutPayload.notes, changedAt, changedAt, workoutId],
+    );
+    await enqueueUpsert(db, 'workouts', workoutId, workoutPayload);
+
+    let sortOrder = 0;
+    for (const entry of input.exercises) {
+      await enqueueUpsert(db, 'exercises', entry.exercise.id, exerciseRemotePayload(entry.exercise, changedAt));
+      for (const set of entry.sets) {
+        if (set.id && !existingById.has(set.id)) throw new Error('Reload this workout before changing its saved sets.');
+        const current = set.id ? existingById.get(set.id) : null;
+        const setId = current?.id ?? Crypto.randomUUID();
+        retained.add(setId);
+        const payload = {
+          id: setId,
+          workout_id: workoutId,
+          exercise_id: entry.exercise.id,
+          sort_order: sortOrder,
+          kind: set.kind ?? 'working',
+          reps: set.reps,
+          load_value: set.loadValue,
+          load_unit: set.loadUnit,
+          rpe: set.rpe ?? null,
+          completed_at: completedAt,
+          notes: current?.notes ?? null,
+          created_at: current?.created_at ?? changedAt,
+          client_updated_at: changedAt,
+          deleted_at: null,
+        };
+        if (current) {
+          await db.runAsync(
+            `UPDATE workout_sets SET exercise_id = ?, sort_order = ?, kind = ?, reps = ?,
+              load_value = ?, load_unit = ?, rpe = ?, completed_at = ?, deleted_at = NULL,
+              updated_at = ?, client_updated_at = ? WHERE id = ?`,
+            [entry.exercise.id, sortOrder, payload.kind, set.reps, set.loadValue, set.loadUnit,
+              payload.rpe, completedAt, changedAt, changedAt, setId],
+          );
+        } else {
+          await db.runAsync(
+            `INSERT INTO workout_sets (
+              id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
+              rpe, completed_at, created_at, updated_at, client_updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [setId, workoutId, entry.exercise.id, sortOrder, payload.kind, set.reps,
+              set.loadValue, set.loadUnit, payload.rpe, completedAt, changedAt, changedAt, changedAt],
+          );
+        }
+        await enqueueUpsert(db, 'sets', setId, payload);
+        sortOrder += 1;
+      }
+    }
+
+    for (const current of existingSets) {
+      if (retained.has(current.id)) continue;
+      await db.runAsync(
+        `UPDATE workout_sets SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+        [changedAt, changedAt, changedAt, current.id],
+      );
+      await enqueueUpsert(db, 'sets', current.id, {
+        id: current.id,
+        workout_id: workoutId,
+        exercise_id: current.exercise_id,
+        sort_order: current.sort_order,
+        kind: current.kind,
+        reps: current.reps,
+        load_value: current.load_value,
+        load_unit: current.load_unit,
+        rpe: current.rpe,
+        completed_at: current.completed_at,
+        notes: current.notes,
+        created_at: current.created_at,
+        client_updated_at: changedAt,
+        deleted_at: changedAt,
+      });
+    }
+  });
+  return workoutId;
 }
 
 export async function completePlannedWorkout(

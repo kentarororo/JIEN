@@ -62,7 +62,7 @@ export default function TodayScreen() {
         <Link href="/meals/new" asChild><Pressable><Card style={styles.actionCard}><AppText style={styles.actionTitle}>Log a meal</AppText><AppText style={{ color: colors.textMuted }}>Calories and macros</AppText></Card></Pressable></Link>
       </View>
 
-      <SectionHeading title="Calendar" detail="Training, food, and body trends together" />
+      <SectionHeading title="Calendar" detail="Choose a day, then open any item to review or edit it" />
       <Card style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
           <Button label="‹" onPress={() => changeMonth(-1)} variant="quiet" />
@@ -130,7 +130,7 @@ export default function TodayScreen() {
             <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg·reps</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
-                <AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText>
+                <View style={styles.recordEnd}><AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
               </Pressable>
             </Link>
           ))}</View> : null}
@@ -138,7 +138,7 @@ export default function TodayScreen() {
             <Link key={meal.id} href={`/meals/${meal.id}` as Href} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.itemCount} item{meal.itemCount === 1 ? '' : 's'} · P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText></View>
-                <View style={styles.recordEnd}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)}</AppText></View>
+                <View style={styles.recordEnd}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
               </Pressable>
             </Link>
           ))}</View> : null}

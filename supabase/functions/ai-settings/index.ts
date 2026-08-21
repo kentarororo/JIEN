@@ -69,6 +69,12 @@ Deno.serve(async (request) => {
         if (code === 'AI_KEY_VERIFICATION_TIMEOUT') {
           return failure(requestId, code, 'Gemini key verification timed out. Try again.', true, 504);
         }
+        if (code === 'AI_MODEL_UNAVAILABLE') {
+          return failure(requestId, code, 'This Gemini model is not available to the key’s Google project.', false, 400);
+        }
+        if (code === 'AI_KEY_QUOTA_EXCEEDED') {
+          return failure(requestId, code, 'This Google project has no current Gemini quota. Check its Free/Paid tier and quotas in AI Studio.', false, 429);
+        }
         return failure(requestId, 'AI_KEY_VERIFICATION_FAILED', 'The key could not be verified with Gemini. Try again.', true, 502);
       }
       const { error } = await admin.rpc('set_user_ai_credential', {

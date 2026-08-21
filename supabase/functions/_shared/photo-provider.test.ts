@@ -68,9 +68,9 @@ test('Gemini generateContent sends inline image data and a structured JSON schem
     mime_type: 'image/jpeg', data: input.imageBase64,
   });
   assert.match(body.contents[0].parts[1].text, /chicken rice with sauce/);
-  assert.equal(body.generationConfig.responseFormat.text.mimeType, 'application/json');
-  assert.equal(body.generationConfig.responseFormat.text.schema.properties.items.maxItems, 12);
-  assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'low');
+  assert.equal(body.generationConfig.responseMimeType, 'application/json');
+  assert.equal(body.generationConfig.responseJsonSchema.properties.items.maxItems, 12);
+  assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'minimal');
   assert.equal(Object.hasOwn(body.generationConfig, 'temperature'), false, 'Gemini 3.5 avoids unnecessary sampling parameters');
   assert.equal(parseProviderPhotoItems(text)[0]?.name, 'Chicken rice');
 });
@@ -103,7 +103,7 @@ test('provider failures are finite, safely classified, and never expose raw outp
     }),
     (cause: unknown) => {
       assert.ok(cause instanceof PhotoProviderError);
-      assert.equal(cause.code, 'PROVIDER_CONFIGURATION_INVALID');
+      assert.equal(cause.code, 'PROVIDER_AUTH_INVALID');
       assert.equal(cause.retryable, false);
       assert.doesNotMatch(cause.message, /invalid-key|secret/i);
       return true;
@@ -119,6 +119,12 @@ test('provider failures are finite, safely classified, and never expose raw outp
       assert.equal(cause.retryable, true);
       return true;
     },
+  );
+  await assert.rejects(
+    requestPhotoEstimate(configuration, input, {
+      fetchImpl: async () => new Response('{"error":{"status":"INVALID_ARGUMENT"}}', { status: 400 }),
+    }),
+    (cause: unknown) => cause instanceof PhotoProviderError && cause.code === 'PROVIDER_REQUEST_INVALID',
   );
   await assert.rejects(
     requestPhotoEstimate(configuration, input, {

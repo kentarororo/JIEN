@@ -8,6 +8,11 @@ import {
   type ParsedMealPhotoAnalysis,
 } from './meal-photo-api';
 import type { FoodCatalogItem } from './types';
+import {
+  removeMealPhotoPayload,
+  resolveMealPhotoPayload,
+  storeMealPhotoPayload,
+} from './meal-photo-payload';
 import { announceQueuedLocalWrite } from './write-sync-signal';
 import {
   canRetryMealPhoto,
@@ -56,21 +61,27 @@ export async function queueMealPhotoAnalysis(
   }
   const id = Crypto.randomUUID();
   const now = new Date().toISOString();
-  await db.runAsync(
-    `INSERT INTO meal_photo_jobs (
-      id, image_base64, media_type, source_label, description, status,
-      attempt_count, retryable, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 1, ?, ?)`,
-    [
-      id,
-      base64,
-      input.mediaType,
-      input.sourceLabel.trim().slice(0, 80) || 'Meal photo',
-      input.description.trim().slice(0, 500),
-      now,
-      now,
-    ],
-  );
+  const payloadReference = await storeMealPhotoPayload(id, base64);
+  try {
+    await db.runAsync(
+      `INSERT INTO meal_photo_jobs (
+        id, image_base64, media_type, source_label, description, status,
+        attempt_count, retryable, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 1, ?, ?)`,
+      [
+        id,
+        payloadReference,
+        input.mediaType,
+        input.sourceLabel.trim().slice(0, 80) || 'Meal photo',
+        input.description.trim().slice(0, 500),
+        now,
+        now,
+      ],
+    );
+  } catch (cause) {
+    await removeMealPhotoPayload(payloadReference).catch(() => undefined);
+    throw cause;
+  }
   announceQueuedLocalWrite();
   return id;
 }
@@ -104,6 +115,38 @@ export async function getMealPhotoQueueSummary(db: SQLiteDatabase): Promise<Meal
     latestFailedId: failed?.id ?? null,
     latestFailureMessage: failed?.error_message ?? null,
   };
+}
+
+export async function externalizeLegacyMealPhotoPayloads(db: SQLiteDatabase): Promise<number> {
+  const rows = await db.getAllAsync<{ id: string; image_base64: string }>(
+    `SELECT id, image_base64 FROM meal_photo_jobs
+     WHERE length(image_base64) > 100 AND status IN ('pending', 'processing', 'failed')
+     ORDER BY created_at ASC`,
+  );
+  const replacements: Array<{ id: string; previous: string; reference: string }> = [];
+  for (const row of rows) {
+    const reference = await storeMealPhotoPayload(row.id, row.image_base64);
+    if (reference === row.image_base64) continue;
+    replacements.push({ id: row.id, previous: row.image_base64, reference });
+  }
+  if (replacements.length === 0) return 0;
+  const replace = async (database: SQLiteDatabase) => {
+    for (const row of replacements) {
+      await database.runAsync(
+        `UPDATE meal_photo_jobs SET image_base64 = ?, updated_at = ? WHERE id = ? AND image_base64 = ?`,
+        [row.reference, new Date().toISOString(), row.id, row.previous],
+      );
+    }
+  };
+  const deferred = db as SQLiteDatabase & {
+    withDeferredPersistenceAsync?: <T>(task: (database: SQLiteDatabase) => Promise<T>) => Promise<T>;
+  };
+  if (deferred.withDeferredPersistenceAsync) {
+    await deferred.withDeferredPersistenceAsync(replace);
+  } else {
+    await replace(db);
+  }
+  return replacements.length;
 }
 
 export async function getQueuedMealPhotoResult(
@@ -153,7 +196,12 @@ export async function retryQueuedMealPhotos(db: SQLiteDatabase): Promise<void> {
 }
 
 export async function discardQueuedMealPhoto(db: SQLiteDatabase, jobId: string): Promise<void> {
+  const job = await db.getFirstAsync<{ image_base64: string }>(
+    `SELECT image_base64 FROM meal_photo_jobs WHERE id = ?`,
+    [jobId],
+  );
   await db.runAsync(`DELETE FROM meal_photo_jobs WHERE id = ?`, [jobId]);
+  if (job) await removeMealPhotoPayload(job.image_base64).catch(() => undefined);
 }
 
 export async function processPendingMealPhotoJobs(
@@ -183,6 +231,28 @@ export async function processPendingMealPhotoJobs(
   );
   if (claimed.changes !== 1) return { processed: 0, state: 'idle' };
 
+  let imageBase64: string | null;
+  try {
+    imageBase64 = await resolveMealPhotoPayload(job.image_base64);
+  } catch {
+    await storeFailure(db, job, {
+      code: 'PHOTO_PAYLOAD_STORAGE_UNAVAILABLE',
+      message: 'The retained photo could not be opened on this device. Reopen JIEN and retry.',
+      retryable: true,
+      requestId: null,
+    });
+    return { processed: 0, state: 'waiting' };
+  }
+  if (!imageBase64) {
+    await storeFailure(db, job, {
+      code: 'PHOTO_PAYLOAD_MISSING',
+      message: 'The retained photo is no longer available. Choose the photo again.',
+      retryable: false,
+      requestId: null,
+    });
+    return { processed: 0, state: 'action_required' };
+  }
+
   const capability = await getMealPhotoAnalysisCapability();
   if (!capability.available) {
     await storeFailure(db, job, {
@@ -195,8 +265,9 @@ export async function processPendingMealPhotoJobs(
   }
 
   try {
-    const analysis = await analyzeMealPhoto(job.image_base64, job.description, job.media_type);
+    const analysis = await analyzeMealPhoto(imageBase64, job.description, job.media_type);
     await storeSuccess(db, job.id, analysis, new Date().toISOString());
+    await removeMealPhotoPayload(job.image_base64).catch(() => undefined);
     return { processed: 1, state: 'completed' };
   } catch (cause) {
     const failure = classifyMealPhotoAnalysisError(cause);

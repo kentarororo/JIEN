@@ -115,6 +115,17 @@ export class MainThreadMemoryDatabase {
     return this.enqueueOperation(() => this.executeTransaction(task), true);
   }
 
+  withDeferredPersistenceAsync<T>(
+    task: (database: SQLiteDatabase) => Promise<T>,
+  ): Promise<T> {
+    return this.enqueueOperation(async () => {
+      const result = await task(this.createTransactionDatabase());
+      await this.directExecAsync('VACUUM');
+      await this.persistAsync();
+      return result;
+    }, true);
+  }
+
   private async directExecAsync(sql: string): Promise<void> {
     this.assertOpen();
     await this.sqlite.exec(this.pointer, sql);
@@ -219,7 +230,13 @@ export class MainThreadMemoryDatabase {
   async persistAsync(): Promise<void> {
     if (!this.persistence || this.persistencePaused) return;
     if (this.durabilityFailure) throw this.durabilityFailure;
-    const image = this.sqlite.serialize(this.pointer, 'main');
+    let image: Uint8Array | null;
+    try {
+      image = this.sqlite.serialize(this.pointer, 'main');
+    } catch (cause) {
+      this.durabilityFailure = new WebDatabaseDurabilityError(cause);
+      throw this.durabilityFailure;
+    }
     if (!image) {
       this.durabilityFailure = new WebDatabaseDurabilityError(
         new Error('SQLite could not create a durable local snapshot.'),

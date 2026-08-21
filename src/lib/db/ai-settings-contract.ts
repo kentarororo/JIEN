@@ -41,6 +41,10 @@ export function describeAiConnectionIssue(cause: unknown): AiConnectionIssue {
   switch (code) {
     case 'AI_KEY_INVALID':
       return { ...issue, title: 'Google rejected this key', message: 'Copy an active Gemini API key from Google AI Studio, then paste it again.' };
+    case 'AI_MODEL_UNAVAILABLE':
+      return { ...issue, title: 'Gemini model unavailable', message: 'The key works, but its Google project cannot use JIEN’s current multimodal model. Choose an eligible project in AI Studio and create a new key.' };
+    case 'AI_KEY_QUOTA_EXCEEDED':
+      return { ...issue, title: 'Gemini quota unavailable', message: 'The key is recognized, but this Google project has no available Gemini quota. Check its Free/Paid tier and quota page.' };
     case 'AI_KEY_VERIFICATION_TIMEOUT':
     case 'REQUEST_TIMEOUT':
       return { ...issue, title: 'Gemini took too long to respond', message: 'Your key is still in the field. Check your connection and try again.' };

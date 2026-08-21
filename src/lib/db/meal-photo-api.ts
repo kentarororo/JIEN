@@ -104,15 +104,24 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       message: 'No Gemini connection is enabled yet. Open AI connection to create and securely connect a personal free-tier key.',
     };
   }
-  if (code === 'PROVIDER_CONFIGURATION_INVALID') {
+  if (code === 'PROVIDER_AUTH_INVALID') {
     return {
       code,
       status: 'not_configured',
       retryable: false,
       requestId,
       provider: null,
-      message: 'Gemini rejected the connected key. Open AI connection to verify or replace it.',
+      message: 'Google did not allow this key to generate content. Open AI connection to verify the key, project, and API restrictions.',
     };
+  }
+  if (code === 'PROVIDER_REQUEST_INVALID') {
+    return { code, status: 'unavailable', retryable: false, requestId, provider: null, message: 'JIEN’s Gemini request needs an app update; your key was not exposed or removed.' };
+  }
+  if (code === 'PROVIDER_MODEL_UNAVAILABLE') {
+    return { code, status: 'not_configured', retryable: false, requestId, provider: null, message: 'This Gemini model is unavailable to the key’s Google project. Reconnect the key to run the current model check.' };
+  }
+  if (code === 'PROVIDER_QUOTA_EXCEEDED') {
+    return { code, status: 'unavailable', retryable: true, requestId, provider: null, message: 'This Google project has reached its Gemini quota. Check AI Studio quotas or retry after the limit resets.' };
   }
   if (code === 'HTTP_404') {
     return {

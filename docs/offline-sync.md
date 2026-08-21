@@ -135,7 +135,10 @@ not permitted to forge.
 ## Offline meal-photo queue
 
 Compressed meal photos and typed context can be placed in the device-only
-`meal_photo_jobs` queue without blocking manual meal entry. Raw image data never
+`meal_photo_jobs` queue without blocking manual meal entry. On web, raw photo bytes
+live in a separate account-scoped IndexedDB payload store; SQLite retains only a
+small reference so full-database snapshots cannot exhaust mobile Safari/WASM memory.
+Legacy inline web jobs are externalized at runtime before sync/analysis. Raw image data never
 enters the generic Supabase sync queue or portable export. When a signed-in
 connection and AI consent are available, the runtime checks capability before any
 photo upload, analyzes one job at a time, strictly parses the response, clears the

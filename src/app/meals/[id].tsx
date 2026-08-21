@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -127,7 +128,10 @@ export default function MealDetailScreen() {
             <Card key={item.id}>
               <View style={styles.row}>
                 <AppText style={styles.itemTitle}>Food {index + 1}</AppText>
-                <AppText style={{ color: colors.textMuted }}>{provenanceLabel(item.originalSource, item.isUserEdited)}</AppText>
+                <View style={styles.actions}>
+                  <AppText style={{ color: colors.textMuted }}>{provenanceLabel(item.originalSource, item.isUserEdited)}</AppText>
+                  {draft.items.length > 1 ? <Button label="Remove" onPress={() => setDraft({ ...draft, items: draft.items.filter((entry) => entry.id !== item.id) })} variant="quiet" /> : null}
+                </View>
               </View>
               <Field label="Food" value={item.name} onChangeText={(name) => setDraft(updateDraftItem(draft, item.id, { name }))} />
               <View style={styles.fieldGrid}>
@@ -143,6 +147,7 @@ export default function MealDetailScreen() {
               </View>
             </Card>
           ))}
+          <Button label="Add food item" onPress={() => setDraft({ ...draft, items: [...draft.items, newMealItemDraft()] })} variant="secondary" />
           <MacroSummary totals={draftTotals} />
           {formError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
           <View style={styles.actions}>
@@ -226,6 +231,13 @@ function toDraft(meal: MealDetail): MealDraft {
 
 function updateDraftItem(draft: MealDraft, id: string, patch: Partial<ItemDraft>): MealDraft {
   return { ...draft, items: draft.items.map((item) => item.id === id ? { ...item, ...patch } : item) };
+}
+
+function newMealItemDraft(): ItemDraft {
+  return {
+    id: Crypto.randomUUID(), name: '', quantity: '1', unit: 'serving', calories: '0',
+    protein: '0', carbs: '0', fat: '0', fibre: '', originalSource: 'manual', isUserEdited: true,
+  };
 }
 
 function numeric(value: string): number {

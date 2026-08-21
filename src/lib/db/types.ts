@@ -114,12 +114,15 @@ export type Exercise = {
 };
 
 export type WorkoutSetInput = {
+  id?: string;
   reps: number;
   loadValue: number;
   loadUnit: LoadUnit;
   rpe?: number | null;
   kind?: SetKind;
 };
+
+export type UpdateWorkoutInput = SaveWorkoutInput;
 
 export type SaveWorkoutInput = {
   id?: string;

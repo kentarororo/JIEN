@@ -8,8 +8,21 @@ import {
   calculateOverloadChangePercent,
   calculateSetVolumeKg,
   detectDeloadSignal,
+  MUSCLE_GROUP_OPTIONS,
+  muscleGroupLabel,
+  normalizeMuscleGroupKey,
   suggestDoubleProgression,
 } from './index.ts';
+
+test('bodybuilding taxonomy includes specific traps, trunk, hip and lower-leg groups', () => {
+  const groups = new Set<string>(MUSCLE_GROUP_OPTIONS.map((option) => option.value));
+  for (const required of ['upper_traps', 'middle_traps', 'lower_traps', 'rhomboids', 'serratus_anterior', 'hip_abductors', 'hip_flexors', 'tibialis_anterior', 'neck']) {
+    assert.equal(groups.has(required), true, `${required} should be selectable`);
+  }
+  assert.equal(normalizeMuscleGroupKey('external rotators'), 'rotator_cuff');
+  assert.equal(normalizeMuscleGroupKey('trapezius'), 'upper_traps');
+  assert.equal(muscleGroupLabel('middle_traps'), 'Middle traps');
+});
 
 test('compares only against a meaningful prior volume', () => {
   assert.equal(calculateOverloadChangePercent(1_050, 1_000), 5);

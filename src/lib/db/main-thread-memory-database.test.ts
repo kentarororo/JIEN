@@ -57,7 +57,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const exercises = await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM exercises');
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
-    assert.equal(version?.user_version, 11);
+    assert.equal(version?.user_version, 12);
     assert.ok((exercises?.count ?? 0) >= 50);
     assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
@@ -289,4 +289,21 @@ test('main-thread database persists committed work and isolates delayed transact
   } finally {
     database.closeSync();
   }
+});
+
+test('classifies a synchronous WASM serialize trap as committed but not durable', async () => {
+  const database = new MainThreadMemoryDatabase({
+    serialize: () => { throw new WebAssembly.RuntimeError('out of bounds memory access'); },
+  } as unknown as MainThreadSQLiteApi, 1, { close: () => undefined }, { done: 101, row: 100 }, {
+    save: async () => undefined,
+    close: async () => undefined,
+  });
+  await assert.rejects(
+    database.persistAsync(),
+    (cause: unknown) => cause instanceof WebDatabaseDurabilityError
+      && cause.committed
+      && cause.code === 'WEB_DATABASE_NOT_DURABLE'
+      && cause.cause instanceof WebAssembly.RuntimeError,
+  );
+  await assert.rejects(database.persistAsync(), /Do not retry/i);
 });

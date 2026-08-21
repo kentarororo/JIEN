@@ -41,25 +41,39 @@ export type MuscleGroupTrend = {
 };
 
 export const MUSCLE_GROUP_OPTIONS = [
-  { value: 'chest', label: 'Chest' },
-  { value: 'upper_chest', label: 'Upper chest' },
-  { value: 'lats', label: 'Lats' },
-  { value: 'upper_back', label: 'Upper back' },
-  { value: 'front_delts', label: 'Front delts' },
-  { value: 'side_delts', label: 'Side delts' },
-  { value: 'rear_delts', label: 'Rear delts' },
-  { value: 'biceps', label: 'Biceps' },
-  { value: 'triceps', label: 'Triceps' },
-  { value: 'forearms', label: 'Forearms' },
-  { value: 'quads', label: 'Quadriceps' },
-  { value: 'hamstrings', label: 'Hamstrings' },
-  { value: 'glutes', label: 'Glutes' },
-  { value: 'adductors', label: 'Adductors' },
-  { value: 'calves', label: 'Calves' },
-  { value: 'core', label: 'Core' },
-  { value: 'lower_back', label: 'Lower back' },
-  { value: 'rotator_cuff', label: 'Rotator cuff' },
+  { value: 'chest', label: 'Chest', section: 'Chest' },
+  { value: 'upper_chest', label: 'Upper chest', section: 'Chest' },
+  { value: 'lats', label: 'Lats', section: 'Back' },
+  { value: 'upper_back', label: 'Upper back (general)', section: 'Back' },
+  { value: 'upper_traps', label: 'Upper traps', section: 'Back' },
+  { value: 'middle_traps', label: 'Middle traps', section: 'Back' },
+  { value: 'lower_traps', label: 'Lower traps', section: 'Back' },
+  { value: 'rhomboids', label: 'Rhomboids', section: 'Back' },
+  { value: 'lower_back', label: 'Spinal erectors / lower back', section: 'Back' },
+  { value: 'front_delts', label: 'Front delts', section: 'Shoulders' },
+  { value: 'side_delts', label: 'Side delts', section: 'Shoulders' },
+  { value: 'rear_delts', label: 'Rear delts', section: 'Shoulders' },
+  { value: 'rotator_cuff', label: 'Rotator cuff', section: 'Shoulders' },
+  { value: 'biceps', label: 'Biceps', section: 'Arms' },
+  { value: 'brachialis', label: 'Brachialis', section: 'Arms' },
+  { value: 'triceps', label: 'Triceps', section: 'Arms' },
+  { value: 'forearms', label: 'Forearms / grip', section: 'Arms' },
+  { value: 'quads', label: 'Quadriceps', section: 'Legs' },
+  { value: 'hamstrings', label: 'Hamstrings', section: 'Legs' },
+  { value: 'glutes', label: 'Glutes', section: 'Legs' },
+  { value: 'adductors', label: 'Adductors', section: 'Legs' },
+  { value: 'hip_abductors', label: 'Hip abductors', section: 'Legs' },
+  { value: 'hip_flexors', label: 'Hip flexors', section: 'Legs' },
+  { value: 'calves', label: 'Calves', section: 'Legs' },
+  { value: 'tibialis_anterior', label: 'Tibialis anterior', section: 'Legs' },
+  { value: 'abs', label: 'Abs', section: 'Trunk' },
+  { value: 'obliques', label: 'Obliques', section: 'Trunk' },
+  { value: 'core', label: 'Core (general)', section: 'Trunk' },
+  { value: 'serratus_anterior', label: 'Serratus anterior', section: 'Trunk' },
+  { value: 'neck', label: 'Neck', section: 'Other' },
 ] as const;
+
+export const MUSCLE_GROUP_SECTIONS = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Trunk', 'Other'] as const;
 
 export type ProgressionSuggestion =
   | { action: 'start'; reason: string }
@@ -199,6 +213,10 @@ export function normalizeMuscleGroupKey(value: string): string {
   const clean = value.trim().toLocaleLowerCase().replaceAll(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   if (clean === 'quadriceps') return 'quads';
   if (clean === 'shoulders') return 'front_delts';
+  if (clean === 'traps' || clean === 'trapezius') return 'upper_traps';
+  if (clean === 'mid_traps') return 'middle_traps';
+  if (clean === 'external_rotators') return 'rotator_cuff';
+  if (clean === 'erectors' || clean === 'spinal_erectors') return 'lower_back';
   return clean || 'other';
 }
 

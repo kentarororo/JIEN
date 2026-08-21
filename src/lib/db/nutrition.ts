@@ -341,17 +341,11 @@ export async function updateMeal(
     [mealId],
   );
   const validated = validateMealEdit(input);
-  if (validated.items.length !== currentItems.length) {
-    throw new Error('Reload this meal before changing its saved items.');
-  }
   const currentById = new Map(currentItems.map((item) => [item.id, item]));
-  if (validated.items.some((item) => !currentById.has(item.id))) {
-    throw new Error('Reload this meal before changing its saved items.');
-  }
   const now = new Date().toISOString();
-  const prepared = validated.items.map((item) => {
-    const current = currentById.get(item.id)!;
-    const changed = item.name !== current.name
+  const prepared = validated.items.map((item, sortOrder) => {
+    const current = currentById.get(item.id) ?? null;
+    const changed = !current || item.name !== current.name
       || item.quantity !== current.quantity
       || item.unit !== current.unit
       || item.caloriesKcal !== current.calories_kcal
@@ -362,16 +356,20 @@ export async function updateMeal(
     return {
       current,
       item,
+      sortOrder,
       source: changed ? 'manual' as const : current.source,
       confidence: changed ? null : current.confidence,
-      originalSource: current.original_source ?? current.source,
-      originalConfidence: current.original_confidence ?? current.confidence,
-      isUserEdited: Boolean(current.is_user_edited) || changed,
+      originalSource: current ? current.original_source ?? current.source : 'manual' as const,
+      originalConfidence: current ? current.original_confidence ?? current.confidence : null,
+      isUserEdited: current ? Boolean(current.is_user_edited) || changed : true,
     };
   });
+  const retainedIds = new Set(validated.items.map((item) => item.id));
+  const removed = currentItems.filter((item) => !retainedIds.has(item.id));
   const mealChanged = validated.name !== meal.name
     || validated.eatenAt !== new Date(meal.eaten_at).toISOString()
-    || prepared.some((entry) => entry.isUserEdited && !entry.current.is_user_edited);
+    || removed.length > 0
+    || prepared.some((entry) => !entry.current || (entry.isUserEdited && !entry.current.is_user_edited));
   const mealPayload = {
     id: meal.id,
     name: validated.name,
@@ -394,22 +392,35 @@ export async function updateMeal(
     );
     await enqueueUpsert(db, 'meals', mealId, mealPayload);
     for (const entry of prepared) {
-      await db.runAsync(
-        `UPDATE food_items SET name = ?, quantity = ?, unit = ?, calories_kcal = ?,
-          protein_g = ?, carbohydrate_g = ?, fat_g = ?, fibre_g = ?, source = ?,
-          confidence = ?, original_source = ?, original_confidence = ?, is_user_edited = ?,
-          updated_at = ?, client_updated_at = ? WHERE id = ?`,
-        [
-          entry.item.name, entry.item.quantity, entry.item.unit, entry.item.caloriesKcal,
-          entry.item.proteinG, entry.item.carbohydrateG, entry.item.fatG, entry.item.fibreG,
-          entry.source, entry.confidence, entry.originalSource, entry.originalConfidence,
-          entry.isUserEdited ? 1 : 0, now, now, entry.item.id,
-        ],
-      );
+      if (entry.current) {
+        await db.runAsync(
+          `UPDATE food_items SET sort_order = ?, name = ?, quantity = ?, unit = ?, calories_kcal = ?,
+            protein_g = ?, carbohydrate_g = ?, fat_g = ?, fibre_g = ?, source = ?,
+            confidence = ?, original_source = ?, original_confidence = ?, is_user_edited = ?,
+            deleted_at = NULL, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+          [
+            entry.sortOrder, entry.item.name, entry.item.quantity, entry.item.unit, entry.item.caloriesKcal,
+            entry.item.proteinG, entry.item.carbohydrateG, entry.item.fatG, entry.item.fibreG,
+            entry.source, entry.confidence, entry.originalSource, entry.originalConfidence,
+            entry.isUserEdited ? 1 : 0, now, now, entry.item.id,
+          ],
+        );
+      } else {
+        await db.runAsync(
+          `INSERT INTO food_items (
+            id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
+            carbohydrate_g, fat_g, fibre_g, source, confidence, original_source,
+            original_confidence, is_user_edited, created_at, updated_at, client_updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', NULL, 'manual', NULL, 1, ?, ?, ?)`,
+          [entry.item.id, mealId, entry.sortOrder, entry.item.name, entry.item.quantity,
+            entry.item.unit, entry.item.caloriesKcal, entry.item.proteinG,
+            entry.item.carbohydrateG, entry.item.fatG, entry.item.fibreG, now, now, now],
+        );
+      }
       await enqueueUpsert(db, 'food_items', entry.item.id, {
         id: entry.item.id,
         meal_id: mealId,
-        sort_order: entry.current.sort_order,
+        sort_order: entry.sortOrder,
         name: entry.item.name,
         quantity: entry.item.quantity,
         unit: entry.item.unit,
@@ -423,10 +434,35 @@ export async function updateMeal(
         original_source: entry.originalSource,
         original_confidence: entry.originalConfidence,
         is_user_edited: entry.isUserEdited,
-        created_at: entry.current.created_at,
+        created_at: entry.current?.created_at ?? now,
         client_updated_at: now,
         deleted_at: null,
       });
+    }
+    for (const item of removed) {
+      await db.runAsync(
+        `UPDATE food_items SET deleted_at = ?, updated_at = ?, client_updated_at = ? WHERE id = ?`,
+        [now, now, now, item.id],
+      );
+      await enqueueUpsert(db, 'food_items', item.id, tombstonePayload({
+        id: item.id,
+        meal_id: mealId,
+        sort_order: item.sort_order,
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        calories_kcal: item.calories_kcal,
+        protein_g: item.protein_g,
+        carbohydrate_g: item.carbohydrate_g,
+        fat_g: item.fat_g,
+        fibre_g: item.fibre_g,
+        source: item.source,
+        confidence: item.confidence,
+        original_source: item.original_source ?? item.source,
+        original_confidence: item.original_confidence ?? item.confidence,
+        is_user_edited: true,
+        created_at: item.created_at,
+      }, now));
     }
   });
 }

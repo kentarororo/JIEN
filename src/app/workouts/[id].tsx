@@ -11,7 +11,7 @@ import { formatShortDate, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function WorkoutDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, storageWarning } = useLocalSearchParams<{ id: string; storageWarning?: string }>();
   const router = useRouter();
   const db = useSQLiteContext();
   const { colors } = useJienTheme();
@@ -153,6 +153,12 @@ export default function WorkoutDetailScreen() {
   return (
     <Screen contentContainerStyle={styles.screenContent}>
       <ScreenHeading title={detail.title} eyebrow={`${formatShortDate(detail.completedAt ?? detail.performedOn)} · ${detail.completedAt ? formatTime(detail.completedAt) : 'completed'}`} />
+      {storageWarning === '1' ? (
+        <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
+          <AppText style={{ color: colors.warning, fontWeight: '800' }}>Workout captured; cloud recovery is in progress</AppText>
+          <AppText style={{ color: colors.textMuted }}>Safari could not refresh its local snapshot after the commit. JIEN retained the form draft and queued account sync—keep this tab open until the sync indicator clears.</AppText>
+        </Card>
+      ) : null}
       <Card style={styles.summary}>
         <View><AppText style={styles.metric}>{detail.setCount}</AppText><AppText style={{ color: colors.textMuted }}>sets</AppText></View>
         <View><AppText style={styles.metric}>{detail.exerciseCount}</AppText><AppText style={{ color: colors.textMuted }}>exercises</AppText></View>
@@ -204,6 +210,7 @@ export default function WorkoutDetailScreen() {
           <AppText style={{ color: colors.textMuted }}>Start from these exact set values. JIEN will show the smallest suggested change under the relevant set without altering the template.</AppText>
         </View>
         <View style={styles.actions}>
+          <Button label="Edit this workout" onPress={() => router.replace({ pathname: '/workouts/new', params: { editWorkoutId: detail.id } })} variant="secondary" />
           <Button label="Use as template" onPress={() => router.replace({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
           <Button label="Back to training" onPress={() => router.replace('/train')} variant="secondary" />
         </View>

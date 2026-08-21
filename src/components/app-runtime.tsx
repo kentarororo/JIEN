@@ -7,6 +7,7 @@ import { AppState, Platform } from 'react-native';
 
 import {
   getSupabaseClient,
+  externalizeLegacyMealPhotoPayloads,
   markNotificationDelivered,
   processPendingMealPhotoJobs,
   syncAccountData,
@@ -35,6 +36,7 @@ export function AppRuntime() {
     try {
       do {
         rerunRequested.current = false;
+        await externalizeLegacyMealPhotoPayloads(db).catch(() => undefined);
         await syncAccountData(db, { trigger }).catch(() => undefined);
         await Promise.allSettled([
           processPendingMealPhotoJobs(db),

@@ -11,6 +11,12 @@ working set contributes `1.0` weighted set to the primary muscle and `0.5` to ea
 tagged assisting muscle; warm-ups do not contribute. This makes bodyweight work
 visible even when its entered external load is zero.
 
+The controlled bodybuilding baseline distinguishes upper, middle, and lower traps;
+rhomboids; lats; spinal erectors; all three deltoid regions; rotator cuff; the major
+arm, chest, leg, hip, lower-leg, trunk, serratus, and neck groups. General upper-back
+and core tags remain available for movements where a narrower attribution would be
+false precision.
+
 The Training screen compares the latest logged ISO week with the previous logged
 week and also shows coverage across the latest four logged weeks. `load × reps` is
 shown only as descriptive work within a body part. It is never labelled strength,

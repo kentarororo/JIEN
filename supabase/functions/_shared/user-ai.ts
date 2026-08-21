@@ -79,12 +79,30 @@ export async function verifyGeminiApiKey(
   const timeout = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs ?? 8_000));
   try {
     const response = await (options.fetchImpl ?? fetch)(
-      `https://generativelanguage.googleapis.com/v1beta/models/${PERSONAL_GEMINI_MODEL}`,
-      { signal: controller.signal, headers: { 'x-goog-api-key': clean } },
+      `https://generativelanguage.googleapis.com/v1beta/models/${PERSONAL_GEMINI_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': clean },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Reply with OK only.' }] }],
+          generationConfig: {
+            maxOutputTokens: 8,
+            thinkingConfig: { thinkingLevel: 'minimal' },
+          },
+        }),
+      },
     );
-    if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'AI_KEY_INVALID' : 'AI_KEY_VERIFICATION_FAILED');
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) throw new Error('AI_KEY_INVALID');
+      if (response.status === 404) throw new Error('AI_MODEL_UNAVAILABLE');
+      if (response.status === 429) throw new Error('AI_KEY_QUOTA_EXCEEDED');
+      throw new Error('AI_KEY_VERIFICATION_FAILED');
+    }
   } catch (cause) {
     if (cause instanceof Error && cause.message === 'AI_KEY_INVALID') throw cause;
+    if (cause instanceof Error && cause.message === 'AI_MODEL_UNAVAILABLE') throw cause;
+    if (cause instanceof Error && cause.message === 'AI_KEY_QUOTA_EXCEEDED') throw cause;
     if (cause instanceof Error && cause.name === 'AbortError') throw new Error('AI_KEY_VERIFICATION_TIMEOUT');
     if (cause instanceof Error && cause.message === 'AI_KEY_VERIFICATION_FAILED') throw cause;
     throw new Error('AI_KEY_VERIFICATION_FAILED');

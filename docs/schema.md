@@ -6,7 +6,9 @@ account-safe starter exercise ownership in
 `supabase/migrations/20260814000100_account_ownership.sql` and editable meal
 provenance in `supabase/migrations/20260814000200_meal_edit_provenance.sql`.
 Calendar-backed workout plans are added by
-`supabase/migrations/20260815000100_planned_workouts.sql`.
+`supabase/migrations/20260815000100_planned_workouts.sql`. The expanded starter
+bodybuilding taxonomy is synchronized for existing accounts by
+`supabase/migrations/20260820000100_bodybuilding_muscle_taxonomy.sql`.
 
 ## Conventions
 
@@ -76,6 +78,13 @@ one primary muscle from optional assisting muscles. The columns remain text/text
 so future anatomy refinements do not require an enum migration. Analytics normalize
 legacy broad tags (for example `shoulders`) before applying one full primary-set
 credit and half secondary-set credit.
+
+The baseline bodybuilding taxonomy includes chest; upper chest; lats; general upper
+back; upper, middle, and lower traps; rhomboids; spinal erectors/lower back; front,
+side, and rear delts; rotator cuff; biceps; brachialis; triceps; forearms/grip;
+quadriceps; hamstrings; glutes; adductors; hip abductors; hip flexors; calves;
+tibialis anterior; abs; obliques; general core; serratus anterior; and neck. Broad
+legacy keys remain readable and normalize into this list.
 
 Starter exercise IDs are deliberately stable so workout templates remain portable
 between a user's devices. Their primary key is `(id, user_id)`, not globally unique
@@ -197,9 +206,11 @@ other devices.
 
 ### Local-only `meal_photo_jobs`
 
-Prepared meal photos can be queued in SQLite when the network, account, consent, or
-AI service is not ready. This device-only table stores the compressed image, typed
-context, bounded retry state, safe error details, and a strictly parsed result. It is
+Prepared meal photos can be queued when the network, account, consent, or AI service
+is not ready. Native builds retain the compressed image with this SQLite job. The web
+build stores only an account-scoped IndexedDB payload reference in SQLite so Safari
+does not copy multi-megabyte photos while serializing the workout database. This
+device-only queue stores typed context, bounded retry state, safe error details, and a strictly parsed result. It is
 not a Supabase table and is deliberately excluded from cloud row sync and portable
 exports. The raw image is cleared immediately after successful analysis; the result
 row is deleted after its editable food items are opened in a meal draft.
@@ -208,6 +219,10 @@ Automatic processing runs on startup, foreground, connectivity changes, and queu
 local-write signals. Processing claims are recoverable after five minutes, retries
 use bounded exponential delays, and repeated provider failures stop after five
 attempts until the user explicitly retries or discards the photo.
+
+Completed workouts and meals are editable from their itemized calendar records.
+Edits preserve row IDs, atomically add new rows, and sync tombstones for removed sets
+or food items so calendar totals and progression update without duplicating history.
 
 ### `nutrition_targets`
 

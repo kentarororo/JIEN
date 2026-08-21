@@ -17,7 +17,8 @@ a network service.
   Function through the tester's Vault-encrypted Gemini key, with an optional
   deployment-owned Gemini or Anthropic fallback. The compressed image
   stays in the account-scoped local retry queue and is not added to the durable meal
-  log by capture alone. Web images are capped at a snapshot-safe size. Capture or selection opens a review
+  log by capture alone. Web photo bytes use a separate account-scoped IndexedDB
+  payload store, rather than inflating the serialized SQLite history. Capture or selection opens a review
   sheet immediately; a successful analysis inserts every normalized result into the
   editable meal draft exactly once. Retryable failures retain the photo and context,
   and saved AI-derived items carry request provenance plus a completed AI status.
@@ -40,7 +41,8 @@ must remain attributed and logically distinguishable from proprietary datasets.
 ## Server configuration
 
 The client contains and stores no provider secret. Testers connect a personal key in
-Settings > AI connection; `ai-settings` verifies it server-side and stores it encrypted
+Settings > AI connection; `ai-settings` verifies it with a minimal real
+`generateContent` request—not just a model lookup—and stores it encrypted
 in Supabase Vault. Deployment owners may still configure `USDA_FDC_API_KEY`,
 `PHOTO_AI_PROVIDER`, and the selected provider pair (`GEMINI_API_KEY` plus
 `GEMINI_MODEL`, or `ANTHROPIC_API_KEY` plus `ANTHROPIC_MODEL`) as Supabase secrets and
@@ -58,3 +60,8 @@ No Google provider access token is sent to Gemini, and a Gemini/ChatGPT consumer
 subscription is unrelated to inference. A separate Gemini API key is required. JIEN
 allows 5 meal-photo calls per account per UTC day; Google separately controls free-tier
 quota and any project billing.
+
+Google responses are classified separately: 401/403 means the key/project did not
+permit generation, 404 means the selected model is unavailable, 429 means project
+quota is exhausted, and 400 means JIEN's request contract needs updating. The app
+must not describe all of these as a rejected key.

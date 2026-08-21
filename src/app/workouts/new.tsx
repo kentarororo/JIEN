@@ -13,13 +13,18 @@ import {
   getUserProfile,
   listExercises,
   saveWorkout,
+  updateWorkout,
   type Exercise,
   type LoadUnit,
   type WorkoutDetail,
 } from '@/lib/db';
+import { getAccountState } from '@/lib/auth';
+import { WebDatabaseDurabilityError } from '@/lib/db/main-thread-memory-database';
+import { announceQueuedLocalWrite } from '@/lib/db/write-sync-signal';
 import {
   buildSetProgressionPlan,
   MUSCLE_GROUP_OPTIONS,
+  MUSCLE_GROUP_SECTIONS,
   muscleGroupLabel,
   type ProgressionSet,
   type SetProgressionCue,
@@ -28,8 +33,13 @@ import {
 import { hasStoredJointConsideration } from '@/lib/planning/workout-plan';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
+import {
+  parseWorkoutDraft,
+  workoutDraftContext,
+  workoutDraftStorageKey,
+} from '@/lib/workout-draft';
 
-type DraftSet = { key: string; load: string; reps: string; rpe: string };
+type DraftSet = { key: string; id?: string; load: string; reps: string; rpe: string };
 type DraftExercise = {
   key: string;
   exerciseId: string;
@@ -39,7 +49,7 @@ type DraftExercise = {
 };
 
 const COMMON_EXERCISE_COUNT = 12;
-const newSet = (load = '', reps = '', rpe = ''): DraftSet => ({ key: Crypto.randomUUID(), load, reps, rpe });
+const newSet = (load = '', reps = '', rpe = '', id?: string): DraftSet => ({ key: Crypto.randomUUID(), id, load, reps, rpe });
 const newBlock = (exerciseId: string): DraftExercise => ({
   key: Crypto.randomUUID(),
   exerciseId,
@@ -52,8 +62,8 @@ const isRowEmpty = (set: DraftSet) => !set.load.trim() && !set.reps.trim() && !s
 export default function NewWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { templateWorkoutId, planWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; planWorkoutId?: string; date?: string }>();
-  const workoutIdRef = useRef(planWorkoutId ?? Crypto.randomUUID());
+  const { templateWorkoutId, planWorkoutId, editWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; planWorkoutId?: string; editWorkoutId?: string; date?: string }>();
+  const workoutIdRef = useRef(editWorkoutId ?? planWorkoutId ?? Crypto.randomUUID());
   const submitLockRef = useRef(false);
   const { width } = useWindowDimensions();
   const compact = width < 520;
@@ -68,6 +78,10 @@ export default function NewWorkoutScreen() {
   const [exerciseQueries, setExerciseQueries] = useState<Record<string, string>>({});
   const [exerciseBrowsers, setExerciseBrowsers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
+  const [editStartedAt, setEditStartedAt] = useState<string | null>(null);
+  const [draftOwnerUserId, setDraftOwnerUserId] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(process.env.EXPO_OS !== 'web');
+  const [draftRecovered, setDraftRecovered] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customNotes, setCustomNotes] = useState('');
@@ -81,7 +95,9 @@ export default function NewWorkoutScreen() {
       const [exercises, profile, template] = await Promise.all([
         listExercises(db),
         getUserProfile(db),
-        templateWorkoutId || planWorkoutId ? getWorkoutDetail(db, planWorkoutId ?? templateWorkoutId!) : Promise.resolve(null),
+        templateWorkoutId || planWorkoutId || editWorkoutId
+          ? getWorkoutDetail(db, editWorkoutId ?? planWorkoutId ?? templateWorkoutId!)
+          : Promise.resolve(null),
       ]);
       setCatalog(exercises);
       setJointProgressionHold(hasStoredJointConsideration(profile?.injuryFlags));
@@ -90,16 +106,70 @@ export default function NewWorkoutScreen() {
       else if (profile) setUnit(profile.preferredLoadUnit);
       if (template) {
         setTitle(template.title);
-        setBlocks(template.status === 'planned' ? blocksFromPlan(template) : blocksFromTemplate(template));
+        setEditStartedAt(editWorkoutId ? template.completedAt : null);
+        setBlocks(template.status === 'planned'
+          ? blocksFromPlan(template)
+          : editWorkoutId ? blocksFromEdit(template) : blocksFromTemplate(template));
       } else {
         setBlocks((current) => current.length ? current : [newBlock(exercises[0]?.id ?? '')]);
       }
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Could not load exercises.');
     }
-  }, [db, planWorkoutId, templateWorkoutId]);
+  }, [db, editWorkoutId, planWorkoutId, templateWorkoutId]);
 
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
+
+  const draftContext = useMemo(() => workoutDraftContext({ date, templateWorkoutId, planWorkoutId, editWorkoutId }), [date, editWorkoutId, planWorkoutId, templateWorkoutId]);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web') return;
+    void getAccountState().then((account) => {
+      setDraftOwnerUserId(account.configured ? account.user?.id ?? null : null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web' || !catalog || !draftOwnerUserId || draftReady) return;
+    const recovered = parseWorkoutDraft(
+      globalThis.localStorage?.getItem(workoutDraftStorageKey(draftOwnerUserId, draftContext)) ?? null,
+      draftOwnerUserId,
+      draftContext,
+    );
+    if (recovered) {
+      workoutIdRef.current = recovered.workoutId;
+      setTitle(recovered.title);
+      setUnit(recovered.unit);
+      setEditStartedAt(recovered.startedAt);
+      setBlocks(recovered.blocks.map((block) => ({
+        key: Crypto.randomUUID(),
+        exerciseId: block.exerciseId,
+        sets: block.sets.map((set) => newSet(set.load, set.reps, set.rpe, set.id)),
+        progression: null,
+        sourceSets: null,
+      })));
+      setDraftRecovered(true);
+    }
+    setDraftReady(true);
+  }, [catalog, draftContext, draftOwnerUserId, draftReady]);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'web' || !draftReady || !draftOwnerUserId || blocks.length === 0) return;
+    globalThis.localStorage?.setItem(workoutDraftStorageKey(draftOwnerUserId, draftContext), JSON.stringify({
+      version: 1,
+      ownerUserId: draftOwnerUserId,
+      workoutId: workoutIdRef.current,
+      context: draftContext,
+      title,
+      unit,
+      startedAt: editStartedAt,
+      updatedAt: new Date().toISOString(),
+      blocks: blocks.map((block) => ({
+        exerciseId: block.exerciseId,
+        sets: block.sets.map(({ id, load, reps, rpe }) => ({ id, load, reps, rpe })),
+      })),
+    }));
+  }, [blocks, draftContext, draftOwnerUserId, draftReady, editStartedAt, title, unit]);
 
   const updateProgression = useCallback(async (blockKey: string, exerciseId: string, sourceSets: ProgressionSet[] | null) => {
     const exercise = catalog?.find((item) => item.id === exerciseId);
@@ -209,6 +279,7 @@ export default function NewWorkoutScreen() {
             throw new Error(`${exercise.name}, set ${index + 1}: enter both load and reps.`);
           }
           return {
+            id: set.id,
             loadValue: Number(set.load),
             reps: Number(set.reps),
             rpe: set.rpe.trim() ? Number(set.rpe) : null,
@@ -228,13 +299,26 @@ export default function NewWorkoutScreen() {
       ))) {
         throw new Error('Use a non-negative load, whole-number reps, and optional RPE from 1–10.');
       }
-      const startedAt = planWorkoutId ? new Date().toISOString() : date ? localTimestampForDate(date) : new Date().toISOString();
-      const id = planWorkoutId
+      const startedAt = editWorkoutId && editStartedAt
+        ? editStartedAt
+        : planWorkoutId ? new Date().toISOString() : date ? localTimestampForDate(date) : new Date().toISOString();
+      const id = editWorkoutId
+        ? await updateWorkout(db, editWorkoutId, { id: workoutIdRef.current, title, startedAt, exercises })
+        : planWorkoutId
         ? await completePlannedWorkout(db, planWorkoutId, { id: workoutIdRef.current, title, startedAt, exercises })
         : await saveWorkout(db, { id: workoutIdRef.current, title, startedAt, exercises });
       saved = true;
+      if (process.env.EXPO_OS === 'web' && draftOwnerUserId) {
+        globalThis.localStorage?.removeItem(workoutDraftStorageKey(draftOwnerUserId, draftContext));
+      }
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
+      if (cause instanceof WebDatabaseDurabilityError && cause.committed) {
+        announceQueuedLocalWrite();
+        saved = true;
+        router.replace({ pathname: '/workouts/[id]', params: { id: workoutIdRef.current, storageWarning: '1' } });
+        return;
+      }
       const message = cause instanceof Error ? cause.message : 'Please check the sets and try again.';
       setFormError(message);
       if (process.env.EXPO_OS !== 'web') Alert.alert('Workout not saved', message);
@@ -252,6 +336,7 @@ export default function NewWorkoutScreen() {
   return (
     <Screen contentContainerStyle={styles.screenContent}>
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
+      {draftRecovered ? <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}><AppText style={{ color: colors.success, fontWeight: '800' }}>Recovered your unfinished workout</AppText><AppText style={{ color: colors.textMuted }}>Your exercise, set, rep, load, and RPE entries were restored from this account’s browser draft.</AppText></Card> : null}
       <View style={[styles.sessionFields, !compact && styles.sessionFieldsWide]}>
         <Field label="Session name" value={title} onChangeText={setTitle} returnKeyType="done" containerStyle={styles.flex} />
         <View style={styles.unitGroup}>
@@ -260,10 +345,10 @@ export default function NewWorkoutScreen() {
         </View>
       </View>
 
-      {templateWorkoutId || planWorkoutId ? (
+      {templateWorkoutId || planWorkoutId || editWorkoutId ? (
         <View style={[styles.templateBanner, { backgroundColor: colors.successSoft }]}>
-          <AppText style={styles.suggestionTitle}>{planWorkoutId ? 'Planned session started' : 'Next session prepared'}</AppText>
-          <AppText style={{ color: colors.textMuted }}>Every load and rep starts exactly where this completed session left off. Green suggestions are optional and never overwrite your fields.</AppText>
+          <AppText style={styles.suggestionTitle}>{editWorkoutId ? 'Editing completed workout' : planWorkoutId ? 'Planned session started' : 'Next session prepared'}</AppText>
+          <AppText style={{ color: colors.textMuted }}>{editWorkoutId ? 'Changes update this calendar entry and its progression totals.' : 'Every load and rep starts exactly where this completed session left off. Green suggestions are optional and never overwrite your fields.'}</AppText>
         </View>
       ) : null}
 
@@ -402,19 +487,19 @@ export default function NewWorkoutScreen() {
             <Field label="Short description (optional)" placeholder="Machine, grip, setup, or cue" value={customNotes} onChangeText={setCustomNotes} multiline />
             <View style={styles.customForm}>
               <View><AppText style={styles.label}>Primary muscle</AppText><AppText style={{ color: colors.textMuted }}>Gets one full working-set credit in the body-part dashboard.</AppText></View>
-              <View style={styles.searchResults}>{MUSCLE_GROUP_OPTIONS.map((group) => <Pill key={group.value} label={group.label} active={customMuscle === group.value} onPress={() => { setCustomMuscle(group.value); setCustomSecondaryMuscles((current) => current.filter((item) => item !== group.value)); }} />)}</View>
+              {MUSCLE_GROUP_SECTIONS.map((section) => <View key={section} style={styles.muscleSection}><AppText style={[styles.muscleSectionLabel, { color: colors.textMuted }]}>{section}</AppText><View style={styles.searchResults}>{MUSCLE_GROUP_OPTIONS.filter((group) => group.section === section).map((group) => <Pill key={group.value} label={group.label} active={customMuscle === group.value} onPress={() => { setCustomMuscle(group.value); setCustomSecondaryMuscles((current) => current.filter((item) => item !== group.value)); }} />)}</View></View>)}
             </View>
             <View style={styles.customForm}>
               <View><AppText style={styles.label}>Secondary muscles (optional)</AppText><AppText style={{ color: colors.textMuted }}>Each selected assisting muscle gets half-set credit.</AppText></View>
-              <View style={styles.searchResults}>{MUSCLE_GROUP_OPTIONS.filter((group) => group.value !== customMuscle).map((group) => <Pill key={group.value} label={group.label} active={customSecondaryMuscles.includes(group.value)} onPress={() => setCustomSecondaryMuscles((current) => current.includes(group.value) ? current.filter((item) => item !== group.value) : [...current, group.value])} />)}</View>
+              {MUSCLE_GROUP_SECTIONS.map((section) => <View key={section} style={styles.muscleSection}><AppText style={[styles.muscleSectionLabel, { color: colors.textMuted }]}>{section}</AppText><View style={styles.searchResults}>{MUSCLE_GROUP_OPTIONS.filter((group) => group.section === section && group.value !== customMuscle).map((group) => <Pill key={group.value} label={group.label} active={customSecondaryMuscles.includes(group.value)} onPress={() => setCustomSecondaryMuscles((current) => current.includes(group.value) ? current.filter((item) => item !== group.value) : [...current, group.value])} />)}</View></View>)}
             </View>
             <Button label="Save and use exercise" onPress={() => void addCustomExercise()} busy={customSaving} />
           </View>
         ) : null}
       </Card>
 
-      <SectionHeading title="Finish" detail={planWorkoutId ? 'Completing this session replaces the calendar plan with the work you actually did.' : 'Blank rows are ignored. Your completed sets save to this device first.'} />
-      <Button label={planWorkoutId ? 'Complete planned workout' : 'Save completed workout'} onPress={() => void submit()} busy={saving} />
+      <SectionHeading title="Finish" detail={editWorkoutId ? 'Removed sets are removed from progression totals; new sets are added to this same session.' : planWorkoutId ? 'Completing this session replaces the calendar plan with the work you actually did.' : 'Blank rows are ignored. Your completed sets save to this device first.'} />
+      <Button label={editWorkoutId ? 'Save workout changes' : planWorkoutId ? 'Complete planned workout' : 'Save completed workout'} onPress={() => void submit()} busy={saving} />
     </Screen>
   );
 }
@@ -447,6 +532,8 @@ const styles = StyleSheet.create({
   resultName: { fontWeight: '700' },
   noResult: { padding: spacing.md },
   searchResults: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  muscleSection: { gap: spacing.xs },
+  muscleSectionLabel: { ...typography.caption, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   range: { paddingHorizontal: spacing.md },
   suggestion: { marginHorizontal: spacing.md, padding: spacing.sm, borderRadius: radii.control, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   suggestionCopy: { flex: 1, gap: spacing.xxs },
@@ -487,7 +574,7 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
       progression: null,
       sourceSets: [],
     };
-    block.sets.push(newSet(String(set.loadValue), String(set.reps)));
+    block.sets.push(newSet(String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe)));
     block.sourceSets?.push({
       loadValue: set.loadValue,
       loadUnit: set.loadUnit,
@@ -495,6 +582,20 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
       rpe: set.rpe,
       kind: set.kind,
     });
+    grouped.set(set.exerciseId, block);
+  });
+  return [...grouped.values()];
+}
+
+function blocksFromEdit(template: WorkoutDetail): DraftExercise[] {
+  const grouped = new Map<string, DraftExercise>();
+  template.sets.filter((set) => set.kind === 'working').forEach((set) => {
+    const block = grouped.get(set.exerciseId) ?? {
+      key: Crypto.randomUUID(), exerciseId: set.exerciseId, sets: [], progression: null, sourceSets: null,
+    };
+    block.sets.push(newSet(
+      String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe), set.id,
+    ));
     grouped.set(set.exerciseId, block);
   });
   return [...grouped.values()];

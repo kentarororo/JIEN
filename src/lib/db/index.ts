@@ -24,6 +24,7 @@ export type {
 export {
   consumeQueuedMealPhotoResult,
   discardQueuedMealPhoto,
+  externalizeLegacyMealPhotoPayloads,
   getMealPhotoQueueSummary,
   getQueuedMealPhotoResult,
   processPendingMealPhotoJobs,
@@ -85,6 +86,7 @@ export {
   listVolumeHistory,
   listWorkoutExportRows,
   saveWorkout,
+  updateWorkout,
   savePlannedWorkout,
   skipPlannedWorkout,
 } from './workouts';
