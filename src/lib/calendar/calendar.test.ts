@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { buildMonthGrid, moveMonth, moveMonthSelection } from './index.ts';
+import { buildMonthGrid, calendarSelectionForDate, moveMonth, moveMonthSelection } from './index.ts';
+
+const todayScreen = () => readFileSync(new URL('../../app/(tabs)/today.tsx', import.meta.url), 'utf8');
 
 test('builds a stable six-week Monday-first month grid', () => {
   const cells = buildMonthGrid(new Date(2026, 7, 1), new Date(2026, 7, 14));
@@ -24,4 +27,26 @@ test('keeps calendar selection inside the newly visible month', () => {
 
   const january = moveMonthSelection(new Date(2026, 11, 1), '2026-12-14', 1);
   assert.equal(january.dateKey, '2027-01-14');
+});
+
+test('an adjacent-month day moves the visible calendar with the selection', () => {
+  const selection = calendarSelectionForDate('2026-09-01');
+  assert.equal(selection?.dateKey, '2026-09-01');
+  assert.equal(selection?.month.getFullYear(), 2026);
+  assert.equal(selection?.month.getMonth(), 8);
+  assert.equal(selection?.month.getDate(), 1);
+  assert.equal(calendarSelectionForDate('2026-02-31'), null);
+  assert.equal(calendarSelectionForDate('not-a-date'), null);
+});
+
+test('the calendar day workspace keeps itemized training and food edit routes date-aware', () => {
+  const source = todayScreen();
+  assert.match(source, /pathname: '\/workouts\/new', params: \{ date: selectedDate \}/);
+  assert.match(source, /pathname: '\/meals\/new', params: \{ date: selectedDate \}/);
+  assert.match(source, /pathname: '\/workouts\/\[id\]'/);
+  assert.match(source, /href=\{`\/meals\/\$\{meal\.id\}` as Href\}/);
+  assert.match(source, /Review · Edit/);
+  assert.match(source, /Loading this day’s records/);
+  assert.match(source, /CalendarLegendItem/);
+  assert.match(source, /selectedRecordCompact/);
 });
