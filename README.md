@@ -38,14 +38,15 @@ accounts and cloud sync. Logging and exports continue to work without them.
 Google login is optional and uses Supabase Auth with PKCE. In Google Auth Platform,
 create a **Web application** OAuth client with:
 
-- authorized JavaScript origin: `https://kentarororo.github.io`
+- authorized JavaScript origin: your Vercel production origin, for example
+  `https://jien.vercel.app`
 - authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`
 
 Enable Google in **Supabase > Authentication > Providers**, then paste the client ID
 and secret there. The secret is server-side configuration and must never be placed in
 an `EXPO_PUBLIC_*` variable. Add these Supabase redirect allow-list entries:
 
-- `https://kentarororo.github.io/JIEN/`
+- `https://<your-vercel-project>.vercel.app/**`
 - `http://localhost:8081/`
 - `jien://auth/callback`
 
@@ -58,9 +59,8 @@ optional Supabase function is configured; barcode lookup falls back safely to Op
 Food Facts. Consent-gated meal-photo analysis remains a Supabase Edge Function. The
 provider boundaries and server-only setup are documented in [docs/food-data.md](docs/food-data.md)
 and [supabase/functions/README.md](supabase/functions/README.md).
-For GitHub Pages, add the same two public Supabase values as repository secrets when
-you are ready to enable sign-in and AI features. Local food search and manual logging
-remain available without them.
+For Vercel, add the same two public Supabase values as project environment variables.
+Local food search and manual logging remain available without them on supported hosts.
 
 Useful checks:
 
@@ -93,14 +93,23 @@ pnpm exec expo run:ios
 pnpm exec expo run:android
 ```
 
-## GitHub Pages test build
+## Web deployment
 
-Pushes to `main` run the Pages workflow and publish the static Expo build at
-`https://kentarororo.github.io/JIEN/`. The build uses Expo Router's `/JIEN` base URL.
-Because GitHub Pages cannot set the cross-origin isolation headers required by
-Expo SQLite's alpha web worker, the tester runs Expo's bundled wa-sqlite directly
-in main-thread memory and commits serialized database images to account-scoped
-IndexedDB. It does not use OPFS, `SharedArrayBuffer`, a service worker, or a Web
-Worker. Google sign-in happens before the database opens; completed SQLite
-transactions are durable across refreshes and sync to Supabase when online. Native
-builds continue to use persistent Expo SQLite.
+Functional web testing must use a host that can set the cross-origin isolation
+headers required by Expo SQLite. `vercel.json` configures those headers, runs the
+production export, and publishes `dist`:
+
+1. Import this GitHub repository into Vercel.
+2. Add `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` as
+   Production and Preview environment variables.
+3. Deploy, then add the resulting Vercel URL to the Supabase redirect allow-list and
+   Google OAuth authorized JavaScript origins described above.
+
+Do not set `EXPO_PUBLIC_BASE_URL` in Vercel. The production build uses the root path.
+The post-export check verifies the SQLite worker, compiles its WASM binary, moves it
+to a stable public asset URL, and content-hashes the repaired worker and entry bundles.
+
+GitHub Pages remains useful only as a pointer. It cannot set the required COOP/COEP
+headers, so JIEN now refuses to mount SQLite there and shows
+`CROSS_ORIGIN_ISOLATION_REQUIRED` instead of risking an iPhone Safari WASM crash.
+Native builds continue to use persistent Expo SQLite.

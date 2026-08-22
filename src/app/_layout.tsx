@@ -68,7 +68,7 @@ function firstParam(value: string | string[] | undefined): string | null {
 function DatabaseApp() {
   const database = (
     <SQLiteProvider
-      databaseName={Platform.OS === 'web' ? ':memory:' : 'jien.db'}
+      databaseName="jien.db"
       onError={Platform.OS === 'web' ? reportWebSQLiteProviderError : undefined}
       onInit={migrateDatabase}
     >
@@ -82,13 +82,9 @@ function DatabaseApp() {
     </SQLiteProvider>
   );
 
-  return (
-    <WebSQLiteGate>
-      {Platform.OS === 'web'
-        ? <WebSQLiteProviderErrorBoundary>{database}</WebSQLiteProviderErrorBoundary>
-        : database}
-    </WebSQLiteGate>
-  );
+  return Platform.OS === 'web'
+    ? <WebSQLiteProviderErrorBoundary>{database}</WebSQLiteProviderErrorBoundary>
+    : database;
 }
 
 export default function RootLayout() {
@@ -126,7 +122,7 @@ export default function RootLayout() {
     <AppErrorBoundary>
       {callbackRequest
         ? <OAuthCallbackCompletion request={callbackRequest} />
-        : <WebAuthGate><DatabaseApp /></WebAuthGate>}
+        : <WebSQLiteGate><WebAuthGate><DatabaseApp /></WebAuthGate></WebSQLiteGate>}
     </AppErrorBoundary>
   );
 }

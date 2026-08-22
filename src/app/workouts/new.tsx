@@ -19,8 +19,6 @@ import {
   type WorkoutDetail,
 } from '@/lib/db';
 import { getAccountState } from '@/lib/auth';
-import { WebDatabaseDurabilityError } from '@/lib/db/main-thread-memory-database';
-import { announceQueuedLocalWrite } from '@/lib/db/write-sync-signal';
 import {
   buildSetProgressionPlan,
   MUSCLE_GROUP_OPTIONS,
@@ -334,12 +332,6 @@ export default function NewWorkoutScreen() {
       }
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
-      if (cause instanceof WebDatabaseDurabilityError && cause.committed) {
-        announceQueuedLocalWrite();
-        saved = true;
-        router.replace({ pathname: '/workouts/[id]', params: { id: workoutIdRef.current, storageWarning: '1' } });
-        return;
-      }
       const message = cause instanceof Error ? cause.message : 'Please check the sets and try again.';
       setFormError(message);
       if (process.env.EXPO_OS !== 'web') Alert.alert('Workout not saved', message);

@@ -1,4 +1,5 @@
 import { useSQLiteContext } from '@/lib/db/database-context';
+import type { SQLiteDatabase } from 'expo-sqlite';
 import { useCallback, useEffect, useState, type PropsWithChildren } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 
@@ -11,7 +12,6 @@ import {
   syncAccountData,
   type AccountSyncResult,
 } from '@/lib/db';
-import { MainThreadMemoryDatabase } from '@/lib/db/main-thread-memory-database';
 import { canOpenCachedWebDatabase, hydrationCopy } from '@/lib/web-cloud-hydration';
 import { spacing } from '@/theme';
 
@@ -27,12 +27,15 @@ function WebCloudHydrationGateContent({ children }: PropsWithChildren) {
     setState({ result: null, canOpen: false, error: null });
     try {
       const result = await syncAccountData(db, { trigger: 'auth_state_change' });
-      const webDatabase = db as unknown as MainThreadMemoryDatabase;
+      const webDatabase = db as SQLiteDatabase & {
+        resumePersistenceAsync?: () => Promise<void>;
+        readonly requiresCloudRebuild?: boolean;
+      };
       // Older snapshots may contain large inline photos. Move them to the
       // account-scoped payload store before creating the first durable image.
       await externalizeLegacyMealPhotoPayloads(db);
       if (result.state === 'synced') {
-        await webDatabase.resumePersistenceAsync();
+        await webDatabase.resumePersistenceAsync?.();
         setState({ result, canOpen: true, error: null });
         return;
       }
@@ -46,9 +49,9 @@ function WebCloudHydrationGateContent({ children }: PropsWithChildren) {
         authenticatedUserId: account.user?.id ?? null,
         localOwnerUserId,
         hasCompletedProfile: completedProfile,
-        requiresCloudRebuild: webDatabase.requiresCloudRebuild,
+        requiresCloudRebuild: webDatabase.requiresCloudRebuild === true,
       });
-      if (canOpen) await webDatabase.resumePersistenceAsync();
+      if (canOpen) await webDatabase.resumePersistenceAsync?.();
       setState({ result, canOpen, error: null });
     } catch {
       setState({ result: null, canOpen: false, error: 'Local recovery could not be completed safely. Refresh JIEN, then try again.' });

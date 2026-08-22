@@ -3,82 +3,73 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const layout = readFileSync(new URL('../src/app/_layout.tsx', import.meta.url), 'utf8');
-const gate = readFileSync(
-  new URL('../src/components/web-sqlite-gate.tsx', import.meta.url),
+const gate = readFileSync(new URL('../src/components/web-sqlite-gate.tsx', import.meta.url), 'utf8');
+const webProvider = readFileSync(new URL('../src/lib/db/database-context.web.tsx', import.meta.url), 'utf8');
+const metro = readFileSync(new URL('../metro.config.js', import.meta.url), 'utf8');
+const webFinalizer = readFileSync(new URL('./finalize-web-build.mjs', import.meta.url), 'utf8');
+const pagesHostFinalizer = readFileSync(
+  new URL('./finalize-pages-host-build.mjs', import.meta.url),
   'utf8',
 );
-const webProvider = readFileSync(
-  new URL('../src/lib/db/database-context.web.tsx', import.meta.url),
-  'utf8',
-);
-const snapshotStore = readFileSync(
-  new URL('../src/lib/db/web-database-snapshot.ts', import.meta.url),
-  'utf8',
-);
-const databaseRecovery = readFileSync(
-  new URL('../src/lib/db/web-database-recovery.ts', import.meta.url),
-  'utf8',
-);
-const html = readFileSync(new URL('../src/app/+html.tsx', import.meta.url), 'utf8');
+const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 const photoPayloadStore = readFileSync(new URL('../src/lib/db/meal-photo-payload.web.ts', import.meta.url), 'utf8');
 const photoQueue = readFileSync(new URL('../src/lib/db/meal-photo-queue.ts', import.meta.url), 'utf8');
+const workoutLogger = readFileSync(new URL('../src/app/workouts/new.tsx', import.meta.url), 'utf8');
 
-test('web startup has one SQLite owner instead of a preflight connection', () => {
-  assert.doesNotMatch(gate, /openDatabaseAsync/);
+test('web startup has one official Expo SQLite owner', () => {
   assert.equal(layout.match(/<SQLiteProvider\b/g)?.length, 1);
-  assert.doesNotMatch(layout, /useSuspense/);
+  assert.match(layout, /databaseName="jien\.db"/);
+  assert.match(webProvider, /from 'expo-sqlite'/);
+  assert.doesNotMatch(webProvider, /WaSQLiteFactory|MemoryVFS|deserialize|serialize/);
+  assert.doesNotMatch(workoutLogger, /main-thread-memory-database|WebDatabaseDurabilityError/);
 });
 
 test('the provider installs the page lifecycle before app database consumers', () => {
   const lifecycleIndex = layout.indexOf('<WebSQLiteDatabaseLifecycle />');
   const runtimeIndex = layout.indexOf('<AppRuntime />');
-
   assert.notEqual(lifecycleIndex, -1);
   assert.ok(lifecycleIndex < runtimeIndex);
 });
 
-test('web startup does not request OPFS, workers, or cross-origin isolation', () => {
-  assert.doesNotMatch(gate, /BroadcastChannel/);
-  assert.doesNotMatch(gate, /navigator\.locks/);
-  assert.match(layout, /Platform\.OS === 'web' \? ':memory:' : 'jien\.db'/);
-  assert.doesNotMatch(gate, /webSQLiteWorkerRegistry/);
-  assert.doesNotMatch(gate, /ISOLATION_TIMEOUT|SharedArrayBuffer|crossOriginIsolated/);
+test('web refuses to mount SQLite without the host isolation contract', () => {
+  assert.match(gate, /crossOriginIsolated === true/);
+  assert.match(gate, /SharedArrayBuffer/);
+  assert.match(gate, /CROSS_ORIGIN_ISOLATION_REQUIRED/);
   assert.match(gate, /addEventListener\('pagehide'/);
   assert.match(gate, /addEventListener\('pageshow'/);
   assert.match(gate, /event\.persisted/);
 });
 
+test('Vercel supplies Expo SQLite cross-origin isolation headers', () => {
+  const headers = Object.fromEntries(vercel.headers[0].headers.map(({ key, value }) => [key, value]));
+  assert.equal(headers['Cross-Origin-Opener-Policy'], 'same-origin');
+  assert.equal(headers['Cross-Origin-Embedder-Policy'], 'credentialless');
+  assert.equal(vercel.outputDirectory, 'dist');
+  assert.equal(vercel.buildCommand, 'pnpm run web:build');
+  assert.doesNotMatch(metro, /@jien\/wa-sqlite|resolveRequest/);
+  assert.match(metro, /assetExts\.push\('wasm'\)/);
+  assert.match(webFinalizer, /assets', 'jien-sqlite/);
+  assert.match(webFinalizer, /WebAssembly\.compile/);
+});
+
+test('GitHub Pages publishes a safe host-requirements screen instead of SQLite', () => {
+  assert.match(packageJson.scripts['pages:build'], /finalize-pages-host-build\.mjs/);
+  assert.match(pagesHostFinalizer, /CROSS_ORIGIN_ISOLATION_REQUIRED/);
+  assert.match(pagesHostFinalizer, /\.nojekyll/);
+  assert.doesNotMatch(packageJson.scripts['pages:build'], /finalize-pages-build\.mjs/);
+});
+
 test('web authenticates and hydrates before database consumers render', () => {
-  assert.match(layout, /<WebAuthGate><DatabaseApp \/><\/WebAuthGate>/);
+  assert.match(layout, /<WebSQLiteGate><WebAuthGate><DatabaseApp \/><\/WebAuthGate><\/WebSQLiteGate>/);
   assert.ok(layout.indexOf('<WebCloudHydrationGate>') < layout.indexOf('<AppRuntime />'));
   assert.ok(layout.indexOf('callbackRequest') < layout.indexOf('<WebAuthGate>'));
 });
 
-test('web SQLite uses a main-thread working database with account-scoped snapshots', () => {
-  assert.match(webProvider, /WaSQLiteFactory/);
-  assert.match(webProvider, /MemoryVFS/);
-  assert.match(webProvider, /WebDatabaseSnapshotStore\.open\(ownerUserId\)/);
-  assert.doesNotMatch(webProvider, /sqlite\.deserialize|sqlite\.serialize/);
-  assert.match(webProvider, /snapshotDatabase/);
-  assert.match(webProvider, /DATABASE_PATH = 'jien\.db'/);
-  assert.match(webProvider, /restoreOrCreateDatabaseEngine/);
-  assert.match(databaseRecovery, /candidate\?\.dispose\(\)/);
-  assert.match(databaseRecovery, /throw new WebDatabaseReloadRequiredError/);
-  assert.ok(databaseRecovery.indexOf('candidate?.dispose()') < databaseRecovery.indexOf('throw new WebDatabaseReloadRequiredError'));
-  assert.match(snapshotStore, /indexedDB\.open/);
-  assert.match(snapshotStore, /jien-web-sqlite-v1/);
-  assert.doesNotMatch(webProvider, /AccessHandlePoolVFS|SharedArrayBuffer|new Worker/);
-  assert.doesNotMatch(html, /coi-serviceworker/);
-  assert.match(gate, /retireLegacyIsolationServiceWorker/);
-  assert.match(gate, /registration\.unregister\(\)/);
-});
-
-test('large retryable meal photos are outside the serialized SQLite snapshot on web', () => {
+test('large retryable meal photos remain outside SQLite on web', () => {
   assert.match(photoPayloadStore, /jien-web-photo-payload-v1:/);
   assert.match(photoPayloadStore, /ownerUserId/);
   assert.match(photoQueue, /storeMealPhotoPayload/);
   assert.match(photoQueue, /externalizeLegacyMealPhotoPayloads/);
   assert.match(photoQueue, /resolveMealPhotoPayload/);
-  assert.match(photoQueue, /withDeferredPersistenceAsync/);
-  assert.match(readFileSync(new URL('../src/lib/db/main-thread-memory-database.ts', import.meta.url), 'utf8'), /directExecAsync\('VACUUM'\)/);
 });

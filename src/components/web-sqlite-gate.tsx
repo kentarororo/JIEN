@@ -36,6 +36,8 @@ export function WebSQLiteGate({ children }: PropsWithChildren) {
 }
 
 function WebSQLiteGateContent({ children }: PropsWithChildren) {
+  const hostSupportsSQLite = globalThis.crossOriginIsolated === true
+    && typeof globalThis.SharedArrayBuffer !== 'undefined';
   const lifecycle = useRef<WebSQLitePageLifecycle | null>(null);
   if (!lifecycle.current) {
     lifecycle.current = createWebSQLitePageLifecycle({
@@ -56,27 +58,48 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    const closeMemoryDatabase = () => {
+    const closeDatabaseForTransition = () => {
       try { lifecycle.current?.closeForPageTransition(); }
-      catch (error) { console.error('Failed to close web SQLite memory database', error); }
+      catch (error) { console.error('Failed to close web SQLite database', error); }
     };
-    const restoreMemoryDatabase = (event: PageTransitionEvent) => {
+    const restoreDatabaseAfterTransition = (event: PageTransitionEvent) => {
       if (event.persisted) lifecycle.current?.restoreAfterPageTransition();
     };
-    window.addEventListener('pagehide', closeMemoryDatabase);
-    window.addEventListener('pageshow', restoreMemoryDatabase);
+    window.addEventListener('pagehide', closeDatabaseForTransition);
+    window.addEventListener('pageshow', restoreDatabaseAfterTransition);
 
     return () => {
-      window.removeEventListener('pagehide', closeMemoryDatabase);
-      window.removeEventListener('pageshow', restoreMemoryDatabase);
-      closeMemoryDatabase();
+      window.removeEventListener('pagehide', closeDatabaseForTransition);
+      window.removeEventListener('pageshow', restoreDatabaseAfterTransition);
+      closeDatabaseForTransition();
     };
   }, []);
+
+  if (!hostSupportsSQLite) return <WebSQLiteHostRequirementsPanel />;
 
   return (
     <WebSQLiteOwnershipContext.Provider value={{ registerDatabaseCloser }}>
       {children}
     </WebSQLiteOwnershipContext.Provider>
+  );
+}
+
+function WebSQLiteHostRequirementsPanel() {
+  const colorScheme = useColorScheme();
+  const { colors } = resolveTheme(colorScheme);
+  return (
+    <View style={[styles.screen, { backgroundColor: colors.canvas }]}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.eyebrow, { color: colors.accent }]}>WEB HOST CHECK</Text>
+        <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
+          This preview host cannot run JIEN safely
+        </Text>
+        <Text style={[styles.body, { color: colors.textMuted }]}>
+          GitHub Pages cannot provide the browser isolation headers required by Expo SQLite. Use JIEN&apos;s Vercel preview once deployment completes. No local data was removed.
+        </Text>
+        <Text selectable style={[styles.code, { color: colors.warning }]}>Host code: CROSS_ORIGIN_ISOLATION_REQUIRED</Text>
+      </View>
+    </View>
   );
 }
 
