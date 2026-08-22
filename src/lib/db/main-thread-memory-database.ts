@@ -16,7 +16,10 @@ export type MainThreadSQLiteApi = {
   step: (statement: number) => Promise<number>;
 };
 
-export type MainThreadMemoryVfs = { close: () => void };
+export type MainThreadMemoryVfs = {
+  close: () => void;
+  snapshotDatabase?: () => Uint8Array | null;
+};
 
 export type MainThreadDatabasePersistence = {
   save: (bytes: Uint8Array) => Promise<void>;
@@ -54,6 +57,7 @@ function rowObject(columns: string[], values: unknown[]): Record<string, unknown
 }
 
 export class MainThreadMemoryDatabase {
+  readonly recommendedJournalMode = 'DELETE';
   private closed = false;
   private transactionDepth = 0;
   private readonly sqlite: MainThreadSQLiteApi;
@@ -232,7 +236,8 @@ export class MainThreadMemoryDatabase {
     if (this.durabilityFailure) throw this.durabilityFailure;
     let image: Uint8Array | null;
     try {
-      image = this.sqlite.serialize(this.pointer, 'main');
+      image = this.vfs.snapshotDatabase?.()
+        ?? this.sqlite.serialize(this.pointer, 'main');
     } catch (cause) {
       this.durabilityFailure = new WebDatabaseDurabilityError(cause);
       throw this.durabilityFailure;

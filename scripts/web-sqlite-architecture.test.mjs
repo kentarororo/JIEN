@@ -58,10 +58,13 @@ test('web SQLite uses a main-thread working database with account-scoped snapsho
   assert.match(webProvider, /WaSQLiteFactory/);
   assert.match(webProvider, /MemoryVFS/);
   assert.match(webProvider, /WebDatabaseSnapshotStore\.open\(ownerUserId\)/);
-  assert.match(webProvider, /sqlite\.deserialize/);
+  assert.doesNotMatch(webProvider, /sqlite\.deserialize|sqlite\.serialize/);
+  assert.match(webProvider, /snapshotDatabase/);
+  assert.match(webProvider, /DATABASE_PATH = 'jien\.db'/);
   assert.match(webProvider, /restoreOrCreateDatabaseEngine/);
-  assert.match(databaseRecovery, /candidate\.dispose\(\)/);
-  assert.ok(databaseRecovery.indexOf('candidate.dispose()') < databaseRecovery.indexOf('return createEngine()'));
+  assert.match(databaseRecovery, /candidate\?\.dispose\(\)/);
+  assert.match(databaseRecovery, /throw new WebDatabaseReloadRequiredError/);
+  assert.ok(databaseRecovery.indexOf('candidate?.dispose()') < databaseRecovery.indexOf('throw new WebDatabaseReloadRequiredError'));
   assert.match(snapshotStore, /indexedDB\.open/);
   assert.match(snapshotStore, /jien-web-sqlite-v1/);
   assert.doesNotMatch(webProvider, /AccessHandlePoolVFS|SharedArrayBuffer|new Worker/);

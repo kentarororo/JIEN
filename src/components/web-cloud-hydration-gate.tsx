@@ -4,7 +4,13 @@ import { Platform, StyleSheet, View } from 'react-native';
 
 import { StatePanel } from '@/components/ui';
 import { getAccountState } from '@/lib/auth';
-import { getSetting, hasCompletedOnboarding, syncAccountData, type AccountSyncResult } from '@/lib/db';
+import {
+  externalizeLegacyMealPhotoPayloads,
+  getSetting,
+  hasCompletedOnboarding,
+  syncAccountData,
+  type AccountSyncResult,
+} from '@/lib/db';
 import { MainThreadMemoryDatabase } from '@/lib/db/main-thread-memory-database';
 import { canOpenCachedWebDatabase, hydrationCopy } from '@/lib/web-cloud-hydration';
 import { spacing } from '@/theme';
@@ -22,6 +28,9 @@ function WebCloudHydrationGateContent({ children }: PropsWithChildren) {
     try {
       const result = await syncAccountData(db, { trigger: 'auth_state_change' });
       const webDatabase = db as unknown as MainThreadMemoryDatabase;
+      // Older snapshots may contain large inline photos. Move them to the
+      // account-scoped payload store before creating the first durable image.
+      await externalizeLegacyMealPhotoPayloads(db);
       if (result.state === 'synced') {
         await webDatabase.resumePersistenceAsync();
         setState({ result, canOpen: true, error: null });

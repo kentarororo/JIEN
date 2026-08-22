@@ -3,34 +3,42 @@ export type RecoverableDatabaseEngine<T> = {
   dispose: () => Promise<void>;
 };
 
+export class WebDatabaseReloadRequiredError extends Error {
+  readonly code = 'WEB_DATABASE_RELOAD_REQUIRED';
+
+  constructor() {
+    super('The unsafe local database image was isolated. Reload JIEN to rebuild it in a clean engine.');
+    this.name = 'WebDatabaseReloadRequiredError';
+  }
+}
+
 export async function restoreOrCreateDatabaseEngine<T>({
   savedImage,
   createEngine,
-  restore,
   validate,
   quarantine,
 }: {
   savedImage: Uint8Array | null;
-  createEngine: () => Promise<RecoverableDatabaseEngine<T>>;
-  restore: (engine: T, image: Uint8Array) => Promise<boolean> | boolean;
+  createEngine: (savedImage: Uint8Array | null) => Promise<RecoverableDatabaseEngine<T>>;
   validate: (engine: T) => Promise<boolean>;
   quarantine: () => Promise<void>;
 }): Promise<RecoverableDatabaseEngine<T>> {
-  const candidate = await createEngine();
-  if (!savedImage) return candidate;
+  if (!savedImage) return createEngine(null);
 
+  let candidate: RecoverableDatabaseEngine<T> | null = null;
   let restoredSafely = false;
   try {
-    restoredSafely = await restore(candidate.value, savedImage)
-      && await validate(candidate.value);
+    candidate = await createEngine(savedImage);
+    restoredSafely = await validate(candidate.value);
   } catch {
     restoredSafely = false;
   }
-  if (restoredSafely) return candidate;
+  if (restoredSafely && candidate) return candidate;
 
   // A WebAssembly memory trap can leave the complete SQLite module unusable, not
-  // just this connection. Never reopen a database in the failed module.
-  await candidate.dispose().catch(() => undefined);
+  // just this connection. Mobile Safari may also retain its memory until the page
+  // exits, so never allocate a second module inside this page lifecycle.
+  await candidate?.dispose().catch(() => undefined);
   await quarantine();
-  return createEngine();
+  throw new WebDatabaseReloadRequiredError();
 }

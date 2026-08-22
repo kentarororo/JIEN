@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { DATABASE_JOURNAL_MODE } from './database-journal-mode.ts';
+import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 
@@ -81,7 +81,8 @@ const STARTER_FOODS = [
 ] as const;
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
-  await db.execAsync(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = ${DATABASE_JOURNAL_MODE};`);
+  const journalMode = resolveDatabaseJournalMode(db);
+  await db.execAsync(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = ${journalMode};`);
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
 
   const currentVersion = version?.user_version ?? 0;

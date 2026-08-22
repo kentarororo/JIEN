@@ -13,6 +13,7 @@ import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } fr
 // @ts-expect-error Expo bundles this JavaScript module without a public declaration.
 import WaSQLiteFactory from '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js';
 import { migrateDatabase } from './migrate.ts';
+import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
@@ -52,6 +53,8 @@ test('main-thread database persists committed work and isolates delayed transact
   ) as unknown as SQLiteDatabase;
 
   try {
+    assert.equal(resolveDatabaseJournalMode(database), 'DELETE');
+    assert.equal(resolveDatabaseJournalMode({}), 'WAL');
     await migrateDatabase(database);
     const version = await database.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
     const exercises = await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM exercises');
@@ -306,4 +309,92 @@ test('classifies a synchronous WASM serialize trap as committed but not durable'
       && cause.cause instanceof WebAssembly.RuntimeError,
   );
   await assert.rejects(database.persistAsync(), /Do not retry/i);
+});
+
+test('persists a MemoryVFS file snapshot without calling the fragile WASM serialize bridge', async () => {
+  let saved: Uint8Array | null = null;
+  const database = new MainThreadMemoryDatabase({
+    serialize: () => { throw new WebAssembly.RuntimeError('serialize must not run'); },
+  } as unknown as MainThreadSQLiteApi, 1, {
+    close: () => undefined,
+    snapshotDatabase: () => new Uint8Array([83, 81, 76, 105, 116, 101]),
+  }, { done: 101, row: 100 }, {
+    save: async (bytes) => { saved = bytes; },
+    close: async () => undefined,
+  });
+
+  await database.persistAsync();
+  assert.deepEqual(saved, new Uint8Array([83, 81, 76, 105, 116, 101]));
+});
+
+test('restores a durable database from raw MemoryVFS bytes in a fresh WASM lifecycle', async () => {
+  const wasmBinary = readFileSync(new URL(
+    '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.wasm',
+    import.meta.url,
+  ));
+  const createFileDatabase = async (
+    vfsName: string,
+    savedImage: Uint8Array | null,
+    save: (bytes: Uint8Array) => Promise<void>,
+  ) => {
+    const module = await WaSQLiteFactory({ wasmBinary });
+    const sqlite = SQLite.Factory(module);
+    const vfs = await MemoryVFS.create(vfsName, module) as MemoryVFS & {
+      mapNameToFile: Map<string, { pathname: string; flags: number; size: number; data: ArrayBuffer }>;
+      snapshotDatabase: () => Uint8Array | null;
+    };
+    if (savedImage) {
+      vfs.mapNameToFile.set('/jien.db', {
+        pathname: '/jien.db',
+        flags: 0,
+        size: savedImage.byteLength,
+        data: savedImage.slice().buffer,
+      });
+    }
+    vfs.snapshotDatabase = () => {
+      const file = vfs.mapNameToFile.get('/jien.db');
+      return file ? new Uint8Array(file.data, 0, file.size) : null;
+    };
+    sqlite.vfs_register(vfs, false);
+    const pointer = await sqlite.open_v2(
+      'jien.db',
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+      vfsName,
+    );
+    return new MainThreadMemoryDatabase(
+      sqlite as MainThreadSQLiteApi,
+      pointer,
+      vfs,
+      { done: SQLITE_DONE, row: SQLITE_ROW },
+      { save, close: async () => undefined },
+    ) as unknown as SQLiteDatabase;
+  };
+
+  let durableImage: Uint8Array | null = null;
+  const first = await createFileDatabase(
+    'jien-raw-file-first',
+    null,
+    async (bytes) => { durableImage = bytes.slice(); },
+  );
+  await migrateDatabase(first);
+  await first.runAsync(
+    'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+    ['raw_vfs_restore', 'ready'],
+  );
+  const capturedImage = durableImage as Uint8Array | null;
+  assert.ok(capturedImage);
+  assert.equal(new TextDecoder().decode(capturedImage.slice(0, 16)), 'SQLite format 3\0');
+  await first.closeAsync();
+
+  const restored = await createFileDatabase(
+    'jien-raw-file-restored',
+    capturedImage,
+    async () => undefined,
+  );
+  assert.deepEqual(
+    await restored.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['raw_vfs_restore']),
+    { value: 'ready' },
+  );
+  assert.deepEqual(await restored.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
+  await restored.closeAsync();
 });

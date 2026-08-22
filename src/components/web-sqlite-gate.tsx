@@ -8,7 +8,7 @@ import {
 import { createWebSQLitePageLifecycle, type WebSQLitePageLifecycle } from '@/lib/web-sqlite-lifecycle';
 import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 
-const BOOT_RELOAD_KEY = 'jien:sqlite-bootstrap-reload';
+const BOOT_RELOAD_KEY = 'jien:sqlite-bootstrap-reload:v2';
 
 type WebSQLiteOwnershipContextValue = {
   registerDatabaseCloser: (closeDatabaseSync: () => void) => () => void;

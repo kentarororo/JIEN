@@ -2,6 +2,7 @@ export type WebSQLiteStartupFailure = {
   code:
     | 'LOCAL_STORAGE_BUSY'
     | 'LOCAL_STORAGE_FULL'
+    | 'LOCAL_DATABASE_RECOVERY_REQUIRED'
     | 'SQLITE_ENGINE_LOAD_FAILED'
     | 'SQLITE_INITIALIZATION_TIMEOUT'
     | 'SQLITE_INITIALIZATION_FAILED';
@@ -20,6 +21,19 @@ export class WebSQLiteStartupTimeoutError extends Error {
 export function describeWebSQLiteStartupFailure(cause: unknown): WebSQLiteStartupFailure {
   const detail = getErrorDetail(cause);
   const normalized = detail.toLowerCase();
+
+  if (
+    normalized.includes('webdatabasereloadrequirederror')
+    || normalized.includes('web_database_reload_required')
+    || normalized.includes('unsafe local database image was isolated')
+  ) {
+    return {
+      code: 'LOCAL_DATABASE_RECOVERY_REQUIRED',
+      message: 'JIEN safely isolated an unreadable local snapshot and needs one clean restart to rebuild it from your account.',
+      detail,
+      retryWithReload: true,
+    };
+  }
 
   if (cause instanceof WebSQLiteStartupTimeoutError) {
     return {

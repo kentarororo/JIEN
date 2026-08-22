@@ -4,7 +4,6 @@ import {
   SQLITE_DONE,
   SQLITE_OPEN_CREATE,
   SQLITE_OPEN_READWRITE,
-  SQLITE_OK,
   SQLITE_ROW,
 } from '@jien/wa-sqlite-constants';
 import { MemoryVFS } from '@jien/wa-sqlite-memory-vfs';
@@ -32,30 +31,65 @@ import {
 import { hasSQLiteFileHeader, WebDatabaseSnapshotStore } from './web-database-snapshot';
 
 type WaSQLiteApi = MainThreadSQLiteApi & {
-  deserialize: (database: number, schema: string, bytes: Uint8Array) => number;
   open_v2: (path: string, flags: number, vfs: string) => Promise<number>;
   vfs_register: (vfs: MemoryVFS, makeDefault: boolean) => void;
 };
 
 const VFS_NAME = 'jien-main-thread-memory';
+const DATABASE_PATH = 'jien.db';
+const DATABASE_VFS_PATH = `/${DATABASE_PATH}`;
 const DatabaseContext = createContext<SQLiteDatabase | null>(null);
+
+type MemoryVfsFile = {
+  pathname: string;
+  flags: number;
+  size: number;
+  data: ArrayBuffer;
+};
+
+type SnapshotMemoryVfs = MemoryVFS & {
+  mapNameToFile: Map<string, MemoryVfsFile>;
+  snapshotDatabase: () => Uint8Array | null;
+};
 
 type MemoryDatabaseEngine = {
   sqlite: WaSQLiteApi;
-  vfs: MemoryVFS;
+  vfs: SnapshotMemoryVfs;
   pointer: number;
 };
 
-async function createMemoryDatabaseEngine(): Promise<RecoverableDatabaseEngine<MemoryDatabaseEngine>> {
+async function createMemoryDatabaseEngine(
+  savedImage: Uint8Array | null,
+): Promise<RecoverableDatabaseEngine<MemoryDatabaseEngine>> {
   const module = await WaSQLiteFactory({ locateFile: () => wasmModule });
   const sqlite = SQLite.Factory(module) as WaSQLiteApi;
-  let vfs: MemoryVFS | null = null;
+  let vfs: SnapshotMemoryVfs | null = null;
   let pointer: number | null = null;
   try {
-    vfs = await MemoryVFS.create(VFS_NAME, module);
+    vfs = await MemoryVFS.create(VFS_NAME, module) as SnapshotMemoryVfs;
+    if (savedImage) {
+      if (!hasSQLiteFileHeader(savedImage)) {
+        throw new Error('The saved web database is not a valid SQLite file.');
+      }
+      const data = savedImage.byteOffset === 0
+        && savedImage.byteLength === savedImage.buffer.byteLength
+        && savedImage.buffer instanceof ArrayBuffer
+        ? savedImage.buffer
+        : savedImage.slice().buffer;
+      vfs.mapNameToFile.set(DATABASE_VFS_PATH, {
+        pathname: DATABASE_VFS_PATH,
+        flags: 0,
+        size: savedImage.byteLength,
+        data,
+      });
+    }
+    vfs.snapshotDatabase = () => {
+      const file = vfs?.mapNameToFile.get(DATABASE_VFS_PATH);
+      return file ? new Uint8Array(file.data, 0, file.size) : null;
+    };
     sqlite.vfs_register(vfs, false);
     pointer = await sqlite.open_v2(
-      ':memory:',
+      DATABASE_PATH,
       SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
       VFS_NAME,
     );
@@ -119,8 +153,6 @@ async function openMainThreadMemoryDatabase(): Promise<SQLiteDatabase> {
     openedEngine = await restoreOrCreateDatabaseEngine({
       savedImage,
       createEngine: createMemoryDatabaseEngine,
-      restore: ({ sqlite, pointer }, image) => hasSQLiteFileHeader(image)
-        && sqlite.deserialize(pointer, 'main', image) === SQLITE_OK,
       validate: async ({ sqlite, pointer }) => {
         const restoredDatabase = new MainThreadMemoryDatabase(sqlite, pointer, {
           close: () => undefined,

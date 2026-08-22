@@ -5,6 +5,7 @@ import {
   describeWebSQLiteStartupFailure,
   WebSQLiteStartupTimeoutError,
 } from './web-sqlite-bootstrap.ts';
+import { WebDatabaseReloadRequiredError } from './db/web-database-recovery.ts';
 
 test('classifies an OPFS access-handle collision as busy local storage', () => {
   const result = describeWebSQLiteStartupFailure(
@@ -26,4 +27,12 @@ test('classifies a startup timeout without discarding the underlying data', () =
 
   assert.equal(result.code, 'SQLITE_INITIALIZATION_TIMEOUT');
   assert.match(result.message, /without removing your data/i);
+});
+
+test('requests one clean page lifecycle after isolating an unsafe snapshot', () => {
+  const result = describeWebSQLiteStartupFailure(new WebDatabaseReloadRequiredError());
+
+  assert.equal(result.code, 'LOCAL_DATABASE_RECOVERY_REQUIRED');
+  assert.equal(result.retryWithReload, true);
+  assert.match(result.message, /rebuild it from your account/i);
 });
