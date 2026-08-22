@@ -1,13 +1,14 @@
 import { Link, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Field, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getWorkoutProgressComparison, listRecentWorkouts, listUpcomingPlannedWorkouts, listVolumeHistory } from '@/lib/db';
 import { aggregateWeeklyVolume, buildMuscleGroupTrends, detectDeloadSignal, muscleGroupLabel, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate, formatTime } from '@/lib/time';
+import { filterWorkoutHistory, groupWorkoutHistoryByMonth } from '@/lib/training/history';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function TrainScreen() {
@@ -15,9 +16,13 @@ export default function TrainScreen() {
   const router = useRouter();
   const { colors } = useJienTheme();
   const [showAllMuscles, setShowAllMuscles] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyMuscle, setHistoryMuscle] = useState<string | null>(null);
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(12);
+  const [showAllHistoryMuscles, setShowAllHistoryMuscles] = useState(false);
   const loader = useCallback(async () => {
     const [workouts, planned, volumeSets, progress] = await Promise.all([
-      listRecentWorkouts(db),
+      listRecentWorkouts(db, 100),
       listUpcomingPlannedWorkouts(db),
       listVolumeHistory(db),
       getWorkoutProgressComparison(db),
@@ -33,6 +38,20 @@ export default function TrainScreen() {
     };
   }, [db]);
   const { data, error, loading, reload } = useScreenData(loader);
+  const filteredHistory = useMemo(
+    () => filterWorkoutHistory(data?.workouts ?? [], historyQuery, historyMuscle),
+    [data?.workouts, historyMuscle, historyQuery],
+  );
+  const filterActive = Boolean(historyQuery.trim() || historyMuscle);
+  const visibleHistory = filterActive ? filteredHistory : filteredHistory.slice(0, visibleHistoryCount);
+  const historyGroups = useMemo(() => groupWorkoutHistoryByMonth(visibleHistory), [visibleHistory]);
+  const historyMuscles = useMemo(() => [...new Set((data?.workouts ?? []).flatMap((workout) => workout.muscleGroups))]
+    .sort((a, b) => muscleGroupLabel(a).localeCompare(muscleGroupLabel(b))), [data?.workouts]);
+  const visibleHistoryMuscles = useMemo(() => {
+    if (showAllHistoryMuscles) return historyMuscles;
+    const primary = historyMuscles.slice(0, 7);
+    return historyMuscle && !primary.includes(historyMuscle) ? [...primary, historyMuscle] : primary;
+  }, [historyMuscle, historyMuscles, showAllHistoryMuscles]);
 
   return (
     <Screen>
@@ -79,19 +98,24 @@ export default function TrainScreen() {
           )}
           <View style={styles.exerciseProgressList}>
             {data.progress.exercises.slice(0, 6).map((exercise) => (
-              <View key={exercise.exerciseId} style={styles.row}>
-                <View style={styles.flex}>
-                  <AppText>{exercise.exerciseName}</AppText>
-                  <AppText style={[styles.exerciseWork, { color: colors.textMuted }]}> 
-                    {exercise.previousVolumeKg == null
-                      ? `${formatWork(exercise.currentVolumeKg)} baseline`
-                      : `${formatWork(exercise.previousVolumeKg)} → ${formatWork(exercise.currentVolumeKg)}`}
-                  </AppText>
-                </View>
-                <AppText style={{ color: exercise.changePercent == null ? colors.textMuted : exercise.changePercent >= 0 ? colors.success : colors.warning, fontWeight: '700' }}>
-                  {exercise.changePercent == null ? 'baseline' : formatPercent(exercise.changePercent)}
-                </AppText>
-              </View>
+              <Link key={exercise.exerciseId} href={{ pathname: '/exercises/[id]', params: { id: exercise.exerciseId } } as never} asChild>
+                <Pressable accessibilityLabel={`Open ${exercise.exerciseName} history`} style={({ pressed }) => [styles.exerciseHistoryRow, { borderTopColor: colors.border }, pressed && styles.pressed]}>
+                  <View style={styles.flex}>
+                    <AppText>{exercise.exerciseName}</AppText>
+                    <AppText style={[styles.exerciseWork, { color: colors.textMuted }]}>
+                      {exercise.previousVolumeKg == null
+                        ? `${formatWork(exercise.currentVolumeKg)} baseline`
+                        : `${formatWork(exercise.previousVolumeKg)} → ${formatWork(exercise.currentVolumeKg)}`}
+                    </AppText>
+                  </View>
+                  <View style={styles.exerciseHistoryEnd}>
+                    <AppText style={{ color: exercise.changePercent == null ? colors.textMuted : exercise.changePercent >= 0 ? colors.success : colors.warning, fontWeight: '700' }}>
+                      {exercise.changePercent == null ? 'baseline' : formatPercent(exercise.changePercent)}
+                    </AppText>
+                    <AppText style={{ color: colors.accent, fontWeight: '700' }}>History ›</AppText>
+                  </View>
+                </Pressable>
+              </Link>
             ))}
           </View>
           <Button label="Use as next-session template" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: data.progress!.workoutId } })} variant="secondary" />
@@ -118,20 +142,41 @@ export default function TrainScreen() {
           <Button label="Ask JIEN to explain this month" onPress={() => router.push({ pathname: '/wellness', params: { trainingReview: '1' } } as never)} variant="secondary" />
         </Card>
       </> : null}
-      {data?.workouts.length ? <SectionHeading title="Workout history" detail="Each card is one saved session" /> : null}
-      <View style={styles.list}>
-        {data?.workouts.map((workout) => (
-          <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
-            <Pressable>
-              <Card>
-                <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(workout.completedAt ?? workout.performedOn)}{workout.completedAt ? ` · ${formatTime(workout.completedAt)}` : ''}</AppText></View>
-                <AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {formatWork(workout.totalVolumeKg)}</AppText>
-                {workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 5).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}
-              </Card>
-            </Pressable>
-          </Link>
-        ))}
-      </View>
+      {data?.workouts.length ? <>
+        <SectionHeading title="Workout history" detail={`${filteredHistory.length} matching saved session${filteredHistory.length === 1 ? '' : 's'}`} />
+        <Card style={{ backgroundColor: colors.surfaceMuted }}>
+          <Field label="Find a workout or exercise" value={historyQuery} onChangeText={setHistoryQuery} placeholder="Try push, cable row, chest…" returnKeyType="search" />
+          {historyMuscles.length ? <View style={styles.historyFilters}>
+            <Pill label="All muscles" active={historyMuscle == null} onPress={() => setHistoryMuscle(null)} />
+            {visibleHistoryMuscles.map((group) => <Pill key={group} label={muscleGroupLabel(group)} active={historyMuscle === group} onPress={() => setHistoryMuscle(group)} />)}
+          </View> : null}
+          <View style={styles.historyFilterActions}>
+            {historyMuscles.length > 7 ? <Button label={showAllHistoryMuscles ? 'Show fewer muscles' : `Show all ${historyMuscles.length} muscles`} onPress={() => setShowAllHistoryMuscles((value) => !value)} variant="quiet" /> : null}
+            {filterActive ? <Button label="Clear filters" onPress={() => { setHistoryQuery(''); setHistoryMuscle(null); }} variant="quiet" /> : null}
+          </View>
+        </Card>
+      </> : null}
+      {historyGroups.map((group) => (
+        <View key={group.month} style={styles.historyMonth}>
+          <SectionHeading title={formatHistoryMonth(group.month)} detail={`${group.workouts.length} session${group.workouts.length === 1 ? '' : 's'}`} />
+          <View style={styles.list}>
+            {group.workouts.map((workout) => (
+              <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
+                <Pressable accessibilityLabel={`Open ${workout.title} from ${formatShortDate(workout.completedAt ?? workout.performedOn)}`} style={({ pressed }) => pressed && styles.pressed}>
+                  <Card>
+                    <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(workout.completedAt ?? workout.performedOn)}{workout.completedAt ? ` · ${formatTime(workout.completedAt)}` : ''}</AppText></View>
+                    <AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} sets · {formatWork(workout.totalVolumeKg)}</AppText>
+                    {workout.exerciseNames.length ? <AppText style={[styles.exerciseNames, { color: colors.textMuted }]}>{workout.exerciseNames.join(' · ')}</AppText> : null}
+                    {workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 5).map((groupName) => <Pill key={groupName} label={muscleGroupLabel(groupName)} />)}</View> : null}
+                  </Card>
+                </Pressable>
+              </Link>
+            ))}
+          </View>
+        </View>
+      ))}
+      {data?.workouts.length && filteredHistory.length === 0 ? <StatePanel title="No matching sessions" body="Try another workout name, exercise, or muscle filter." actionLabel="Clear filters" onAction={() => { setHistoryQuery(''); setHistoryMuscle(null); }} /> : null}
+      {!filterActive && visibleHistory.length < filteredHistory.length ? <Button label={`Load ${Math.min(12, filteredHistory.length - visibleHistory.length)} older sessions`} onPress={() => setVisibleHistoryCount((count) => count + 12)} variant="secondary" /> : null}
     </Screen>
   );
 }
@@ -146,6 +191,8 @@ const styles = StyleSheet.create({
   kicker: { ...typography.caption, fontWeight: '800', letterSpacing: 0.6 },
   progressValue: { ...typography.display, fontWeight: '800', letterSpacing: -0.7 },
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
+  exerciseHistoryRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: spacing.xs },
+  exerciseHistoryEnd: { alignItems: 'flex-end' },
   comparisonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
   comparisonMetric: { flexGrow: 1, flexBasis: 220, minWidth: 180, borderRadius: radii.control, padding: spacing.md },
   comparisonLabel: { ...typography.caption, fontWeight: '700' },
@@ -159,6 +206,10 @@ const styles = StyleSheet.create({
   muscleBarRow: { gap: spacing.xxs },
   muscleBarLabel: { ...typography.caption, fontVariant: ['tabular-nums'] },
   workoutTags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
+  exerciseNames: { ...typography.caption },
+  historyFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  historyFilterActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  historyMonth: { gap: spacing.sm },
   trendPlot: { minHeight: 172, flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs, paddingTop: spacing.lg },
   trendColumn: { flex: 1, minWidth: 36, alignItems: 'center', justifyContent: 'flex-end', gap: spacing.xs },
   trendValue: { ...typography.caption, fontWeight: '700', fontVariant: ['tabular-nums'] },
@@ -166,6 +217,7 @@ const styles = StyleSheet.create({
   trendBar: { width: '100%', minHeight: spacing.xs, borderRadius: radii.compact },
   trendWeek: { ...typography.caption, fontVariant: ['tabular-nums'] },
   chartNote: { ...typography.caption },
+  pressed: { opacity: 0.68 },
 });
 
 function formatPercent(value: number): string {
@@ -255,4 +307,10 @@ function formatCompactWork(value: number): string {
 function formatWeek(value: string): string {
   const week = value.split('-W')[1];
   return week ? `W${Number(week)}` : value;
+}
+
+function formatHistoryMonth(value: string): string {
+  const [year, month] = value.split('-').map(Number);
+  if (!year || !month) return value;
+  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
 }

@@ -15,6 +15,10 @@ const snapshotStore = readFileSync(
   new URL('../src/lib/db/web-database-snapshot.ts', import.meta.url),
   'utf8',
 );
+const databaseRecovery = readFileSync(
+  new URL('../src/lib/db/web-database-recovery.ts', import.meta.url),
+  'utf8',
+);
 const html = readFileSync(new URL('../src/app/+html.tsx', import.meta.url), 'utf8');
 const photoPayloadStore = readFileSync(new URL('../src/lib/db/meal-photo-payload.web.ts', import.meta.url), 'utf8');
 const photoQueue = readFileSync(new URL('../src/lib/db/meal-photo-queue.ts', import.meta.url), 'utf8');
@@ -53,8 +57,11 @@ test('web authenticates and hydrates before database consumers render', () => {
 test('web SQLite uses a main-thread working database with account-scoped snapshots', () => {
   assert.match(webProvider, /WaSQLiteFactory/);
   assert.match(webProvider, /MemoryVFS/);
-  assert.match(webProvider, /WebDatabaseSnapshotStore\.open\(account\.user\.id\)/);
+  assert.match(webProvider, /WebDatabaseSnapshotStore\.open\(ownerUserId\)/);
   assert.match(webProvider, /sqlite\.deserialize/);
+  assert.match(webProvider, /restoreOrCreateDatabaseEngine/);
+  assert.match(databaseRecovery, /candidate\.dispose\(\)/);
+  assert.ok(databaseRecovery.indexOf('candidate.dispose()') < databaseRecovery.indexOf('return createEngine()'));
   assert.match(snapshotStore, /indexedDB\.open/);
   assert.match(snapshotStore, /jien-web-sqlite-v1/);
   assert.doesNotMatch(webProvider, /AccessHandlePoolVFS|SharedArrayBuffer|new Worker/);

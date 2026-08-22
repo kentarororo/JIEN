@@ -13,6 +13,7 @@ import {
   normalizeMuscleGroupKey,
   suggestDoubleProgression,
 } from './index.ts';
+import { filterWorkoutHistory, groupWorkoutHistoryByMonth, summarizeExerciseHistory } from '../training/history.ts';
 
 test('bodybuilding taxonomy includes specific traps, trunk, hip and lower-leg groups', () => {
   const groups = new Set<string>(MUSCLE_GROUP_OPTIONS.map((option) => option.value));
@@ -226,6 +227,34 @@ test('flags sustained stagnation and a twenty percent drop', () => {
   assert.equal(detectDeloadSignal([1000, 1010, 1015, 1020]).kind, 'stagnation');
   assert.equal(detectDeloadSignal([1200, 900]).kind, 'volume_drop');
   assert.equal(detectDeloadSignal([1000, 1100]).kind, 'none');
+});
+
+test('filters workout history by exercise text and normalized muscle group, then preserves month order', () => {
+  const workouts = [
+    { id: 'a', title: 'Push', performedOn: '2026-08-20', exerciseNames: ['Machine Chest Press'], muscleGroups: ['chest'] },
+    { id: 'b', title: 'Pull', performedOn: '2026-08-12', exerciseNames: ['Seated Cable Row'], muscleGroups: ['upper_back'] },
+    { id: 'c', title: 'Legs', performedOn: '2026-07-30', exerciseNames: ['Leg Press'], muscleGroups: ['quads'] },
+  ];
+  assert.deepEqual(filterWorkoutHistory(workouts, 'cable', null).map((workout) => workout.id), ['b']);
+  assert.deepEqual(filterWorkoutHistory(workouts, '', 'Quadriceps').map((workout) => workout.id), ['c']);
+  assert.deepEqual(groupWorkoutHistoryByMonth(workouts).map((group) => [group.month, group.workouts.length]), [
+    ['2026-08', 2],
+    ['2026-07', 1],
+  ]);
+});
+
+test('exercise history compares only the latest two completed sessions and plots chronologically', () => {
+  const sessions = [
+    { workoutId: 'latest', volumeKg: 1_050 },
+    { workoutId: 'previous', volumeKg: 1_000 },
+    { workoutId: 'older', volumeKg: 900 },
+  ];
+  const summary = summarizeExerciseHistory(sessions);
+  assert.equal(summary.latest?.workoutId, 'latest');
+  assert.equal(summary.previous?.workoutId, 'previous');
+  assert.equal(summary.changePercent, 5);
+  assert.equal(summary.maximumVolumeKg, 1_050);
+  assert.deepEqual(summary.chronological.map((session) => session.workoutId), ['older', 'previous', 'latest']);
 });
 
 function session(completedAt: string, reps: number) {

@@ -64,3 +64,15 @@ test('live workout summary matches the save boundary without inventing work', ()
     work: 640,
   });
 });
+
+test('exercise history stays local, completed-only, session-bounded, and links back to its workout', () => {
+  const repository = read('../db/workouts.ts');
+  const screen = read('../../app/exercises/[id].tsx');
+  assert.match(repository, /export async function getExerciseSessionHistory/);
+  assert.match(repository, /w\.status = 'completed'/);
+  assert.match(repository, /recent\.status = 'completed'/);
+  assert.match(repository, /LIMIT \?/);
+  assert.match(screen, /pathname: '\/workouts\/\[id\]'/);
+  assert.match(screen, /Use latest session as template/);
+  assert.doesNotMatch(screen, /1RM|max effort/i);
+});

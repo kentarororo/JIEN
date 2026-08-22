@@ -15,6 +15,7 @@ import type {
   SavePlannedWorkoutInput,
   SetKind,
   WorkoutDetail,
+  ExerciseSessionHistory,
   WorkoutExportRow,
   VolumeHistorySet,
   WorkoutSet,
@@ -36,6 +37,7 @@ type WorkoutSummaryRow = {
   exercise_count: number;
   total_volume_kg: number | null;
   muscle_groups: string | null;
+  exercise_names: string | null;
 };
 
 function mapWorkoutSummary(row: WorkoutSummaryRow): WorkoutSummary {
@@ -50,6 +52,7 @@ function mapWorkoutSummary(row: WorkoutSummaryRow): WorkoutSummary {
     setCount: plan ? plan.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) : row.set_count,
     exerciseCount: plan ? plan.exercises.length : row.exercise_count,
     totalVolumeKg: row.total_volume_kg ?? 0,
+    exerciseNames: [...new Set((row.exercise_names ?? '').split(',').map((name) => name.trim()).filter(Boolean))],
     muscleGroups: [...new Set((plan
       ? plan.exercises.map((exercise) => exercise.primaryMuscleGroup)
       : (row.muscle_groups ?? '').split(','))
@@ -64,6 +67,7 @@ const WORKOUT_SUMMARY_SELECT = `
     w.status, w.notes, w.plan_json,
     COUNT(s.id) AS set_count,
     COUNT(DISTINCT s.exercise_id) AS exercise_count,
+    GROUP_CONCAT(DISTINCT e.name) AS exercise_names,
     GROUP_CONCAT(DISTINCT e.primary_muscle_group) AS muscle_groups,
     COALESCE(SUM(CASE
       WHEN s.kind = 'working' AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
@@ -766,6 +770,96 @@ export async function getExerciseHistory(
     completedAt: set.completed_at,
     sortOrder: set.sort_order,
   }));
+}
+
+export async function getExerciseSessionHistory(
+  db: SQLiteDatabase,
+  exerciseId: string,
+  limit = 12,
+): Promise<ExerciseSessionHistory | null> {
+  const exercise = await db.getFirstAsync<{
+    id: string;
+    name: string;
+    primary_muscle_group: string;
+    target_rep_min: number;
+    target_rep_max: number;
+  }>(
+    `SELECT id, name, primary_muscle_group, target_rep_min, target_rep_max
+     FROM exercises WHERE id = ? AND deleted_at IS NULL`,
+    [exerciseId],
+  );
+  if (!exercise) return null;
+
+  const rows = await db.getAllAsync<{
+    id: string;
+    workout_id: string;
+    workout_title: string;
+    performed_on: string;
+    completed_at: string;
+    reps: number;
+    load_value: number;
+    load_unit: LoadUnit;
+    rpe: number | null;
+  }>(
+    `SELECT s.id, s.workout_id, w.title AS workout_title, w.performed_on,
+      COALESCE(w.completed_at, s.completed_at) AS completed_at,
+      s.reps, s.load_value, s.load_unit, s.rpe
+     FROM workout_sets s
+     JOIN workouts w ON w.id = s.workout_id
+     WHERE s.exercise_id = ?
+       AND s.kind = 'working'
+       AND s.deleted_at IS NULL
+       AND w.deleted_at IS NULL
+       AND w.status = 'completed'
+       AND s.workout_id IN (
+         SELECT recent.id FROM workouts recent
+         JOIN workout_sets recent_set ON recent_set.workout_id = recent.id
+         WHERE recent_set.exercise_id = ?
+           AND recent_set.kind = 'working'
+           AND recent_set.deleted_at IS NULL
+           AND recent.deleted_at IS NULL
+           AND recent.status = 'completed'
+         GROUP BY recent.id
+         ORDER BY recent.completed_at DESC, recent.id DESC
+         LIMIT ?
+       )
+     ORDER BY w.completed_at DESC, w.id DESC, s.sort_order ASC`,
+    [exerciseId, exerciseId, Math.max(1, Math.min(50, limit))],
+  );
+
+  const sessions = new Map<string, ExerciseSessionHistory['sessions'][number]>();
+  for (const row of rows) {
+    const session = sessions.get(row.workout_id) ?? {
+      workoutId: row.workout_id,
+      workoutTitle: row.workout_title,
+      performedOn: row.performed_on,
+      completedAt: row.completed_at,
+      volumeKg: 0,
+      sets: [],
+    };
+    session.sets.push({
+      id: row.id,
+      reps: row.reps,
+      loadValue: row.load_value,
+      loadUnit: row.load_unit,
+      rpe: row.rpe,
+    });
+    session.volumeKg += calculateSetVolumeKg({
+      reps: row.reps,
+      loadValue: row.load_value,
+      loadUnit: row.load_unit,
+      kind: 'working',
+    });
+    sessions.set(row.workout_id, session);
+  }
+  return {
+    exerciseId: exercise.id,
+    exerciseName: exercise.name,
+    primaryMuscleGroup: exercise.primary_muscle_group,
+    targetRepMin: exercise.target_rep_min,
+    targetRepMax: exercise.target_rep_max,
+    sessions: [...sessions.values()],
+  };
 }
 
 export async function getLastExerciseSessionSets(

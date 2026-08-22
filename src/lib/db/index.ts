@@ -81,6 +81,7 @@ export {
   completePlannedWorkout,
   deleteWorkout,
   getExerciseHistory,
+  getExerciseSessionHistory,
   getNextPlannedWorkout,
   getLastExerciseSessionSets,
   getWorkoutProgressComparison,

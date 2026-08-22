@@ -35,9 +35,11 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
     exercise_count: number;
     total_volume_kg: number;
     muscle_groups: string | null;
+    exercise_names: string | null;
   }>(
     `SELECT w.id, w.title, w.performed_on, w.started_at, w.completed_at, w.status,
       COUNT(s.id) AS set_count, COUNT(DISTINCT s.exercise_id) AS exercise_count,
+      GROUP_CONCAT(DISTINCT e.name) AS exercise_names,
       GROUP_CONCAT(DISTINCT e.primary_muscle_group) AS muscle_groups,
       COALESCE(SUM(CASE WHEN s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
         ELSE s.load_value * s.reps END), 0) AS total_volume_kg
@@ -61,6 +63,7 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
         exerciseCount: latest.exercise_count,
         totalVolumeKg: latest.total_volume_kg,
         muscleGroups: [...new Set((latest.muscle_groups ?? '').split(',').map(normalizeMuscleGroupKey).filter((group) => group !== 'other'))],
+        exerciseNames: [...new Set((latest.exercise_names ?? '').split(',').map((name) => name.trim()).filter(Boolean))],
         scheduledAt: null,
       }
     : null;

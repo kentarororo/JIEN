@@ -200,6 +200,7 @@ export default function WorkoutDetailScreen() {
           <SectionHeading title={exerciseName} detail={`${sets[0]?.primaryMuscleGroup.replaceAll('_', ' ')} · target ${sets[0]?.targetRepMin}–${sets[0]?.targetRepMax}`} />
           <Card>
             {sets.map((set, index) => <View key={set.id} style={styles.setRow}><AppText style={styles.setIndex}>{index + 1}</AppText><AppText style={styles.setValue}>{set.loadValue} {set.loadUnit} × {set.reps}</AppText><AppText style={{ color: colors.textMuted }}>{set.rpe ? `RPE ${set.rpe}` : 'RPE —'}</AppText></View>)}
+            {sets[0]?.exerciseId ? <Button label="View exercise history" onPress={() => router.push({ pathname: '/exercises/[id]', params: { id: sets[0]!.exerciseId } } as never)} variant="quiet" /> : null}
           </Card>
         </View>
       ))}

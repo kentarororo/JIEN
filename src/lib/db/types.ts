@@ -201,7 +201,34 @@ export type WorkoutSummary = {
   exerciseCount: number;
   totalVolumeKg: number;
   muscleGroups: string[];
+  exerciseNames: string[];
   scheduledAt: string | null;
+};
+
+export type ExerciseHistorySet = {
+  id: string;
+  reps: number;
+  loadValue: number;
+  loadUnit: LoadUnit;
+  rpe: number | null;
+};
+
+export type ExerciseHistorySession = {
+  workoutId: string;
+  workoutTitle: string;
+  performedOn: string;
+  completedAt: string;
+  volumeKg: number;
+  sets: ExerciseHistorySet[];
+};
+
+export type ExerciseSessionHistory = {
+  exerciseId: string;
+  exerciseName: string;
+  primaryMuscleGroup: string;
+  targetRepMin: number;
+  targetRepMax: number;
+  sessions: ExerciseHistorySession[];
 };
 
 export type WorkoutSet = WorkoutSetInput & {

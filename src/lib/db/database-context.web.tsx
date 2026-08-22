@@ -25,6 +25,10 @@ import {
   type MainThreadSQLiteApi,
 } from './main-thread-memory-database';
 import { LATEST_DATABASE_VERSION } from './migrate';
+import {
+  restoreOrCreateDatabaseEngine,
+  type RecoverableDatabaseEngine,
+} from './web-database-recovery';
 import { hasSQLiteFileHeader, WebDatabaseSnapshotStore } from './web-database-snapshot';
 
 type WaSQLiteApi = MainThreadSQLiteApi & {
@@ -35,6 +39,48 @@ type WaSQLiteApi = MainThreadSQLiteApi & {
 
 const VFS_NAME = 'jien-main-thread-memory';
 const DatabaseContext = createContext<SQLiteDatabase | null>(null);
+
+type MemoryDatabaseEngine = {
+  sqlite: WaSQLiteApi;
+  vfs: MemoryVFS;
+  pointer: number;
+};
+
+async function createMemoryDatabaseEngine(): Promise<RecoverableDatabaseEngine<MemoryDatabaseEngine>> {
+  const module = await WaSQLiteFactory({ locateFile: () => wasmModule });
+  const sqlite = SQLite.Factory(module) as WaSQLiteApi;
+  let vfs: MemoryVFS | null = null;
+  let pointer: number | null = null;
+  try {
+    vfs = await MemoryVFS.create(VFS_NAME, module);
+    sqlite.vfs_register(vfs, false);
+    pointer = await sqlite.open_v2(
+      ':memory:',
+      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+      VFS_NAME,
+    );
+    const engine = { sqlite, vfs, pointer };
+    return {
+      value: engine,
+      dispose: async () => {
+        await sqlite.close(engine.pointer).catch(() => undefined);
+        try {
+          engine.vfs.close();
+        } catch {
+          // A trapped WASM module may reject cleanup too. It is discarded below.
+        }
+      },
+    };
+  } catch (cause) {
+    if (pointer != null) await sqlite.close(pointer).catch(() => undefined);
+    try {
+      vfs?.close();
+    } catch {
+      // Preserve the original startup error.
+    }
+    throw cause;
+  }
+}
 
 async function restoredDatabaseIsSafe(
   database: MainThreadMemoryDatabase,
@@ -65,55 +111,36 @@ async function openMainThreadMemoryDatabase(): Promise<SQLiteDatabase> {
   if (!account.configured || !account.user) {
     throw new Error('Sign in before opening durable web storage.');
   }
-  const snapshotStore = await WebDatabaseSnapshotStore.open(account.user.id);
-  let sqlite: WaSQLiteApi | null = null;
-  let vfs: MemoryVFS | null = null;
-  let pointer: number | null = null;
+  const ownerUserId = account.user.id;
+  const snapshotStore = await WebDatabaseSnapshotStore.open(ownerUserId);
+  let openedEngine: RecoverableDatabaseEngine<MemoryDatabaseEngine> | null = null;
   try {
     const savedImage = await snapshotStore.load();
-    const module = await WaSQLiteFactory({ locateFile: () => wasmModule });
-    sqlite = SQLite.Factory(module) as WaSQLiteApi;
-    vfs = await MemoryVFS.create(VFS_NAME, module);
-    sqlite.vfs_register(vfs, false);
-    pointer = await sqlite.open_v2(
-      ':memory:',
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
-      VFS_NAME,
-    );
-    if (savedImage) {
-      let restored = false;
-      if (hasSQLiteFileHeader(savedImage)) {
-        try {
-          restored = sqlite.deserialize(pointer, 'main', savedImage) === SQLITE_OK;
-        } catch {
-          restored = false;
-        }
-      }
-      if (restored) {
-        const restoredDatabase = new MainThreadMemoryDatabase(sqlite, pointer, vfs, {
+    openedEngine = await restoreOrCreateDatabaseEngine({
+      savedImage,
+      createEngine: createMemoryDatabaseEngine,
+      restore: ({ sqlite, pointer }, image) => hasSQLiteFileHeader(image)
+        && sqlite.deserialize(pointer, 'main', image) === SQLITE_OK,
+      validate: async ({ sqlite, pointer }) => {
+        const restoredDatabase = new MainThreadMemoryDatabase(sqlite, pointer, {
+          close: () => undefined,
+        }, {
           done: SQLITE_DONE,
           row: SQLITE_ROW,
-        }, snapshotStore, true);
-        if (await restoredDatabaseIsSafe(restoredDatabase, account.user.id)) {
-          return restoredDatabase as unknown as SQLiteDatabase;
-        }
-      }
-      await sqlite.close(pointer).catch(() => undefined);
-      pointer = null;
-      await snapshotStore.quarantineCurrent('sqlite_validation_failed');
-      pointer = await sqlite.open_v2(
-        ':memory:',
-        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
-        VFS_NAME,
-      );
-    }
-    return new MainThreadMemoryDatabase(sqlite, pointer, vfs, {
+        }, null, true);
+        return restoredDatabaseIsSafe(restoredDatabase, ownerUserId);
+      },
+      quarantine: () => snapshotStore.quarantineCurrent('sqlite_restore_or_validation_failed'),
+    });
+    const { sqlite, pointer, vfs } = openedEngine.value;
+    const database = new MainThreadMemoryDatabase(sqlite, pointer, vfs, {
       done: SQLITE_DONE,
       row: SQLITE_ROW,
     }, snapshotStore, true) as unknown as SQLiteDatabase;
+    openedEngine = null;
+    return database;
   } catch (cause) {
-    if (sqlite && pointer != null) await sqlite.close(pointer).catch(() => undefined);
-    vfs?.close();
+    await openedEngine?.dispose().catch(() => undefined);
     await snapshotStore.close().catch(() => undefined);
     throw cause;
   }
