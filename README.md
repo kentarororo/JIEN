@@ -100,14 +100,18 @@ headers required by Expo SQLite. `vercel.json` configures those headers, runs th
 production export, and publishes `dist`:
 
 1. Import this GitHub repository into Vercel.
-2. Add `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` as
-   Production and Preview environment variables.
+2. Connect the Supabase Vercel integration, or add `EXPO_PUBLIC_SUPABASE_URL`
+   and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` as Production and Preview
+   environment variables. The production build maps the integration-provided
+   `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` names into Expo automatically.
 3. Deploy, then add the resulting Vercel URL to the Supabase redirect allow-list and
    Google OAuth authorized JavaScript origins described above.
 
 Do not set `EXPO_PUBLIC_BASE_URL` in Vercel. The production build uses the root path.
-The post-export check verifies the SQLite worker, compiles its WASM binary, moves it
-to a stable public asset URL, and content-hashes the repaired worker and entry bundles.
+The build clears Metro's environment-sensitive cache, refuses to export without a
+valid public Supabase URL and key, then verifies the SQLite worker, compiles its WASM
+binary, moves it to a stable public asset URL, and content-hashes the repaired worker
+and entry bundles.
 
 GitHub Pages remains useful only as a pointer. It cannot set the required COOP/COEP
 headers, so JIEN now refuses to mount SQLite there and shows

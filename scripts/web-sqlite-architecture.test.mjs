@@ -12,6 +12,7 @@ const pagesHostFinalizer = readFileSync(
   'utf8',
 );
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const webBuilder = readFileSync(new URL('./build-web.mjs', import.meta.url), 'utf8');
 const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 const photoPayloadStore = readFileSync(new URL('../src/lib/db/meal-photo-payload.web.ts', import.meta.url), 'utf8');
 const photoQueue = readFileSync(new URL('../src/lib/db/meal-photo-queue.ts', import.meta.url), 'utf8');
@@ -51,6 +52,10 @@ test('Vercel supplies Expo SQLite cross-origin isolation headers', () => {
   assert.match(metro, /assetExts\.push\('wasm'\)/);
   assert.match(webFinalizer, /assets', 'jien-sqlite/);
   assert.match(webFinalizer, /WebAssembly\.compile/);
+  assert.equal(packageJson.scripts['web:build'], 'node scripts/build-web.mjs');
+  assert.match(webBuilder, /SUPABASE_PUBLISHABLE_KEY/);
+  assert.match(webBuilder, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  assert.match(webBuilder, /'--clear'/);
 });
 
 test('GitHub Pages publishes a safe host-requirements screen instead of SQLite', () => {
