@@ -4,6 +4,8 @@ import test from 'node:test';
 
 const layout = readFileSync(new URL('../src/app/_layout.tsx', import.meta.url), 'utf8');
 const gate = readFileSync(new URL('../src/components/web-sqlite-gate.tsx', import.meta.url), 'utf8');
+const lifecycle = readFileSync(new URL('../src/lib/web-sqlite-lifecycle.ts', import.meta.url), 'utf8');
+const workerRegistry = readFileSync(new URL('../src/lib/web-worker-registry.ts', import.meta.url), 'utf8');
 const webProvider = readFileSync(new URL('../src/lib/db/database-context.web.tsx', import.meta.url), 'utf8');
 const metro = readFileSync(new URL('../metro.config.js', import.meta.url), 'utf8');
 const webFinalizer = readFileSync(new URL('./finalize-web-build.mjs', import.meta.url), 'utf8');
@@ -37,9 +39,27 @@ test('web refuses to mount SQLite without the host isolation contract', () => {
   assert.match(gate, /crossOriginIsolated === true/);
   assert.match(gate, /SharedArrayBuffer/);
   assert.match(gate, /CROSS_ORIGIN_ISOLATION_REQUIRED/);
-  assert.match(gate, /addEventListener\('pagehide'/);
-  assert.match(gate, /addEventListener\('pageshow'/);
+  assert.match(gate, /listenPageHide/);
+  assert.match(gate, /listenPageShow/);
   assert.match(gate, /event\.persisted/);
+});
+
+test('the web gate integrates coordinated ownership before mounting Expo SQLite', () => {
+  assert.match(gate, /createWebSQLiteOwnershipCoordinator/);
+  assert.match(gate, /navigator\.locks\.request/);
+  assert.match(gate, /createOwnershipChannel/);
+  assert.match(gate, /webSQLiteWorkerRegistry\.install\(window\)/);
+  assert.match(gate, /webSQLiteWorkerRegistry\.shutdown\(\)/);
+  assert.match(gate, /ownershipReadiness\.state === 'ready'[\s\S]*WebSQLiteOwnershipContext\.Provider[\s\S]*\{children\}/);
+  assert.match(lifecycle, /closeDatabaseSync\?\.\(\)[\s\S]*options\.terminateWorkers\(\)[\s\S]*options\.releaseLease\(\)/);
+  assert.match(workerRegistry, /worker\.terminate\(\)/);
+  assert.doesNotMatch(gate, /terminateWorkers: \(\) => undefined/);
+  assert.doesNotMatch(gate, /releaseLease: \(\) => undefined/);
+});
+
+test('startup failure and retry relinquish SQLite before reloading', () => {
+  assert.match(gate, /componentDidCatch[\s\S]*this\.context as WebSQLiteOwnershipContextValue \| null\)\?\.closeBeforeReload\(\)/);
+  assert.match(gate, /const retry = \(\) => \{[\s\S]*closeBeforeReload\(\)[\s\S]*window\.location\.reload\(\)/);
 });
 
 test('Vercel supplies Expo SQLite cross-origin isolation headers', () => {

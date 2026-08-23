@@ -52,7 +52,7 @@ function isWebSQLiteHandoffRequest(value: unknown): value is WebSQLiteHandoffReq
     requester.pageId.length > 0;
 }
 
-type LockRequest = (
+export type WebSQLiteLockRequest = (
   name: string,
   callback: (lock: unknown) => Promise<void>,
 ) => Promise<unknown>;
@@ -70,7 +70,7 @@ export type WebSQLiteLease = {
  * reliably releases it if the document is terminated during navigation.
  */
 export function requestWebSQLiteLease(
-  requestLock: LockRequest | null,
+  requestLock: WebSQLiteLockRequest | null,
 ): WebSQLiteLease {
   let resolveAcquired!: () => void;
   let rejectAcquired!: (reason: unknown) => void;
@@ -124,6 +124,19 @@ export type WebSQLitePageLifecycle = {
   restoreAfterPageTransition: () => void;
 };
 
+export type WebSQLiteOwnershipChannel = {
+  close: () => void;
+  listen: (listener: (message: unknown) => void) => () => void;
+  postMessage: (message: WebSQLiteHandoffRequest) => void;
+};
+
+export type WebSQLiteOwnershipCoordinator = {
+  closeBeforeReload: () => void;
+  dispose: () => void;
+  registerDatabaseCloser: (closeDatabaseSync: () => void) => () => void;
+  startup: Promise<void>;
+};
+
 /**
  * Closes the worker-backed database before a refresh can start another worker.
  * `closeSync` is intentional: an asynchronous pagehide task can be abandoned by
@@ -166,5 +179,109 @@ export function createWebSQLitePageLifecycle(options: {
     restoreAfterPageTransition() {
       if (closed) options.reload();
     },
+  };
+}
+
+/**
+ * Coordinates the browser primitives that must surround Expo's SQLiteProvider.
+ * The coordinator is created before the provider mounts and owns the page's
+ * worker tracking, handoff channel, Web Lock, and page-transition teardown.
+ */
+export function createWebSQLiteOwnershipCoordinator(options: {
+  owner: WebSQLiteOwnerIdentity;
+  requestLock: WebSQLiteLockRequest | null;
+  installWorkerTracking: () => void;
+  terminateWorkers: () => void;
+  reload: () => void;
+  listenPageHide: (listener: () => void) => () => void;
+  listenPageShow: (listener: (persisted: boolean) => void) => () => void;
+  createChannel?: (name: string) => WebSQLiteOwnershipChannel;
+  waitForHandoff?: () => Promise<void>;
+  onReady: () => void;
+  onDisplaced: () => void;
+  onFailure: (cause: unknown) => void;
+  onChannelWarning?: (cause: unknown) => void;
+  onTeardownError?: (cause: unknown) => void;
+}): WebSQLiteOwnershipCoordinator {
+  options.installWorkerTracking();
+
+  let lease: WebSQLiteLease;
+  try {
+    lease = requestWebSQLiteLease(options.requestLock);
+  } catch (error) {
+    options.terminateWorkers();
+    throw error;
+  }
+
+  const lifecycle = createWebSQLitePageLifecycle({
+    terminateWorkers: options.terminateWorkers,
+    releaseLease: lease.release,
+    reload: options.reload,
+  });
+  let active = true;
+  let yielded = false;
+  let channel: WebSQLiteOwnershipChannel | null = null;
+  let stopListeningToChannel: () => void = () => undefined;
+
+  const closeOwnership = () => {
+    yielded = true;
+    try {
+      lifecycle.closeForPageTransition();
+    } catch (error) {
+      options.onTeardownError?.(error);
+    }
+  };
+  const removePageHide = options.listenPageHide(closeOwnership);
+  const removePageShow = options.listenPageShow((persisted) => {
+    if (persisted) lifecycle.restoreAfterPageTransition();
+  });
+
+  if (options.createChannel) {
+    try {
+      channel = options.createChannel(WEB_SQLITE_HANDOFF_CHANNEL_NAME);
+      stopListeningToChannel = channel.listen((message) => {
+        if (yielded || !shouldYieldWebSQLiteOwnership(options.owner, message)) return;
+        closeOwnership();
+        if (active) options.onDisplaced();
+      });
+      channel.postMessage(createWebSQLiteHandoffRequest(options.owner));
+    } catch (error) {
+      options.onChannelWarning?.(error);
+      stopListeningToChannel();
+      channel?.close();
+      channel = null;
+    }
+  }
+
+  const waitForHandoff = options.waitForHandoff ?? (() => new Promise<void>((resolve) => {
+    setTimeout(resolve, WEB_SQLITE_HANDOFF_SETTLE_MS);
+  }));
+  const startup = lease.acquired
+    .then(waitForHandoff)
+    .then(() => {
+      if (active && !yielded) options.onReady();
+    })
+    .catch((cause) => {
+      closeOwnership();
+      if (active) options.onFailure(cause);
+    });
+
+  // The lease normally finishes only during pagehide, retry, or unmount. A
+  // startup rejection is already reported through the acquired promise.
+  void lease.finished.catch(() => undefined);
+
+  return {
+    closeBeforeReload: closeOwnership,
+    dispose() {
+      if (!active) return;
+      active = false;
+      removePageHide();
+      removePageShow();
+      stopListeningToChannel();
+      channel?.close();
+      closeOwnership();
+    },
+    registerDatabaseCloser: lifecycle.registerDatabaseCloser,
+    startup,
   };
 }

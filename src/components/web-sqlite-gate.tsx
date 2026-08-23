@@ -1,20 +1,52 @@
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { Component, createContext, type ErrorInfo, type PropsWithChildren, useCallback, useContext, useEffect, useRef } from 'react';
+import { Component, createContext, type ErrorInfo, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import {
+  createWebSQLiteOwnershipCoordinator,
+  type WebSQLiteOwnershipCoordinator,
+  type WebSQLiteOwnershipChannel,
+} from '@/lib/web-sqlite-lifecycle';
+import {
   describeWebSQLiteStartupFailure,
 } from '@/lib/web-sqlite-bootstrap';
-import { createWebSQLitePageLifecycle, type WebSQLitePageLifecycle } from '@/lib/web-sqlite-lifecycle';
+import { webSQLiteWorkerRegistry } from '@/lib/web-worker-registry';
 import { radii, resolveTheme, spacing, typography } from '@/theme/tokens';
 
 const BOOT_RELOAD_KEY = 'jien:sqlite-bootstrap-reload:v2';
 
 type WebSQLiteOwnershipContextValue = {
+  closeBeforeReload: () => void;
   registerDatabaseCloser: (closeDatabaseSync: () => void) => () => void;
 };
 
 const WebSQLiteOwnershipContext = createContext<WebSQLiteOwnershipContextValue | null>(null);
+
+type OwnershipReadiness =
+  | { state: 'preparing' }
+  | { state: 'ready' }
+  | { state: 'displaced' }
+  | { state: 'unsupported'; failure: ReturnType<typeof describeWebSQLiteStartupFailure> };
+
+function createPageId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function createOwnershipChannel(name: string): WebSQLiteOwnershipChannel {
+  const channel = new BroadcastChannel(name);
+  return {
+    close: () => channel.close(),
+    listen(listener) {
+      const handleMessage = (event: MessageEvent<unknown>) => listener(event.data);
+      channel.addEventListener('message', handleMessage);
+      return () => channel.removeEventListener('message', handleMessage);
+    },
+    postMessage: (message) => channel.postMessage(message),
+  };
+}
 
 async function retireLegacyIsolationServiceWorker(): Promise<void> {
   if (!('serviceWorker' in navigator) || !navigator.serviceWorker.getRegistrations) return;
@@ -38,18 +70,19 @@ export function WebSQLiteGate({ children }: PropsWithChildren) {
 function WebSQLiteGateContent({ children }: PropsWithChildren) {
   const hostSupportsSQLite = globalThis.crossOriginIsolated === true
     && typeof globalThis.SharedArrayBuffer !== 'undefined';
-  const lifecycle = useRef<WebSQLitePageLifecycle | null>(null);
-  if (!lifecycle.current) {
-    lifecycle.current = createWebSQLitePageLifecycle({
-      terminateWorkers: () => undefined,
-      releaseLease: () => undefined,
-      reload: () => window.location.reload(),
-    });
-  }
+  const [ownershipReadiness, setOwnershipReadiness] = useState<OwnershipReadiness>({
+    state: 'preparing',
+  });
+  const coordinator = useRef<WebSQLiteOwnershipCoordinator | null>(null);
 
   const registerDatabaseCloser = useCallback((closeDatabaseSync: () => void) => {
-    return lifecycle.current!.registerDatabaseCloser(closeDatabaseSync);
+    return coordinator.current?.registerDatabaseCloser(closeDatabaseSync) ?? (() => undefined);
   }, []);
+  const closeBeforeReload = useCallback(() => coordinator.current?.closeBeforeReload(), []);
+  const ownershipContext = useMemo(() => ({ closeBeforeReload, registerDatabaseCloser }), [
+    closeBeforeReload,
+    registerDatabaseCloser,
+  ]);
 
   useEffect(() => {
     void retireLegacyIsolationServiceWorker().catch((error) => {
@@ -58,29 +91,89 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    const closeDatabaseForTransition = () => {
-      try { lifecycle.current?.closeForPageTransition(); }
-      catch (error) { console.error('Failed to close web SQLite database', error); }
-    };
-    const restoreDatabaseAfterTransition = (event: PageTransitionEvent) => {
-      if (event.persisted) lifecycle.current?.restoreAfterPageTransition();
-    };
-    window.addEventListener('pagehide', closeDatabaseForTransition);
-    window.addEventListener('pageshow', restoreDatabaseAfterTransition);
+    if (!hostSupportsSQLite) return;
 
-    return () => {
-      window.removeEventListener('pagehide', closeDatabaseForTransition);
-      window.removeEventListener('pageshow', restoreDatabaseAfterTransition);
-      closeDatabaseForTransition();
-    };
-  }, []);
+    setOwnershipReadiness({ state: 'preparing' });
+    try {
+      const requestLock = 'locks' in navigator
+        ? (name: string, callback: (lock: unknown) => Promise<void>) => navigator.locks.request(name, callback)
+        : null;
+      const ownership = createWebSQLiteOwnershipCoordinator({
+        owner: { startedAt: Date.now(), pageId: createPageId() },
+        requestLock,
+        installWorkerTracking: () => webSQLiteWorkerRegistry.install(window),
+        terminateWorkers: () => webSQLiteWorkerRegistry.shutdown(),
+        reload: () => window.location.reload(),
+        listenPageHide(listener) {
+          window.addEventListener('pagehide', listener);
+          return () => window.removeEventListener('pagehide', listener);
+        },
+        listenPageShow(listener) {
+          const handlePageShow = (event: PageTransitionEvent) => listener(event.persisted);
+          window.addEventListener('pageshow', handlePageShow);
+          return () => window.removeEventListener('pageshow', handlePageShow);
+        },
+        createChannel: typeof globalThis.BroadcastChannel === 'function'
+          ? createOwnershipChannel
+          : undefined,
+        onReady: () => setOwnershipReadiness({ state: 'ready' }),
+        onDisplaced: () => setOwnershipReadiness({ state: 'displaced' }),
+        onFailure: (cause) => setOwnershipReadiness({
+          state: 'unsupported',
+          failure: describeWebSQLiteStartupFailure(cause),
+        }),
+        onChannelWarning: (error) => console.warn('Web SQLite ownership channel is unavailable', error),
+        onTeardownError: (error) => console.error('Failed to close the web SQLite owner', error),
+      });
+      coordinator.current = ownership;
+
+      return () => {
+        ownership.dispose();
+        if (coordinator.current === ownership) coordinator.current = null;
+      };
+    } catch (cause) {
+      webSQLiteWorkerRegistry.shutdown();
+      setOwnershipReadiness({
+        state: 'unsupported',
+        failure: describeWebSQLiteStartupFailure(cause),
+      });
+    }
+  }, [hostSupportsSQLite]);
 
   if (!hostSupportsSQLite) return <WebSQLiteHostRequirementsPanel />;
 
+  if (ownershipReadiness.state === 'ready') {
+    return (
+      <WebSQLiteOwnershipContext.Provider value={ownershipContext}>
+        {children}
+      </WebSQLiteOwnershipContext.Provider>
+    );
+  }
+
+  const retry = () => {
+    closeBeforeReload();
+    try {
+      window.sessionStorage.removeItem(BOOT_RELOAD_KEY);
+    } catch {
+      // Reload remains a non-destructive retry when session storage is restricted.
+    }
+    window.location.reload();
+  };
+  const handoffFailure = ownershipReadiness.state === 'displaced'
+    ? {
+        code: 'LOCAL_STORAGE_HANDED_OFF',
+        message: 'JIEN is open in a newer tab. Your local data is safe. Use this tab to move JIEN back here.',
+      }
+    : null;
+  const failure = handoffFailure
+    ?? (ownershipReadiness.state === 'unsupported' ? ownershipReadiness.failure : null);
+
   return (
-    <WebSQLiteOwnershipContext.Provider value={{ registerDatabaseCloser }}>
-      {children}
-    </WebSQLiteOwnershipContext.Provider>
+    <WebSQLiteStartupPanel
+      actionLabel={handoffFailure ? 'Use this tab' : 'Try again'}
+      failure={failure}
+      onRetry={retry}
+    />
   );
 }
 
@@ -139,6 +232,8 @@ export function reportWebSQLiteProviderError(cause: Error): never {
 type BoundaryState = { error: Error | null };
 
 export class WebSQLiteProviderErrorBoundary extends Component<PropsWithChildren, BoundaryState> {
+  static contextType = WebSQLiteOwnershipContext;
+
   state: BoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): BoundaryState {
@@ -147,6 +242,7 @@ export class WebSQLiteProviderErrorBoundary extends Component<PropsWithChildren,
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     if (!(error instanceof WebSQLiteProviderStartupError)) return;
+    (this.context as WebSQLiteOwnershipContextValue | null)?.closeBeforeReload();
     console.error('Web SQLite provider startup failed', error.cause, info.componentStack);
     const failure = describeWebSQLiteStartupFailure(error.cause);
     let shouldReload = false;
@@ -166,6 +262,7 @@ export class WebSQLiteProviderErrorBoundary extends Component<PropsWithChildren,
     if (!(error instanceof WebSQLiteProviderStartupError)) throw error;
 
     const retry = () => {
+      (this.context as WebSQLiteOwnershipContextValue | null)?.closeBeforeReload();
       try {
         window.sessionStorage.removeItem(BOOT_RELOAD_KEY);
       } catch {
