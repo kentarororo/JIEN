@@ -13,6 +13,7 @@ import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } fr
 // @ts-expect-error Expo bundles this JavaScript module without a public declaration.
 import WaSQLiteFactory from '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js';
 import { migrateDatabase } from './migrate.ts';
+import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './exercise-targets.ts';
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
@@ -64,6 +65,63 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.ok((exercises?.count ?? 0) >= 50);
     assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
+    assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'arms', secondaryMuscleGroups: [] }), true);
+    assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'biceps', secondaryMuscleGroups: ['forearms'] }), false);
+
+    await updateExerciseTargetsAtomically(database, '10000000-0000-4000-8000-000000000004', {
+      primaryMuscleGroup: 'front delts',
+      secondaryMuscleGroups: ['triceps', 'front_delts', 'triceps'],
+    }, {
+      now: () => '2026-08-24T08:00:00.000Z',
+      enqueue: async (transactionDb, exercise, changedAt) => {
+        await transactionDb.runAsync(
+          `INSERT INTO sync_queue (id, table_name, entity_id, operation, payload_json, created_at)
+           VALUES (?, 'exercises', ?, 'upsert', ?, ?)`,
+          ['exercise-target-test', exercise.id, JSON.stringify({
+            id: exercise.id,
+            name: exercise.name,
+            movement_pattern: exercise.movementPattern,
+            primary_muscle_group: exercise.primaryMuscleGroup,
+            secondary_muscle_groups: exercise.secondaryMuscleGroups,
+            equipment: exercise.equipment,
+            target_rep_min: exercise.targetRepMin,
+            target_rep_max: exercise.targetRepMax,
+            load_increment: exercise.loadIncrement,
+            notes: exercise.notes,
+            is_archived: exercise.isArchived,
+            client_updated_at: changedAt,
+            deleted_at: null,
+          }), changedAt],
+        );
+      },
+    });
+    assert.deepEqual(
+      await database.getFirstAsync(
+        'SELECT primary_muscle_group, secondary_muscle_groups FROM exercises WHERE id = ?',
+        ['10000000-0000-4000-8000-000000000004'],
+      ),
+      { primary_muscle_group: 'front_delts', secondary_muscle_groups: '["triceps"]' },
+    );
+    const exerciseQueue = await database.getFirstAsync<{ payload_json: string }>(
+      `SELECT payload_json FROM sync_queue
+       WHERE table_name = 'exercises' AND entity_id = ?`,
+      ['10000000-0000-4000-8000-000000000004'],
+    );
+    assert.deepEqual(JSON.parse(exerciseQueue?.payload_json ?? '{}'), {
+      id: '10000000-0000-4000-8000-000000000004',
+      name: 'Machine Shoulder Press',
+      movement_pattern: 'vertical_push',
+      primary_muscle_group: 'front_delts',
+      secondary_muscle_groups: ['triceps'],
+      equipment: 'machine',
+      target_rep_min: 8,
+      target_rep_max: 12,
+      load_increment: 2.5,
+      notes: null,
+      is_archived: false,
+      client_updated_at: JSON.parse(exerciseQueue!.payload_json).client_updated_at,
+      deleted_at: null,
+    });
 
     await database.runAsync(
       'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',

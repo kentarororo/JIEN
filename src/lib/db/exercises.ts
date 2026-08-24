@@ -4,6 +4,13 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
 import type { Exercise } from './types';
+import {
+  updateExerciseTargetsAtomically,
+  type UpdateExerciseTargetsInput,
+} from './exercise-targets';
+
+export { exerciseTargetsNeedReview, isStarterExerciseId, normalizeExerciseTargets } from './exercise-targets';
+export type { UpdateExerciseTargetsInput } from './exercise-targets';
 
 type ExerciseRow = {
   id: string;
@@ -112,6 +119,22 @@ export async function createCustomExercise(
   });
 
   return exercise;
+}
+
+export async function updateExerciseTargets(
+  db: SQLiteDatabase,
+  exerciseId: string,
+  input: UpdateExerciseTargetsInput,
+): Promise<Exercise> {
+  return updateExerciseTargetsAtomically(db, exerciseId, input, {
+    now: () => new Date().toISOString(),
+    enqueue: (transactionDb, exercise, changedAt) => enqueueUpsert(
+      transactionDb,
+      'exercises',
+      exercise.id,
+      exerciseRemotePayload(exercise, changedAt),
+    ),
+  });
 }
 
 export function exerciseRemotePayload(exercise: Exercise, now: string): Record<string, unknown> {

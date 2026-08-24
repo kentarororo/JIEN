@@ -8,6 +8,21 @@ export type MonthCell = {
   isToday: boolean;
 };
 
+export type CalendarDayActivation = {
+  dateKey: string;
+  activatedAt: number;
+};
+
+export function isRepeatedCalendarDayActivation(
+  previous: CalendarDayActivation | null,
+  next: CalendarDayActivation,
+  thresholdMs = 450,
+): boolean {
+  return previous?.dateKey === next.dateKey
+    && next.activatedAt >= previous.activatedAt
+    && next.activatedAt - previous.activatedAt <= thresholdMs;
+}
+
 export function buildMonthGrid(month: Date, today = new Date()): MonthCell[] {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const mondayOffset = (first.getDay() + 6) % 7;

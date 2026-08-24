@@ -1,11 +1,11 @@
 import { Link, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { buildMonthGrid, calendarSelectionForDate, moveMonthSelection } from '@/lib/calendar';
+import { buildMonthGrid, calendarSelectionForDate, isRepeatedCalendarDayActivation, moveMonthSelection, type CalendarDayActivation } from '@/lib/calendar';
 import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate } from '@/lib/db';
 import { muscleGroupLabel } from '@/lib/progression';
 import { formatShortDate, formatTime, shiftLocalDateKey, toLocalDateKey } from '@/lib/time';
@@ -20,6 +20,8 @@ export default function TodayScreen() {
   const todayKey = toLocalDateKey();
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(todayKey);
+  const [dayWorkspaceOpen, setDayWorkspaceOpen] = useState(false);
+  const lastDayActivation = useRef<CalendarDayActivation | null>(null);
   const cells = useMemo(() => buildMonthGrid(visibleMonth), [visibleMonth]);
   const loader = useCallback(async () => {
     const rangeStart = cells[0]?.dateKey ?? todayKey;
@@ -65,6 +67,13 @@ export default function TodayScreen() {
     setVisibleMonth(selection.month);
     setSelectedDate(selection.dateKey);
   };
+  const activateDate = (dateKey: string) => {
+    const nextActivation = { dateKey, activatedAt: Date.now() };
+    const openWorkspace = isRepeatedCalendarDayActivation(lastDayActivation.current, nextActivation);
+    lastDayActivation.current = nextActivation;
+    selectDate(dateKey);
+    if (openWorkspace) setDayWorkspaceOpen(true);
+  };
   return (
     <Screen>
       <ScreenHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())} title="Keep the day honest." />
@@ -74,7 +83,7 @@ export default function TodayScreen() {
         <Link href="/meals/new" asChild><Pressable><Card style={styles.actionCard}><AppText style={styles.actionTitle}>Log a meal</AppText><AppText style={{ color: colors.textMuted }}>Calories and macros</AppText></Card></Pressable></Link>
       </View>
 
-      <SectionHeading title="Calendar" detail="Choose a day, then open any item to review or edit it" />
+      <SectionHeading title="Calendar" detail="Choose a date; double-click or double-tap it to open the day" />
       <Card style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
           <Button label="‹" onPress={() => changeMonth(-1)} variant="quiet" />
@@ -94,7 +103,7 @@ export default function TodayScreen() {
                 key={cell.dateKey}
                 accessibilityRole="button"
                 accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals, ${day.bodyMeasurementCount} body measurements, ${day.sleepLogCount} sleep logs` : ''}`}
-                onPress={() => selectDate(cell.dateKey)}
+                onPress={() => activateDate(cell.dateKey)}
                 style={({ pressed }) => [
                   styles.dayCell,
                   cell.isToday && { borderColor: colors.accent, borderWidth: 1 },
@@ -121,7 +130,25 @@ export default function TodayScreen() {
           <CalendarLegendItem color={colors.warning} label="Body" />
           <CalendarLegendItem color={colors.textMuted} label="Sleep" />
         </View>
+        <View style={[styles.dayWorkspacePrompt, { borderTopColor: colors.border }]}>
+          <View style={styles.flex}>
+            <AppText style={styles.value}>{new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${selectedDate}T12:00:00`))}</AppText>
+            <AppText style={{ color: colors.textMuted }}>Double-click or double-tap the selected date, or use the button.</AppText>
+          </View>
+          <Button label="Open day" onPress={() => setDayWorkspaceOpen(true)} variant="secondary" />
+        </View>
+      </Card>
+
+      <Modal visible={dayWorkspaceOpen} transparent animationType="fade" onRequestClose={() => setDayWorkspaceOpen(false)}>
+        <View style={styles.dayWorkspaceOverlay}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close day workspace" onPress={() => setDayWorkspaceOpen(false)} style={StyleSheet.absoluteFill} />
+          <View style={[styles.dayWorkspaceSheet, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+            <ScrollView contentContainerStyle={styles.dayWorkspaceScroll} keyboardShouldPersistTaps="handled">
         <View style={[styles.selectedDay, { backgroundColor: colors.surfaceMuted }]}>
+          <View style={styles.workspaceTopBar}>
+            <View style={styles.flex}><AppText style={[styles.kicker, { color: colors.accent }]}>DAY WORKSPACE</AppText><AppText style={{ color: colors.textMuted }}>Training and food, logged or planned</AppText></View>
+            <Button label="Close" onPress={() => setDayWorkspaceOpen(false)} variant="quiet" />
+          </View>
           <View style={styles.selectedDayNavigator}>
             <Button label="‹" accessibilityLabel="Previous day" onPress={() => selectDate(shiftLocalDateKey(selectedDate, -1))} variant="quiet" />
             <View style={styles.flex}>
@@ -191,7 +218,10 @@ export default function TodayScreen() {
             </View>
           ) : null}
         </View>
-      </Card>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <SectionHeading title="This week" detail="Completed training" />
       <Card style={styles.metricCard}>
@@ -286,6 +316,11 @@ const styles = StyleSheet.create({
   dot: { width: 5, height: 5, borderRadius: radii.pill },
   calendarLegend: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.sm },
   calendarLegendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
+  dayWorkspacePrompt: { minHeight: 64, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  dayWorkspaceOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.48)', padding: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  dayWorkspaceSheet: { width: '100%', maxWidth: 920, maxHeight: '92%', borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.sheet, overflow: 'hidden' },
+  dayWorkspaceScroll: { padding: spacing.md },
+  workspaceTopBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   selectedDay: { padding: spacing.sm, borderRadius: radii.control, gap: spacing.sm },
   selectedDayNavigator: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   selectedDateTitle: { ...typography.bodyLarge, fontWeight: '800' },

@@ -55,7 +55,7 @@ export default function TrainScreen() {
 
   return (
     <Screen>
-      <ScreenHeading title="Training" eyebrow="Machine-first log" action={<View style={styles.headerActions}><Button label="Plan" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" /><Button label="Log" onPress={() => router.push('/workouts/new')} /></View>} />
+      <ScreenHeading title="Training" eyebrow="Machine-first log" action={<View style={styles.headerActions}><Button label="Exercises" onPress={() => router.push('/exercises' as never)} variant="quiet" /><Button label="Plan" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" /><Button label="Log" onPress={() => router.push('/workouts/new')} /></View>} />
       {loading && !data ? <StatePanel title="Loading workouts" body="Reading your on-device history." loading /> : null}
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}

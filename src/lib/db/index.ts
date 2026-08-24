@@ -4,7 +4,15 @@ export type { AiConnectionIssue, AiConnectionStatus } from './ai-settings';
 export { syncAccountData } from './cloud-sync';
 export type { AccountSyncResult } from './cloud-sync';
 export { listCalendarActivity } from './calendar';
-export { createCustomExercise, listExercises } from './exercises';
+export {
+  createCustomExercise,
+  exerciseTargetsNeedReview,
+  isStarterExerciseId,
+  listExercises,
+  normalizeExerciseTargets,
+  updateExerciseTargets,
+} from './exercises';
+export type { UpdateExerciseTargetsInput } from './exercises';
 export { getCompleteExportSnapshot } from './export';
 export {
   analyzeMealPhoto,

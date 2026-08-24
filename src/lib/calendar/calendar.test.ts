@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { buildMonthGrid, calendarSelectionForDate, moveMonth, moveMonthSelection } from './index.ts';
+import { buildMonthGrid, calendarSelectionForDate, isRepeatedCalendarDayActivation, moveMonth, moveMonthSelection } from './index.ts';
 
 const todayScreen = () => readFileSync(new URL('../../app/(tabs)/today.tsx', import.meta.url), 'utf8');
 
@@ -39,8 +39,19 @@ test('an adjacent-month day moves the visible calendar with the selection', () =
   assert.equal(calendarSelectionForDate('not-a-date'), null);
 });
 
+test('opens a day workspace only for a quick repeated activation of the same date', () => {
+  const first = { dateKey: '2026-08-24', activatedAt: 1_000 };
+  assert.equal(isRepeatedCalendarDayActivation(null, first), false);
+  assert.equal(isRepeatedCalendarDayActivation(first, { ...first, activatedAt: 1_350 }), true);
+  assert.equal(isRepeatedCalendarDayActivation(first, { dateKey: '2026-08-25', activatedAt: 1_200 }), false);
+  assert.equal(isRepeatedCalendarDayActivation(first, { ...first, activatedAt: 1_600 }), false);
+});
+
 test('the calendar day workspace keeps itemized training and food edit routes date-aware', () => {
   const source = todayScreen();
+  assert.match(source, /isRepeatedCalendarDayActivation/);
+  assert.match(source, /Double-click or double-tap/);
+  assert.match(source, /visible=\{dayWorkspaceOpen\}/);
   assert.match(source, /pathname: '\/workouts\/new', params: \{ date: selectedDate \}/);
   assert.match(source, /pathname: '\/meals\/new', params: \{ date: selectedDate \}/);
   assert.match(source, /pathname: '\/workouts\/\[id\]'/);
