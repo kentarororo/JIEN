@@ -76,6 +76,7 @@ test('Vercel publishes the main-thread SQLite WASM at a stable public path', () 
   assert.equal(headers['Cross-Origin-Embedder-Policy'], 'credentialless');
   assert.equal(vercel.outputDirectory, 'dist');
   assert.equal(vercel.buildCommand, 'pnpm run web:build');
+  assert.deepEqual(vercel.rewrites, [{ source: '/(.*)', destination: '/index.html' }]);
   assert.match(metro, /wa-sqlite-async\.mjs/);
   assert.match(metro, /@jien\/wa-sqlite/);
   assert.match(metro, /resolveRequest/);

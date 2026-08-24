@@ -157,7 +157,7 @@ export default function WellnessScreen() {
   };
 
   if (loading && !data) {
-    return <Screen><StatePanel title="Reading the whole picture" body="Loading your private on-device context." loading /></Screen>;
+    return <Screen><StatePanel title="Loading wellness" body="Reading your on-device entries." loading /></Screen>;
   }
   if (error || !data || !summary) {
     return <Screen><StatePanel title="Wellness is unavailable" body={error ?? 'The local context could not be loaded.'} actionLabel="Try again" onAction={() => void reload()} /></Screen>;
@@ -165,7 +165,7 @@ export default function WellnessScreen() {
 
   return (
     <Screen contentContainerStyle={styles.screenContent}>
-      <ScreenHeading eyebrow="Wellness hub" title="Read the whole picture." />
+      <ScreenHeading title="Wellness" />
 
       <View style={[styles.metricGrid, wide && styles.rowWide]}>
         <MetricCard label="7-day training" value={`${summary.workoutCount7Days} session${summary.workoutCount7Days === 1 ? '' : 's'}`} detail={`${Math.round(summary.trainingVolume7DaysKg).toLocaleString()} kg·reps work`} />

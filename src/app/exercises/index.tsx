@@ -79,14 +79,13 @@ export default function ExerciseLibraryScreen() {
   return (
     <Screen contentContainerStyle={styles.content}>
       <ScreenHeading
-        eyebrow="Training setup"
         title="Exercise targets"
         action={<Button label="Done" onPress={() => router.back()} variant="quiet" />}
       />
       <Card style={[styles.guidance, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-        <AppText style={styles.guidanceTitle}>One catalog, including your custom exercises</AppText>
+        <AppText style={styles.guidanceTitle}>Set muscle targets</AppText>
         <AppText style={{ color: colors.textMuted }}>
-          The primary target receives full working-set credit; assisting targets receive half credit. Changes apply to future logs. Completed workout snapshots stay exactly as recorded.
+          Primary targets count as one working set; assisting targets count as half. Changes apply to future logs only.
         </AppText>
       </Card>
 
@@ -100,7 +99,7 @@ export default function ExerciseLibraryScreen() {
         />
         <View style={styles.filters}>
           <Pill label={`All ${exercises.length}`} active={catalogFilter === 'all'} onPress={() => setCatalogFilter('all')} />
-          <Pill label={`Review ${reviewCount}`} active={catalogFilter === 'review'} onPress={() => setCatalogFilter('review')} />
+          <Pill label={`Check tags ${reviewCount}`} active={catalogFilter === 'review'} onPress={() => setCatalogFilter('review')} />
           <Pill label={`Custom ${customCount}`} active={catalogFilter === 'custom'} onPress={() => setCatalogFilter('custom')} />
           <Pill label={`JIEN ${exercises.length - customCount}`} active={catalogFilter === 'jien'} onPress={() => setCatalogFilter('jien')} />
         </View>
@@ -110,9 +109,9 @@ export default function ExerciseLibraryScreen() {
         <Card accessibilityLabel={`Editing targets for ${editingExercise.name}`} style={[styles.editor, { borderColor: colors.accent }]}>
           <View style={styles.editorHeader}>
             <View style={styles.flex}>
-              <AppText style={[styles.kicker, { color: colors.accent }]}>EDIT TARGETS</AppText>
+              <AppText style={[styles.kicker, { color: colors.accent }]}>EDITING</AppText>
               <AppText style={styles.editorTitle}>{editingExercise.name}</AppText>
-              <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(editingExercise.id) ? 'JIEN library' : 'Custom'} · {editingExercise.equipment ?? 'bodyweight'}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(editingExercise.id) ? 'Built-in' : 'Custom'} · {humanizeEquipment(editingExercise.equipment)}</AppText>
             </View>
             <Button label="Close" onPress={() => setEditingId(null)} variant="quiet" />
           </View>
@@ -145,7 +144,7 @@ export default function ExerciseLibraryScreen() {
         </Card>
       ) : null}
 
-      <SectionHeading title="Exercise catalog" detail={`${filteredExercises.length} matching exercise${filteredExercises.length === 1 ? '' : 's'} · choose one to review or edit`} />
+      <SectionHeading title="Exercises" detail={`${filteredExercises.length} result${filteredExercises.length === 1 ? '' : 's'} · choose one to edit`} />
       {loading && !data ? <StatePanel title="Opening exercise catalog" body="Reading your on-device exercise list." loading /> : null}
       {error ? <StatePanel title="Exercise catalog is unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && filteredExercises.length === 0 ? <StatePanel title="No matching exercises" body="Try another name, muscle, or catalog filter." actionLabel="Show all" onAction={() => { setQuery(''); setCatalogFilter('all'); }} /> : null}
@@ -166,9 +165,9 @@ export default function ExerciseLibraryScreen() {
                 <View style={styles.exerciseHeader}>
                   <View style={styles.flex}>
                     <AppText style={styles.exerciseName}>{exercise.name}</AppText>
-                    <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(exercise.id) ? 'JIEN library' : 'Custom'} · {exercise.equipment ?? 'bodyweight'} · {exercise.targetRepMin}–{exercise.targetRepMax} reps</AppText>
+                    <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(exercise.id) ? 'Built-in' : 'Custom'} · {humanizeEquipment(exercise.equipment)} · {exercise.targetRepMin}–{exercise.targetRepMax} reps</AppText>
                   </View>
-                  <AppText style={{ color: needsReview ? colors.warning : colors.accent, fontWeight: '700' }}>{selected ? 'Editing' : needsReview ? 'Review needed' : 'Edit'}</AppText>
+                  <AppText style={{ color: needsReview ? colors.warning : colors.accent, fontWeight: '700' }}>{selected ? 'Editing' : needsReview ? 'Check tags' : 'Edit'}</AppText>
                 </View>
                 <View style={styles.targetSummary}>
                   <Pill label={`${primary} · primary`} active />
@@ -217,6 +216,11 @@ function TargetPicker({
   );
 }
 
+function humanizeEquipment(value: string | null | undefined): string {
+  if (!value) return 'Bodyweight';
+  return value.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
 const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: 1040, alignSelf: 'center' },
   flex: { flex: 1 },
@@ -232,7 +236,7 @@ const styles = StyleSheet.create({
   muscleSection: { gap: spacing.xs },
   muscleSectionLabel: { ...typography.caption, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   exerciseGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  exercisePressable: { flexGrow: 1, flexBasis: 420, minWidth: 280 },
+  exercisePressable: { width: '100%', maxWidth: 512, flexGrow: 1, flexShrink: 1, flexBasis: 420, minWidth: 0 },
   exerciseCard: { minHeight: 128, height: '100%', justifyContent: 'space-between' },
   exerciseHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   exerciseName: { ...typography.bodyLarge, fontWeight: '700' },

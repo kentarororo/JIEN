@@ -55,35 +55,39 @@ export default function TrainScreen() {
 
   return (
     <Screen>
-      <ScreenHeading title="Training" eyebrow="Machine-first log" action={<View style={styles.headerActions}><Button label="Exercises" onPress={() => router.push('/exercises' as never)} variant="quiet" /><Button label="Plan" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" /><Button label="Log" onPress={() => router.push('/workouts/new')} /></View>} />
+      <ScreenHeading title="Training" action={<Button icon="barbell-outline" label="Log workout" onPress={() => router.push('/workouts/new')} />} />
+      <View style={styles.trainingTools}>
+        <Button icon="calendar-outline" label="Plan workout" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" />
+        <Button icon="options-outline" label="Exercise targets" onPress={() => router.push('/exercises' as never)} variant="quiet" />
+      </View>
       {loading && !data ? <StatePanel title="Loading workouts" body="Reading your on-device history." loading /> : null}
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
       {data?.planned.length ? <>
-        <SectionHeading title="Upcoming" detail="Calendar-backed sessions" />
+        <SectionHeading title="Upcoming" detail={`${data.planned.length} planned session${data.planned.length === 1 ? '' : 's'}`} />
         <View style={styles.list}>{data.planned.map((workout) => (
           <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
             <Pressable><Card style={{ backgroundColor: colors.accentSoft, borderColor: colors.accent }}>
               <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? `${formatShortDate(workout.scheduledAt)} · ${formatTime(workout.scheduledAt)}` : formatShortDate(workout.performedOn)}</AppText></View>
-              <AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets · review or start</AppText>
+              <View style={styles.upcomingFooter}><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Open plan ›</AppText></View>
             </Card></Pressable>
           </Link>
         ))}</View>
       </> : null}
       {data?.progress ? (
         <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-          <AppText style={[styles.kicker, { color: colors.accent }]}>LATEST SESSION PROGRESS</AppText>
+          <AppText style={[styles.kicker, { color: colors.accent }]}>WORKOUT PROGRESS</AppText>
           {data.progress.overallChangePercent == null ? (
             <>
               <AppText style={styles.progressValue}>Baseline saved</AppText>
-              <AppText style={{ color: colors.textMuted }}>Repeat one of these exercises and JIEN will compare working volume session to session.</AppText>
+              <AppText style={{ color: colors.textMuted }}>A comparison appears after you repeat one of these exercises.</AppText>
             </>
           ) : (
             <>
               <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}> 
                 {formatPercent(data.progress.overallChangePercent)}
               </AppText>
-              <AppText style={{ color: colors.textMuted }}>work performed vs each exercise's previous matching session · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} exercises up</AppText>
+              <AppText style={{ color: colors.textMuted }}>Compared with each exercise’s previous matching session · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} exercises up</AppText>
               <View style={styles.comparisonGrid}>
                 <View style={[styles.comparisonMetric, { backgroundColor: colors.surfaceRaised }]}> 
                   <AppText style={[styles.comparisonLabel, { color: colors.textMuted }]}>Previous matching work</AppText>
@@ -182,9 +186,10 @@ export default function TrainScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  trainingTools: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   list: { gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm },
+  upcomingFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   title: { ...typography.bodyLarge, fontWeight: '700', flex: 1 },
   flex: { flex: 1 },
   progressCard: { padding: spacing.lg },

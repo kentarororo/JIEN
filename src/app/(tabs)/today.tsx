@@ -3,7 +3,7 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
-import { AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { ActionCard, AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, calendarSelectionForDate, isRepeatedCalendarDayActivation, moveMonthSelection, type CalendarDayActivation } from '@/lib/calendar';
 import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate } from '@/lib/db';
@@ -76,14 +76,14 @@ export default function TodayScreen() {
   };
   return (
     <Screen>
-      <ScreenHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())} title="Keep the day honest." />
+      <ScreenHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())} title="Today" />
 
       <View style={styles.actions}>
-        <Link href="/workouts/new" asChild><Pressable><Card style={styles.actionCard}><AppText style={styles.actionTitle}>Log a workout</AppText><AppText style={{ color: colors.textMuted }}>Sets, reps, load and effort</AppText></Card></Pressable></Link>
-        <Link href="/meals/new" asChild><Pressable><Card style={styles.actionCard}><AppText style={styles.actionTitle}>Log a meal</AppText><AppText style={{ color: colors.textMuted }}>Calories and macros</AppText></Card></Pressable></Link>
+        <ActionCard title="Log workout" detail="Sets, reps and load" icon="barbell-outline" onPress={() => router.push('/workouts/new')} />
+        <ActionCard title="Add meal" detail="Calories and macros" icon="restaurant-outline" onPress={() => router.push('/meals/new')} />
       </View>
 
-      <SectionHeading title="Calendar" detail="Choose a date; double-click or double-tap it to open the day" />
+      <SectionHeading title="Calendar" detail="Training, food and wellness at a glance" />
       <Card style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
           <Button label="‹" onPress={() => changeMonth(-1)} variant="quiet" />
@@ -133,20 +133,20 @@ export default function TodayScreen() {
         <View style={[styles.dayWorkspacePrompt, { borderTopColor: colors.border }]}>
           <View style={styles.flex}>
             <AppText style={styles.value}>{new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${selectedDate}T12:00:00`))}</AppText>
-            <AppText style={{ color: colors.textMuted }}>Double-click or double-tap the selected date, or use the button.</AppText>
+            <AppText style={{ color: colors.textMuted }}>View logged and planned details</AppText>
           </View>
           <Button label="Open day" onPress={() => setDayWorkspaceOpen(true)} variant="secondary" />
         </View>
       </Card>
 
-      <Modal visible={dayWorkspaceOpen} transparent animationType="fade" onRequestClose={() => setDayWorkspaceOpen(false)}>
+      <Modal visible={dayWorkspaceOpen} transparent animationType={compactRecords ? 'slide' : 'fade'} onRequestClose={() => setDayWorkspaceOpen(false)}>
         <View style={styles.dayWorkspaceOverlay}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close day workspace" onPress={() => setDayWorkspaceOpen(false)} style={StyleSheet.absoluteFill} />
-          <View style={[styles.dayWorkspaceSheet, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+          <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={() => setDayWorkspaceOpen(false)} style={StyleSheet.absoluteFill} />
+          <View role="dialog" accessibilityLabel="Day details" accessibilityViewIsModal style={[styles.dayWorkspaceSheet, compactRecords && styles.dayWorkspaceSheetCompact, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
             <ScrollView contentContainerStyle={styles.dayWorkspaceScroll} keyboardShouldPersistTaps="handled">
         <View style={[styles.selectedDay, { backgroundColor: colors.surfaceMuted }]}>
           <View style={styles.workspaceTopBar}>
-            <View style={styles.flex}><AppText style={[styles.kicker, { color: colors.accent }]}>DAY WORKSPACE</AppText><AppText style={{ color: colors.textMuted }}>Training and food, logged or planned</AppText></View>
+            <View style={styles.flex}><AppText style={styles.selectedDateTitle}>Day details</AppText><AppText style={{ color: colors.textMuted }}>Training, food and wellness</AppText></View>
             <Button label="Close" onPress={() => setDayWorkspaceOpen(false)} variant="quiet" />
           </View>
           <View style={styles.selectedDayNavigator}>
@@ -165,11 +165,24 @@ export default function TodayScreen() {
           </View>
           <View style={styles.selectedDayHeader}>
             <View style={styles.selectedDayActions}>
-              <Button label={selectedWorkouts.length ? 'Log another workout' : 'Log workout'} onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
-              <Button label={selectedPlans.length ? 'Plan another' : 'Plan workout'} onPress={() => router.push({ pathname: '/workouts/plan', params: { date: selectedDate } } as never)} disabled={selectedInPast} variant="quiet" />
-              <Button label={selectedActivity?.mealCount ? 'Log another meal' : 'Log meal'} onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
-              <Button label={selectedBodyMeasurements.length ? 'Log body again' : 'Log body'} onPress={() => router.push({ pathname: '/wellness/body', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
-              <Button label={selectedSleepLogs.length ? 'Log sleep again' : 'Log sleep'} onPress={() => router.push({ pathname: '/wellness/sleep', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
+              <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
+                <AppText style={styles.actionGroupTitle}>Training</AppText>
+                <View style={styles.actionGroupButtons}>
+                  <Button icon="barbell-outline" label={selectedWorkouts.length ? 'Log another' : 'Log workout'} onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
+                  <Button icon="calendar-outline" label={selectedPlans.length ? 'Plan another' : 'Plan workout'} onPress={() => router.push({ pathname: '/workouts/plan', params: { date: selectedDate } } as never)} disabled={selectedInPast} variant="quiet" />
+                </View>
+              </View>
+              <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
+                <AppText style={styles.actionGroupTitle}>Food</AppText>
+                <Button icon="restaurant-outline" label={selectedActivity?.mealCount ? 'Add another meal' : 'Add meal'} onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
+              </View>
+              <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
+                <AppText style={styles.actionGroupTitle}>Wellness</AppText>
+                <View style={styles.actionGroupButtons}>
+                  <Button icon="body-outline" label={selectedBodyMeasurements.length ? 'Add body entry' : 'Log body'} onPress={() => router.push({ pathname: '/wellness/body', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
+                  <Button icon="moon-outline" label={selectedSleepLogs.length ? 'Add sleep entry' : 'Log sleep'} onPress={() => router.push({ pathname: '/wellness/sleep', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
+                </View>
+              </View>
             </View>
           </View>
           {selectedDayLoading ? <View accessibilityLiveRegion="polite" style={styles.selectedLoading}><AppText style={{ color: colors.textMuted }}>Loading this day’s records…</AppText></View> : null}
@@ -184,7 +197,7 @@ export default function TodayScreen() {
           {selectedWorkouts.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged workouts</AppText>{selectedWorkouts.map((workout) => (
             <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
-                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg·reps</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
+                <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg·reps</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
                 <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
               </Pressable>
             </Link>
@@ -233,12 +246,12 @@ export default function TodayScreen() {
         <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
           <View style={styles.macroRow}>
             <View style={styles.flex}>
-              <AppText style={[styles.kicker, { color: colors.accent }]}>PROGRESSIVE OVERLOAD</AppText>
+              <AppText style={[styles.kicker, { color: colors.accent }]}>WORKOUT PROGRESS</AppText>
               <AppText style={styles.progressMetric}>{summary.workoutProgress.overallChangePercent == null ? 'Baseline' : formatPercent(summary.workoutProgress.overallChangePercent)}</AppText>
             </View>
             <AppText style={{ color: colors.textMuted, textAlign: 'right' }}>{summary.workoutProgress.overallChangePercent == null ? 'comparison starts next session' : `${summary.workoutProgress.improvedExerciseCount}/${summary.workoutProgress.comparableExerciseCount} exercises up`}</AppText>
           </View>
-          <AppText style={{ color: colors.textMuted }}>Work performed versus the previous matching session—not a strength or muscle-growth score.</AppText>
+          <AppText style={{ color: colors.textMuted }}>Compared with the previous session containing the same exercises.</AppText>
           <View style={styles.exerciseProgressList}>
             {summary.workoutProgress.exercises.slice(0, 4).map((exercise) => (
               <View key={exercise.exerciseId} style={styles.macroRow}>
@@ -282,7 +295,7 @@ export default function TodayScreen() {
       <SectionHeading title="Last session" />
       {summary.latestWorkout ? (
         <Link href={{ pathname: '/workouts/[id]', params: { id: summary.latestWorkout.id } }} asChild>
-          <Pressable><Card><AppText style={styles.actionTitle}>{summary.latestWorkout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(summary.latestWorkout.completedAt ?? summary.latestWorkout.performedOn)} · {summary.latestWorkout.setCount} sets · {Math.round(summary.latestWorkout.totalVolumeKg).toLocaleString()} kg·reps</AppText></Card></Pressable>
+          <Pressable><Card><AppText style={styles.sessionTitle}>{summary.latestWorkout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(summary.latestWorkout.completedAt ?? summary.latestWorkout.performedOn)} · {summary.latestWorkout.setCount} sets · {Math.round(summary.latestWorkout.totalVolumeKg).toLocaleString()} kg·reps</AppText></Card></Pressable>
         </Link>
       ) : <StatePanel title="Your first session starts here" body="Log the work you actually completed. JIEN will build progression guidance from it." actionLabel="Log workout" onAction={() => router.push('/workouts/new')} />}
     </Screen>
@@ -290,9 +303,8 @@ export default function TodayScreen() {
 }
 
 const styles = StyleSheet.create({
-  actions: { flexDirection: 'row', gap: spacing.sm },
-  actionCard: { flex: 1, minHeight: 110, justifyContent: 'space-between' },
-  actionTitle: { ...typography.bodyLarge, fontWeight: '700' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  sessionTitle: { ...typography.bodyLarge, fontWeight: '700' },
   metricCard: { flexDirection: 'row', justifyContent: 'space-around' },
   metric: { ...typography.title, fontWeight: '700' },
   macroRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
@@ -303,14 +315,14 @@ const styles = StyleSheet.create({
   progressMetric: { ...typography.title, fontWeight: '800' },
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
   bodyCard: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: spacing.lg },
-  calendarCard: { gap: spacing.sm },
+  calendarCard: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: spacing.sm },
   calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   calendarTitleWrap: { flex: 1, alignItems: 'center' },
   calendarTitle: { ...typography.bodyLarge, fontWeight: '800' },
   weekRow: { flexDirection: 'row' },
   weekday: { flex: 1, textAlign: 'center', ...typography.caption, fontWeight: '800' },
   monthGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderRadius: radii.compact, gap: 2 },
+  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radii.compact, gap: 2 },
   dayNumber: { ...typography.label },
   dayDots: { height: 5, flexDirection: 'row', gap: 3 },
   dot: { width: 5, height: 5, borderRadius: radii.pill },
@@ -319,13 +331,17 @@ const styles = StyleSheet.create({
   dayWorkspacePrompt: { minHeight: 64, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   dayWorkspaceOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.48)', padding: spacing.md, alignItems: 'center', justifyContent: 'center' },
   dayWorkspaceSheet: { width: '100%', maxWidth: 920, maxHeight: '92%', borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.sheet, overflow: 'hidden' },
+  dayWorkspaceSheetCompact: { maxHeight: '94%', marginTop: 'auto', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
   dayWorkspaceScroll: { padding: spacing.md },
   workspaceTopBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   selectedDay: { padding: spacing.sm, borderRadius: radii.control, gap: spacing.sm },
   selectedDayNavigator: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   selectedDateTitle: { ...typography.bodyLarge, fontWeight: '800' },
   selectedDayHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-  selectedDayActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xxs },
+  selectedDayActions: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  actionGroup: { flexGrow: 1, flexBasis: 240, minWidth: 220, borderRadius: radii.control, padding: spacing.sm, gap: spacing.xs },
+  actionGroupTitle: { ...typography.label, fontWeight: '800' },
+  actionGroupButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   selectedLoading: { minHeight: 58, alignItems: 'center', justifyContent: 'center' },
   selectedRecords: { gap: spacing.xs },
   selectedRecordsTitle: { ...typography.label, fontWeight: '800' },

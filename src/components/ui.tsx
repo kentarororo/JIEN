@@ -1,4 +1,6 @@
-import type { PropsWithChildren, ReactNode, Ref } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import type { ComponentProps, PropsWithChildren, ReactNode, Ref } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -16,6 +18,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { radii, spacing, typography, useJienTheme } from '@/theme';
+
+type IconName = ComponentProps<typeof Ionicons>['name'];
 
 export function AppText({ style, ...props }: TextProps) {
   const { colors } = useJienTheme();
@@ -75,6 +79,7 @@ export function Button({
   disabled,
   busy,
   accessibilityLabel,
+  icon,
 }: {
   label: string;
   onPress: () => void;
@@ -82,43 +87,94 @@ export function Button({
   disabled?: boolean;
   busy?: boolean;
   accessibilityLabel?: string;
+  icon?: IconName;
 }) {
   const { colors } = useJienTheme();
+  const [focused, setFocused] = useState(false);
   const background = variant === 'primary' ? colors.accent : variant === 'danger' ? colors.dangerSoft : variant === 'secondary' ? colors.accentSoft : 'transparent';
   const foreground = variant === 'primary' ? colors.textOnAccent : variant === 'danger' ? colors.danger : colors.accent;
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || busy }}
+      accessibilityState={{ disabled: disabled || busy, busy }}
       disabled={disabled || busy}
       onPress={onPress}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={({ pressed }) => [
         styles.button,
         { backgroundColor: background, borderColor: variant === 'quiet' ? colors.border : background },
+        focused && { borderColor: colors.accent, borderWidth: 2 },
         pressed && styles.pressed,
         (disabled || busy) && styles.disabled,
       ]}
     >
-      {busy ? <ActivityIndicator color={foreground} /> : <AppText style={[styles.buttonLabel, { color: foreground }]}>{label}</AppText>}
+      <View style={[styles.buttonContent, busy && styles.busyContent]}>
+        {icon ? <Ionicons name={icon} size={18} color={foreground} /> : null}
+        <AppText style={[styles.buttonLabel, { color: foreground }]}>{label}</AppText>
+      </View>
+      {busy ? <ActivityIndicator color={foreground} style={styles.busyIndicator} /> : null}
     </Pressable>
   );
 }
 
 export function Pill({ label, active = false, onPress }: { label: string; active?: boolean; onPress?: () => void }) {
   const { colors } = useJienTheme();
+  const [focused, setFocused] = useState(false);
   const content = <AppText style={[styles.pillLabel, { color: active ? colors.textOnAccent : colors.text }]}>{label}</AppText>;
   if (!onPress) {
-    return <View style={[styles.pill, { backgroundColor: active ? colors.accent : colors.surfaceMuted }]}>{content}</View>;
+    return <View style={[styles.pill, { backgroundColor: active ? colors.accent : colors.surfaceMuted, borderColor: 'transparent' }]}>{content}</View>;
   }
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={({ pressed }) => [styles.pill, { backgroundColor: active ? colors.accent : colors.surfaceMuted }, pressed && styles.pressed]}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={({ pressed }) => [styles.pill, { backgroundColor: active ? colors.accent : colors.surfaceMuted, borderColor: focused ? colors.accent : 'transparent' }, focused && styles.focusedControl, pressed && styles.pressed]}
     >
       {content}
+    </Pressable>
+  );
+}
+
+export function ActionCard({
+  title,
+  detail,
+  icon,
+  onPress,
+}: {
+  title: string;
+  detail: string;
+  icon: IconName;
+  onPress: () => void;
+}) {
+  const { colors } = useJienTheme();
+  const [focused, setFocused] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${detail}`}
+      onPress={onPress}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={({ pressed }) => [
+        styles.actionCard,
+        { backgroundColor: colors.surface, borderColor: focused ? colors.accent : colors.border },
+        focused && styles.focusedControl,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={[styles.actionIcon, { backgroundColor: colors.accentSoft }]}>
+        <Ionicons name={icon} size={22} color={colors.accent} />
+      </View>
+      <View style={styles.actionCopy}>
+        <AppText style={styles.actionTitle}>{title}</AppText>
+        <AppText style={[styles.actionDetail, { color: colors.textMuted }]}>{detail}</AppText>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
     </Pressable>
   );
 }
@@ -216,10 +272,10 @@ export function ProgressBar({ value, color }: { value: number; color?: string })
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  screenContent: { padding: spacing.lg, paddingBottom: spacing.jumbo, gap: spacing.lg },
+  screenContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', padding: spacing.lg, paddingBottom: spacing.jumbo, gap: spacing.lg },
   body: { ...typography.body },
-  headingRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
-  headingCopy: { flex: 1, gap: spacing.xxs },
+  headingRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
+  headingCopy: { flexGrow: 1, flexShrink: 1, flexBasis: 220, gap: spacing.xxs },
   eyebrow: { ...typography.label, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
   title: { ...typography.display, fontWeight: '700', letterSpacing: -0.7 },
   sectionHeading: { gap: 2 },
@@ -227,11 +283,20 @@ const styles = StyleSheet.create({
   muted: { ...typography.label, opacity: 0.7 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.md, gap: spacing.sm },
   button: { minHeight: 48, paddingHorizontal: spacing.lg, borderRadius: radii.control, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  buttonContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
   buttonLabel: { fontWeight: '700' },
+  busyContent: { opacity: 0 },
+  busyIndicator: { position: 'absolute' },
   pressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.48 },
-  pill: { minHeight: 40, borderRadius: radii.pill, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  pill: { minHeight: 44, borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
   pillLabel: { ...typography.label, fontWeight: '600' },
+  focusedControl: { borderWidth: 2 },
+  actionCard: { flex: 1, minWidth: 220, minHeight: 84, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  actionIcon: { width: 44, height: 44, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
+  actionCopy: { flex: 1, minWidth: 0, gap: 1 },
+  actionTitle: { ...typography.bodyLarge, fontWeight: '700' },
+  actionDetail: { ...typography.label },
   choice: { minHeight: 72, borderWidth: 1, borderRadius: radii.card, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   choiceCopy: { flex: 1, gap: spacing.xxs },
   choiceTitle: { ...typography.bodyLarge, fontWeight: '700' },

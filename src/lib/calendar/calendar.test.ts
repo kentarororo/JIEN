@@ -50,7 +50,7 @@ test('opens a day workspace only for a quick repeated activation of the same dat
 test('the calendar day workspace keeps itemized training and food edit routes date-aware', () => {
   const source = todayScreen();
   assert.match(source, /isRepeatedCalendarDayActivation/);
-  assert.match(source, /Double-click or double-tap/);
+  assert.match(source, /<Button label="Open day"/);
   assert.match(source, /visible=\{dayWorkspaceOpen\}/);
   assert.match(source, /pathname: '\/workouts\/new', params: \{ date: selectedDate \}/);
   assert.match(source, /pathname: '\/meals\/new', params: \{ date: selectedDate \}/);
