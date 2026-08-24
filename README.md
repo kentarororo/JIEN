@@ -95,9 +95,8 @@ pnpm exec expo run:android
 
 ## Web deployment
 
-Functional web testing must use a host that can set the cross-origin isolation
-headers required by Expo SQLite. `vercel.json` configures those headers, runs the
-production export, and publishes `dist`:
+Functional web testing uses the Vercel deployment. `vercel.json` keeps the supported
+host response contract, runs the production export, and publishes `dist`:
 
 1. Import this GitHub repository into Vercel.
 2. Connect the Supabase Vercel integration, or add `EXPO_PUBLIC_SUPABASE_URL`
@@ -109,11 +108,10 @@ production export, and publishes `dist`:
 
 Do not set `EXPO_PUBLIC_BASE_URL` in Vercel. The production build uses the root path.
 The build clears Metro's environment-sensitive cache, refuses to export without a
-valid public Supabase URL and key, then verifies the SQLite worker, compiles its WASM
-binary, moves it to a stable public asset URL, and content-hashes the repaired worker
-and entry bundles.
+valid public Supabase URL and key, then validates the main-thread wa-sqlite WASM,
+moves it to a stable public asset URL, and content-hashes the repaired entry bundle.
 
-GitHub Pages remains useful only as a pointer. It cannot set the required COOP/COEP
-headers, so JIEN now refuses to mount SQLite there and shows
-`CROSS_ORIGIN_ISOLATION_REQUIRED` instead of risking an iPhone Safari WASM crash.
-Native builds continue to use persistent Expo SQLite.
+GitHub Pages remains useful only as a pointer and shows
+`CROSS_ORIGIN_ISOLATION_REQUIRED`. Vercel web uses an account-scoped IndexedDB VFS
+without Expo's OPFS access-handle worker; native builds continue to use persistent
+Expo SQLite. See `docs/web-tester-runtime.md` for the lifecycle and migration details.

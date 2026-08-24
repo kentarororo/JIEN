@@ -35,9 +35,9 @@ export function finalizePagesHostBuild(projectRoot = process.cwd()) {
     throw new Error(`The Pages artifact does not use its configured base path: ${configuredBasePath}`);
   }
 
-  // GitHub Pages cannot provide the COOP/COEP headers Expo SQLite requires.
-  // The host gate prevents SQLite from mounting there, so the WASM worker is
-  // deliberately left untouched and the page explains where testers should go.
+  // Functional web testing remains limited to the supported Vercel host contract.
+  // The Pages gate prevents local persistence from mounting there and explains
+  // where testers should go.
   writeFileSync(path.join(distRoot, '.nojekyll'), '');
 
   return { hostGateBundle, indexPath };

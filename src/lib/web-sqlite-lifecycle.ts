@@ -64,7 +64,7 @@ export type WebSQLiteLease = {
 };
 
 /**
- * Serializes access to Expo SQLite's OPFS worker across browser documents.
+ * Serializes access to JIEN's account-scoped web database across documents.
  *
  * The lock is requested by the window rather than the SQLite worker so WebKit
  * reliably releases it if the document is terminated during navigation.
@@ -138,9 +138,10 @@ export type WebSQLiteOwnershipCoordinator = {
 };
 
 /**
- * Closes the worker-backed database before a refresh can start another worker.
- * `closeSync` is intentional: an asynchronous pagehide task can be abandoned by
- * mobile Safari before the OPFS access handle has actually been released.
+ * Starts database shutdown before a refresh can mount another owner. `closeSync`
+ * is intentional because an asynchronous pagehide task can be abandoned by
+ * mobile Safari; the document-owned Web Lock is also released automatically if
+ * the browser terminates the page before IndexedDB cleanup finishes.
  */
 export function createWebSQLitePageLifecycle(options: {
   closeDatabaseSync?: () => void;
@@ -183,7 +184,7 @@ export function createWebSQLitePageLifecycle(options: {
 }
 
 /**
- * Coordinates the browser primitives that must surround Expo's SQLiteProvider.
+ * Coordinates the browser primitives that must surround the web SQLiteProvider.
  * The coordinator is created before the provider mounts and owns the page's
  * worker tracking, handoff channel, Web Lock, and page-transition teardown.
  */

@@ -25,23 +25,23 @@ function contentHashedName(prefix, source) {
 export async function finalizeWebBuild(projectRoot = process.cwd()) {
   const distRoot = path.resolve(projectRoot, 'dist');
   const bundleRoot = path.join(distRoot, '_expo', 'static', 'js', 'web');
-  const workers = readdirSync(bundleRoot)
-    .filter((name) => /^worker-.*\.js$/.test(name))
+  const bundles = readdirSync(bundleRoot)
+    .filter((name) => name.endsWith('.js'))
     .map((name) => path.join(bundleRoot, name));
-  const matches = workers.flatMap((workerPath) => {
-    const source = readFileSync(workerPath, 'utf8');
-    const match = source.match(/["'](\/assets\/[^"']*wa-sqlite[^"']*\.wasm)["']/);
-    return match ? [{ workerPath, source, assetPath: match[1] }] : [];
+  const matches = bundles.flatMap((bundlePath) => {
+    const source = readFileSync(bundlePath, 'utf8');
+    const match = source.match(/["'](\/assets\/[^"']*wa-sqlite-async[^"']*\.wasm)["']/);
+    return match ? [{ bundlePath, source, assetPath: match[1] }] : [];
   });
 
   if (matches.length !== 1) {
-    throw new Error(`Expected one Expo SQLite worker WASM reference, found ${matches.length}.`);
+    throw new Error(`Expected one web SQLite WASM reference, found ${matches.length}.`);
   }
-  const [{ workerPath, source, assetPath }] = matches;
+  const [{ bundlePath, source, assetPath }] = matches;
   const sourceWasm = path.resolve(distRoot, assetPath.slice(1));
   const relativeSource = path.relative(distRoot, sourceWasm);
   if (relativeSource.startsWith('..') || path.isAbsolute(relativeSource) || !existsSync(sourceWasm)) {
-    throw new Error('Expo SQLite WASM is outside or missing from the web artifact.');
+    throw new Error('Web SQLite WASM is outside or missing from the web artifact.');
   }
 
   const bytes = readFileSync(sourceWasm);
@@ -53,30 +53,17 @@ export async function finalizeWebBuild(projectRoot = process.cwd()) {
   mkdirSync(publicDirectory, { recursive: true });
   writeFileSync(publicPath, bytes);
 
-  const patched = source.replace(assetPath, publicUrl);
-  if (patched === source || patched.includes('/.pnpm/')) {
-    throw new Error('Expo SQLite worker still references a hidden package-manager path.');
+  const patchedEntry = source.replace(assetPath, publicUrl);
+  if (patchedEntry === source || patchedEntry.includes(`"${assetPath}"`)) {
+    throw new Error('Web SQLite bundle still references its hidden package-manager asset path.');
   }
-  const originalWorkerName = path.basename(workerPath);
-  const publicWorkerName = contentHashedName('worker', patched);
-  const publicWorkerPath = path.join(bundleRoot, publicWorkerName);
-  writeFileSync(workerPath, patched);
-  writeFileSync(publicWorkerPath, patched);
-
-  const entryPaths = readdirSync(bundleRoot)
-    .filter((name) => /^entry-.*\.js$/.test(name))
-    .map((name) => path.join(bundleRoot, name));
-  const entryPath = entryPaths.find((candidate) =>
-    readFileSync(candidate, 'utf8').includes(originalWorkerName),
-  );
-  if (!entryPath) throw new Error('Expo entry bundle does not reference its SQLite worker.');
-
-  const originalEntryName = path.basename(entryPath);
-  const entrySource = readFileSync(entryPath, 'utf8');
-  const patchedEntry = entrySource.replaceAll(originalWorkerName, publicWorkerName);
+  const originalEntryName = path.basename(bundlePath);
+  if (!/^entry-.*\.js$/.test(originalEntryName)) {
+    throw new Error('The web SQLite WASM reference is not in the Expo entry bundle.');
+  }
   const publicEntryName = contentHashedName('entry', patchedEntry);
   const publicEntryPath = path.join(bundleRoot, publicEntryName);
-  writeFileSync(entryPath, patchedEntry);
+  writeFileSync(bundlePath, patchedEntry);
   writeFileSync(publicEntryPath, patchedEntry);
 
   let htmlReferenceCount = 0;
@@ -91,12 +78,11 @@ export async function finalizeWebBuild(projectRoot = process.cwd()) {
 
   if (statSync(publicPath).size !== bytes.length) throw new Error('Web SQLite WASM copy is incomplete.');
   await WebAssembly.compile(readFileSync(publicPath));
-  return { entryPath: publicEntryPath, publicUrl, workerPath: publicWorkerPath };
+  return { entryPath: publicEntryPath, publicUrl };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const result = await finalizeWebBuild();
   console.log(`Web entry bundle: ${path.relative(process.cwd(), result.entryPath)}`);
-  console.log(`Web SQLite worker: ${path.relative(process.cwd(), result.workerPath)}`);
   console.log(`Web SQLite WASM: ${result.publicUrl}`);
 }

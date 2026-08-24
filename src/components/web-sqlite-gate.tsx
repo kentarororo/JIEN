@@ -188,7 +188,7 @@ function WebSQLiteHostRequirementsPanel() {
           This preview host cannot run JIEN safely
         </Text>
         <Text style={[styles.body, { color: colors.textMuted }]}>
-          GitHub Pages cannot provide the browser isolation headers required by Expo SQLite. Use JIEN&apos;s Vercel preview once deployment completes. No local data was removed.
+          This build is not running on JIEN&apos;s supported isolated web host. Use JIEN&apos;s Vercel deployment once it completes. No local data was removed.
         </Text>
         <Text selectable style={[styles.code, { color: colors.warning }]}>Host code: CROSS_ORIGIN_ISOLATION_REQUIRED</Text>
       </View>

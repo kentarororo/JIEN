@@ -7,6 +7,8 @@ const gate = readFileSync(new URL('../src/components/web-sqlite-gate.tsx', impor
 const lifecycle = readFileSync(new URL('../src/lib/web-sqlite-lifecycle.ts', import.meta.url), 'utf8');
 const workerRegistry = readFileSync(new URL('../src/lib/web-worker-registry.ts', import.meta.url), 'utf8');
 const webProvider = readFileSync(new URL('../src/lib/db/database-context.web.tsx', import.meta.url), 'utf8');
+const nativeProvider = readFileSync(new URL('../src/lib/db/database-context.tsx', import.meta.url), 'utf8');
+const webDatabase = readFileSync(new URL('../src/lib/db/web-indexeddb-database.ts', import.meta.url), 'utf8');
 const metro = readFileSync(new URL('../metro.config.js', import.meta.url), 'utf8');
 const webFinalizer = readFileSync(new URL('./finalize-web-build.mjs', import.meta.url), 'utf8');
 const pagesHostFinalizer = readFileSync(
@@ -20,11 +22,16 @@ const photoPayloadStore = readFileSync(new URL('../src/lib/db/meal-photo-payload
 const photoQueue = readFileSync(new URL('../src/lib/db/meal-photo-queue.ts', import.meta.url), 'utf8');
 const workoutLogger = readFileSync(new URL('../src/app/workouts/new.tsx', import.meta.url), 'utf8');
 
-test('web startup has one official Expo SQLite owner', () => {
+test('native keeps Expo SQLite while web uses one account-scoped IndexedDB owner', () => {
   assert.equal(layout.match(/<SQLiteProvider\b/g)?.length, 1);
   assert.match(layout, /databaseName="jien\.db"/);
-  assert.match(webProvider, /from 'expo-sqlite'/);
-  assert.doesNotMatch(webProvider, /WaSQLiteFactory|MemoryVFS|deserialize|serialize/);
+  assert.match(nativeProvider, /from 'expo-sqlite'/);
+  assert.match(webProvider, /openWebIndexedDbDatabase/);
+  assert.match(webDatabase, /IDBBatchAtomicVFS/);
+  assert.match(webDatabase, /jien-web-sqlite-v2:/);
+  assert.match(webDatabase, /durability: 'strict'/);
+  assert.match(webDatabase, /purge: 'manual'/);
+  assert.doesNotMatch(webDatabase, /AccessHandlePoolVFS|createSyncAccessHandle|new Worker/);
   assert.doesNotMatch(workoutLogger, /main-thread-memory-database|WebDatabaseDurabilityError/);
 });
 
@@ -44,7 +51,7 @@ test('web refuses to mount SQLite without the host isolation contract', () => {
   assert.match(gate, /event\.persisted/);
 });
 
-test('the web gate integrates coordinated ownership before mounting Expo SQLite', () => {
+test('the web gate integrates coordinated ownership before mounting web SQLite', () => {
   assert.match(gate, /createWebSQLiteOwnershipCoordinator/);
   assert.match(gate, /navigator\.locks\.request/);
   assert.match(gate, /createOwnershipChannel/);
@@ -58,20 +65,24 @@ test('the web gate integrates coordinated ownership before mounting Expo SQLite'
 });
 
 test('startup failure and retry relinquish SQLite before reloading', () => {
+  assert.match(webProvider, /\.catch\(\(cause\) => \{[\s\S]*opened\?\.closeSync\(\)/);
   assert.match(gate, /componentDidCatch[\s\S]*this\.context as WebSQLiteOwnershipContextValue \| null\)\?\.closeBeforeReload\(\)/);
   assert.match(gate, /const retry = \(\) => \{[\s\S]*closeBeforeReload\(\)[\s\S]*window\.location\.reload\(\)/);
 });
 
-test('Vercel supplies Expo SQLite cross-origin isolation headers', () => {
+test('Vercel publishes the main-thread SQLite WASM at a stable public path', () => {
   const headers = Object.fromEntries(vercel.headers[0].headers.map(({ key, value }) => [key, value]));
   assert.equal(headers['Cross-Origin-Opener-Policy'], 'same-origin');
   assert.equal(headers['Cross-Origin-Embedder-Policy'], 'credentialless');
   assert.equal(vercel.outputDirectory, 'dist');
   assert.equal(vercel.buildCommand, 'pnpm run web:build');
-  assert.doesNotMatch(metro, /@jien\/wa-sqlite|resolveRequest/);
+  assert.match(metro, /wa-sqlite-async\.mjs/);
+  assert.match(metro, /@jien\/wa-sqlite/);
+  assert.match(metro, /resolveRequest/);
   assert.match(metro, /assetExts\.push\('wasm'\)/);
   assert.match(webFinalizer, /assets', 'jien-sqlite/);
   assert.match(webFinalizer, /WebAssembly\.compile/);
+  assert.doesNotMatch(webFinalizer, /workerPath|publicWorker/);
   assert.equal(packageJson.scripts['web:build'], 'node scripts/build-web.mjs');
   assert.match(webBuilder, /SUPABASE_PUBLISHABLE_KEY/);
   assert.match(webBuilder, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
@@ -97,4 +108,11 @@ test('large retryable meal photos remain outside SQLite on web', () => {
   assert.match(photoQueue, /storeMealPhotoPayload/);
   assert.match(photoQueue, /externalizeLegacyMealPhotoPayloads/);
   assert.match(photoQueue, /resolveMealPhotoPayload/);
+});
+
+test('legacy local bytes are imported non-destructively into the IndexedDB VFS', () => {
+  assert.match(webDatabase, /WebDatabaseSnapshotStore\.open\(ownerUserId\)/);
+  assert.match(webDatabase, /databaseImageBelongsToOwner/);
+  assert.match(webDatabase, /seedIndexedDbIfEmpty/);
+  assert.doesNotMatch(webDatabase, /deleteDatabase|deleteFileSystem|removeEntry/);
 });

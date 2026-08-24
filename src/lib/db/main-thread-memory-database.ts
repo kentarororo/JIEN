@@ -9,7 +9,7 @@ export type MainThreadSQLiteApi = {
   close: (database: number) => Promise<void>;
   column_names: (statement: number) => string[];
   exec: (database: number, sql: string) => Promise<void>;
-  last_insert_rowid: (database: number) => number | bigint;
+  last_insert_rowid?: (database: number) => number | bigint;
   row: (statement: number) => unknown[];
   serialize: (database: number, schema: string) => Uint8Array | null;
   statements: (database: number, sql: string) => AsyncIterable<number>;
@@ -17,7 +17,7 @@ export type MainThreadSQLiteApi = {
 };
 
 export type MainThreadMemoryVfs = {
-  close: () => void;
+  close: () => void | Promise<void>;
   snapshotDatabase?: () => Uint8Array | null;
 };
 
@@ -147,7 +147,7 @@ export class MainThreadMemoryDatabase {
       }
       const runResult = {
         changes: this.sqlite.changes(this.pointer),
-        lastInsertRowId: Number(this.sqlite.last_insert_rowid(this.pointer)),
+        lastInsertRowId: Number(this.sqlite.last_insert_rowid?.(this.pointer) ?? 0),
       };
       return runResult;
     }
@@ -275,7 +275,8 @@ export class MainThreadMemoryDatabase {
     this.persistence?.closeSync?.();
     void this.sqlite.close(this.pointer)
       .catch(() => undefined)
-      .finally(() => this.vfs.close());
+      .finally(() => this.vfs.close())
+      .catch(() => undefined);
   }
 
   async closeAsync(): Promise<void> {
@@ -284,7 +285,7 @@ export class MainThreadMemoryDatabase {
     this.closed = true;
     await this.persistenceChain;
     await this.sqlite.close(this.pointer);
-    this.vfs.close();
+    await this.vfs.close();
     await this.persistence?.close();
   }
 
