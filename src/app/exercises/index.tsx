@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
@@ -16,8 +16,10 @@ export default function ExerciseLibraryScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
+  const scrollRef = useRef<ScrollView>(null);
   const [query, setQuery] = useState('');
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
+  const [catalogLimit, setCatalogLimit] = useState(24);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [primaryMuscle, setPrimaryMuscle] = useState('chest');
   const [secondaryMuscles, setSecondaryMuscles] = useState<string[]>([]);
@@ -28,11 +30,18 @@ export default function ExerciseLibraryScreen() {
   const { data, error, loading, reload } = useScreenData(loader);
   const exercises = data ?? [];
   const editingExercise = exercises.find((exercise) => exercise.id === editingId) ?? null;
+  const exerciseNameCounts = useMemo(() => exercises.reduce((counts, exercise) => {
+    const key = normalizedExerciseName(exercise.name);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>()), [exercises]);
+  const needsCatalogReview = useCallback((exercise: Exercise) => exerciseTargetsNeedReview(exercise)
+    || (exerciseNameCounts.get(normalizedExerciseName(exercise.name)) ?? 0) > 1, [exerciseNameCounts]);
   const filteredExercises = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
     return exercises.filter((exercise) => {
       const starter = isStarterExerciseId(exercise.id);
-      if (catalogFilter === 'review' && !exerciseTargetsNeedReview(exercise)) return false;
+      if (catalogFilter === 'review' && !needsCatalogReview(exercise)) return false;
       if (catalogFilter === 'custom' && starter) return false;
       if (catalogFilter === 'jien' && !starter) return false;
       if (!term) return true;
@@ -44,9 +53,11 @@ export default function ExerciseLibraryScreen() {
       ].join(' ').toLocaleLowerCase();
       return searchable.includes(term);
     });
-  }, [catalogFilter, exercises, query]);
+  }, [catalogFilter, exercises, needsCatalogReview, query]);
+  const visibleExercises = filteredExercises.slice(0, catalogLimit);
   const customCount = exercises.filter((exercise) => !isStarterExerciseId(exercise.id)).length;
-  const reviewCount = exercises.filter(exerciseTargetsNeedReview).length;
+  const reviewCount = exercises.filter(needsCatalogReview).length;
+  useEffect(() => setCatalogLimit(24), [catalogFilter, query]);
 
   const beginEditing = (exercise: Exercise) => {
     const normalizedPrimary = normalizeMuscleGroupKey(exercise.primaryMuscleGroup);
@@ -56,6 +67,7 @@ export default function ExerciseLibraryScreen() {
       .filter((group) => group !== normalizedPrimary));
     setFormError(null);
     setSavedExerciseId(null);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const saveTargets = async () => {
@@ -77,7 +89,7 @@ export default function ExerciseLibraryScreen() {
   };
 
   return (
-    <Screen contentContainerStyle={styles.content}>
+    <Screen scrollViewRef={scrollRef} contentContainerStyle={styles.content}>
       <ScreenHeading
         title="Exercise targets"
         action={<Button label="Done" onPress={() => router.back()} variant="quiet" />}
@@ -99,7 +111,7 @@ export default function ExerciseLibraryScreen() {
         />
         <View style={styles.filters}>
           <Pill label={`All ${exercises.length}`} active={catalogFilter === 'all'} onPress={() => setCatalogFilter('all')} />
-          <Pill label={`Check tags ${reviewCount}`} active={catalogFilter === 'review'} onPress={() => setCatalogFilter('review')} />
+          <Pill label={`Review ${reviewCount}`} active={catalogFilter === 'review'} onPress={() => setCatalogFilter('review')} />
           <Pill label={`Custom ${customCount}`} active={catalogFilter === 'custom'} onPress={() => setCatalogFilter('custom')} />
           <Pill label={`JIEN ${exercises.length - customCount}`} active={catalogFilter === 'jien'} onPress={() => setCatalogFilter('jien')} />
         </View>
@@ -113,10 +125,14 @@ export default function ExerciseLibraryScreen() {
               <AppText style={styles.editorTitle}>{editingExercise.name}</AppText>
               <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(editingExercise.id) ? 'Built-in' : 'Custom'} · {humanizeEquipment(editingExercise.equipment)}</AppText>
             </View>
-            <Button label="Close" onPress={() => setEditingId(null)} variant="quiet" />
+            <View style={styles.editorActions}>
+              <Button label="Save" onPress={() => void saveTargets()} busy={saving} variant="secondary" />
+              <Button label="Close" onPress={() => setEditingId(null)} variant="quiet" />
+            </View>
           </View>
 
           <TargetPicker
+            key={`${editingExercise.id}-primary`}
             label="Primary target"
             detail="Counts as 1.0 working set"
             selected={(group) => primaryMuscle === group}
@@ -127,6 +143,7 @@ export default function ExerciseLibraryScreen() {
             }}
           />
           <TargetPicker
+            key={`${editingExercise.id}-assisting`}
             label="Assisting targets"
             detail="Each counts as 0.5 working set"
             selected={(group) => secondaryMuscles.includes(group)}
@@ -149,9 +166,10 @@ export default function ExerciseLibraryScreen() {
       {error ? <StatePanel title="Exercise catalog is unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && filteredExercises.length === 0 ? <StatePanel title="No matching exercises" body="Try another name, muscle, or catalog filter." actionLabel="Show all" onAction={() => { setQuery(''); setCatalogFilter('all'); }} /> : null}
       <View style={styles.exerciseGrid}>
-        {filteredExercises.map((exercise) => {
+        {visibleExercises.map((exercise) => {
           const selected = exercise.id === editingId;
-          const needsReview = exerciseTargetsNeedReview(exercise);
+          const duplicateName = (exerciseNameCounts.get(normalizedExerciseName(exercise.name)) ?? 0) > 1;
+          const needsReview = needsCatalogReview(exercise);
           const primary = muscleGroupLabel(exercise.primaryMuscleGroup);
           return (
             <Pressable
@@ -167,7 +185,7 @@ export default function ExerciseLibraryScreen() {
                     <AppText style={styles.exerciseName}>{exercise.name}</AppText>
                     <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(exercise.id) ? 'Built-in' : 'Custom'} · {humanizeEquipment(exercise.equipment)} · {exercise.targetRepMin}–{exercise.targetRepMax} reps</AppText>
                   </View>
-                  <AppText style={{ color: needsReview ? colors.warning : colors.accent, fontWeight: '700' }}>{selected ? 'Editing' : needsReview ? 'Check tags' : 'Edit'}</AppText>
+                  <AppText style={{ color: needsReview ? colors.warning : colors.accent, fontWeight: '700' }}>{selected ? 'Editing' : duplicateName ? 'Duplicate name' : needsReview ? 'Check tags' : 'Edit'}</AppText>
                 </View>
                 <View style={styles.targetSummary}>
                   <Pill label={`${primary} · primary`} active />
@@ -178,6 +196,7 @@ export default function ExerciseLibraryScreen() {
           );
         })}
       </View>
+      {visibleExercises.length < filteredExercises.length ? <Button label={`Show ${Math.min(24, filteredExercises.length - visibleExercises.length)} more`} onPress={() => setCatalogLimit((count) => count + 24)} variant="secondary" /> : null}
     </Screen>
   );
 }
@@ -196,22 +215,26 @@ function TargetPicker({
   excluded?: string;
 }) {
   const { colors } = useJienTheme();
+  const [activeSection, setActiveSection] = useState(() => MUSCLE_GROUP_OPTIONS.find((option) => selected(option.value))?.section ?? MUSCLE_GROUP_SECTIONS[0]);
+  const selectedLabels = MUSCLE_GROUP_OPTIONS.filter((option) => option.value !== excluded && selected(option.value)).map((option) => option.label);
   return (
     <View style={styles.targetPicker}>
       <View>
         <AppText style={styles.targetPickerTitle}>{label}</AppText>
         <AppText style={{ color: colors.textMuted }}>{detail}</AppText>
+        <AppText style={[styles.selectionSummary, { color: colors.textMuted }]}>{selectedLabels.length ? `Selected: ${selectedLabels.join(', ')}` : 'None selected'}</AppText>
       </View>
-      {MUSCLE_GROUP_SECTIONS.map((section) => (
-        <View key={section} style={styles.muscleSection}>
-          <AppText style={[styles.muscleSectionLabel, { color: colors.textMuted }]}>{section}</AppText>
-          <View style={styles.filters}>
-            {MUSCLE_GROUP_OPTIONS
-              .filter((option) => option.section === section && option.value !== excluded)
-              .map((option) => <Pill key={option.value} label={option.label} active={selected(option.value)} onPress={() => onSelect(option.value)} />)}
-          </View>
+      <View style={styles.filters}>
+        {MUSCLE_GROUP_SECTIONS.map((section) => <Pill key={section} label={section} active={activeSection === section} onPress={() => setActiveSection(section)} />)}
+      </View>
+      <View style={styles.muscleSection}>
+        <AppText style={[styles.muscleSectionLabel, { color: colors.textMuted }]}>{activeSection}</AppText>
+        <View style={styles.filters}>
+          {MUSCLE_GROUP_OPTIONS
+            .filter((option) => option.section === activeSection && option.value !== excluded)
+            .map((option) => <Pill key={option.value} label={option.label} active={selected(option.value)} onPress={() => onSelect(option.value)} />)}
         </View>
-      ))}
+      </View>
     </View>
   );
 }
@@ -219,6 +242,10 @@ function TargetPicker({
 function humanizeEquipment(value: string | null | undefined): string {
   if (!value) return 'Bodyweight';
   return value.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function normalizedExerciseName(value: string): string {
+  return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
 }
 
 const styles = StyleSheet.create({
@@ -229,10 +256,12 @@ const styles = StyleSheet.create({
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   editor: { padding: spacing.lg, gap: spacing.lg },
   editorHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  editorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   kicker: { ...typography.caption, fontWeight: '800', letterSpacing: 0.6 },
   editorTitle: { ...typography.section, fontWeight: '800' },
   targetPicker: { gap: spacing.sm },
   targetPickerTitle: { ...typography.bodyLarge, fontWeight: '700' },
+  selectionSummary: { ...typography.label, marginTop: spacing.xxs },
   muscleSection: { gap: spacing.xs },
   muscleSectionLabel: { ...typography.caption, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   exerciseGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

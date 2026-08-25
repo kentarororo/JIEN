@@ -20,6 +20,9 @@ and restored from a Supabase backend with row-level security.
 - warm cream, royal-brown, and wood-accented light/dark themes
 - calm guided onboarding for goals, body baseline, equipment, joint considerations, diet, and AI consent
 
+The approved interface hierarchy and moodboard consensus are recorded in
+[docs/product-visual-direction.md](docs/product-visual-direction.md).
+
 ## Local setup
 
 Use a current Node.js release and pnpm.

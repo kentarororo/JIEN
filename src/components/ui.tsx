@@ -51,7 +51,7 @@ export function ScreenHeading({ eyebrow, title, action }: { eyebrow?: string; ti
     <View style={styles.headingRow}>
       <View style={styles.headingCopy}>
         {eyebrow ? <AppText style={[styles.eyebrow, { color: colors.accent }]}>{eyebrow}</AppText> : null}
-        <AppText accessibilityRole="header" style={styles.title}>{title}</AppText>
+        <AppText role="heading" aria-level={1} style={styles.title}>{title}</AppText>
       </View>
       {action}
     </View>
@@ -61,7 +61,7 @@ export function ScreenHeading({ eyebrow, title, action }: { eyebrow?: string; ti
 export function SectionHeading({ title, detail }: { title: string; detail?: string }) {
   return (
     <View style={styles.sectionHeading}>
-      <AppText accessibilityRole="header" style={styles.sectionTitle}>{title}</AppText>
+      <AppText role="heading" aria-level={2} style={styles.sectionTitle}>{title}</AppText>
       {detail ? <AppText style={styles.muted}>{detail}</AppText> : null}
     </View>
   );

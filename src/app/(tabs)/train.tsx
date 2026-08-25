@@ -15,6 +15,7 @@ export default function TrainScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
+  const [trainingView, setTrainingView] = useState<'overview' | 'history'>('overview');
   const [showAllMuscles, setShowAllMuscles] = useState(false);
   const [historyQuery, setHistoryQuery] = useState('');
   const [historyMuscle, setHistoryMuscle] = useState<string | null>(null);
@@ -60,9 +61,14 @@ export default function TrainScreen() {
         <Button icon="calendar-outline" label="Plan workout" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" />
         <Button icon="options-outline" label="Exercise targets" onPress={() => router.push('/exercises' as never)} variant="quiet" />
       </View>
+      <View accessibilityRole="tablist" style={[styles.viewSwitcher, { backgroundColor: colors.surfaceMuted }]}>
+        <Pill label="Overview" active={trainingView === 'overview'} onPress={() => setTrainingView('overview')} />
+        <Pill label={data?.workouts.length ? `History ${data.workouts.length}` : 'History'} active={trainingView === 'history'} onPress={() => setTrainingView('history')} />
+      </View>
       {loading && !data ? <StatePanel title="Loading workouts" body="Reading your on-device history." loading /> : null}
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
+      {trainingView === 'overview' ? <>
       {data?.planned.length ? <>
         <SectionHeading title="Upcoming" detail={`${data.planned.length} planned session${data.planned.length === 1 ? '' : 's'}`} />
         <View style={styles.list}>{data.planned.map((workout) => (
@@ -143,9 +149,11 @@ export default function TrainScreen() {
           </View>
           {data.muscleTrends.length > 6 ? <Button label={showAllMuscles ? 'Show main areas' : `Show all ${data.muscleTrends.length} areas`} onPress={() => setShowAllMuscles((value) => !value)} variant="quiet" /> : null}
           <AppText style={[styles.chartNote, { color: colors.textMuted }]}>One primary working set counts as 1.0; each tagged assisting muscle counts as 0.5. Work change is load × reps within that body part—not measured muscle growth.</AppText>
-          <Button label="Ask JIEN to explain this month" onPress={() => router.push({ pathname: '/wellness', params: { trainingReview: '1' } } as never)} variant="secondary" />
+          <Button label="Explain this month" onPress={() => router.push({ pathname: '/wellness', params: { trainingReview: '1' } } as never)} variant="secondary" />
         </Card>
       </> : null}
+      </> : null}
+      {trainingView === 'history' ? <>
       {data?.workouts.length ? <>
         <SectionHeading title="Workout history" detail={`${filteredHistory.length} matching saved session${filteredHistory.length === 1 ? '' : 's'}`} />
         <Card style={{ backgroundColor: colors.surfaceMuted }}>
@@ -181,12 +189,14 @@ export default function TrainScreen() {
       ))}
       {data?.workouts.length && filteredHistory.length === 0 ? <StatePanel title="No matching sessions" body="Try another workout name, exercise, or muscle filter." actionLabel="Clear filters" onAction={() => { setHistoryQuery(''); setHistoryMuscle(null); }} /> : null}
       {!filterActive && visibleHistory.length < filteredHistory.length ? <Button label={`Load ${Math.min(12, filteredHistory.length - visibleHistory.length)} older sessions`} onPress={() => setVisibleHistoryCount((count) => count + 12)} variant="secondary" /> : null}
+      </> : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   trainingTools: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  viewSwitcher: { alignSelf: 'flex-start', flexDirection: 'row', gap: spacing.xs, borderRadius: radii.pill, padding: spacing.xxs },
   list: { gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm },
   upcomingFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },

@@ -20,9 +20,15 @@ export default function TodayScreen() {
   const todayKey = toLocalDateKey();
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(todayKey);
+  const [monthExpanded, setMonthExpanded] = useState(false);
   const [dayWorkspaceOpen, setDayWorkspaceOpen] = useState(false);
   const lastDayActivation = useRef<CalendarDayActivation | null>(null);
   const cells = useMemo(() => buildMonthGrid(visibleMonth), [visibleMonth]);
+  const weekCells = useMemo(() => {
+    const selectedIndex = cells.findIndex((cell) => cell.dateKey === selectedDate);
+    const weekStart = selectedIndex < 0 ? 0 : Math.floor(selectedIndex / 7) * 7;
+    return cells.slice(weekStart, weekStart + 7);
+  }, [cells, selectedDate]);
   const loader = useCallback(async () => {
     const rangeStart = cells[0]?.dateKey ?? todayKey;
     const rangeEnd = cells.at(-1)?.dateKey ?? todayKey;
@@ -61,6 +67,13 @@ export default function TodayScreen() {
     setVisibleMonth(next.month);
     setSelectedDate(next.dateKey);
   };
+  const changeCalendarPeriod = (delta: number) => {
+    if (monthExpanded) {
+      changeMonth(delta);
+      return;
+    }
+    selectDate(shiftLocalDateKey(selectedDate, delta * 7));
+  };
   const selectDate = (dateKey: string) => {
     const selection = calendarSelectionForDate(dateKey);
     if (!selection) return;
@@ -83,19 +96,24 @@ export default function TodayScreen() {
         <ActionCard title="Add meal" detail="Calories and macros" icon="restaurant-outline" onPress={() => router.push('/meals/new')} />
       </View>
 
-      <SectionHeading title="Calendar" detail="Training, food and wellness at a glance" />
+      <SectionHeading title={monthExpanded ? 'Calendar' : 'Your week'} detail="Training, food and wellness at a glance" />
       <Card style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
-          <Button label="‹" onPress={() => changeMonth(-1)} variant="quiet" />
+          <Button label="‹" accessibilityLabel={monthExpanded ? 'Previous month' : 'Previous week'} onPress={() => changeCalendarPeriod(-1)} variant="quiet" />
           <View style={styles.calendarTitleWrap}>
-            <AppText style={styles.calendarTitle}>{new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(visibleMonth)}</AppText>
+            <AppText style={styles.calendarTitle}>{monthExpanded
+              ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(visibleMonth)
+              : formatWeekRange(weekCells)}</AppText>
             <Button label="Today" onPress={() => { const now = new Date(); setVisibleMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelectedDate(todayKey); }} variant="quiet" />
           </View>
-          <Button label="›" onPress={() => changeMonth(1)} variant="quiet" />
+          <Button label="›" accessibilityLabel={monthExpanded ? 'Next month' : 'Next week'} onPress={() => changeCalendarPeriod(1)} variant="quiet" />
+        </View>
+        <View style={styles.calendarModeRow}>
+          <Button icon={monthExpanded ? 'calendar-outline' : 'grid-outline'} label={monthExpanded ? 'Show week' : 'Show month'} onPress={() => setMonthExpanded((value) => !value)} variant="quiet" />
         </View>
         <View style={styles.weekRow}>{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => <AppText key={`${day}-${index}`} style={[styles.weekday, { color: colors.textMuted }]}>{day}</AppText>)}</View>
         <View style={styles.monthGrid}>
-          {cells.map((cell) => {
+          {(monthExpanded ? cells : weekCells).map((cell) => {
             const day = activityByDate.get(cell.dateKey);
             const selected = cell.dateKey === selectedDate;
             return (
@@ -106,6 +124,7 @@ export default function TodayScreen() {
                 onPress={() => activateDate(cell.dateKey)}
                 style={({ pressed }) => [
                   styles.dayCell,
+                  !monthExpanded && styles.weekDayCell,
                   cell.isToday && { borderColor: colors.accent, borderWidth: 1 },
                   selected && { backgroundColor: colors.accentSoft },
                   pressed && styles.pressed,
@@ -319,10 +338,12 @@ const styles = StyleSheet.create({
   calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   calendarTitleWrap: { flex: 1, alignItems: 'center' },
   calendarTitle: { ...typography.bodyLarge, fontWeight: '800' },
+  calendarModeRow: { flexDirection: 'row', justifyContent: 'center' },
   weekRow: { flexDirection: 'row' },
   weekday: { flex: 1, textAlign: 'center', ...typography.caption, fontWeight: '800' },
   monthGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   dayCell: { width: `${100 / 7}%`, aspectRatio: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radii.compact, gap: 2 },
+  weekDayCell: { aspectRatio: undefined, minHeight: 68 },
   dayNumber: { ...typography.label },
   dayDots: { height: 5, flexDirection: 'row', gap: 3 },
   dot: { width: 5, height: 5, borderRadius: radii.pill },
@@ -363,4 +384,16 @@ function formatPercent(value: number): string {
 
 function CalendarLegendItem({ color, label }: { color: string; label: string }) {
   return <View style={styles.calendarLegendItem}><View style={[styles.dot, { backgroundColor: color }]} /><AppText>{label}</AppText></View>;
+}
+
+function formatWeekRange(cells: ReturnType<typeof buildMonthGrid>): string {
+  const first = cells[0]?.date;
+  const last = cells.at(-1)?.date;
+  if (!first || !last) return 'This week';
+  const firstLabel = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(first);
+  const lastLabel = new Intl.DateTimeFormat(undefined, {
+    month: first.getMonth() === last.getMonth() ? undefined : 'short',
+    day: 'numeric',
+  }).format(last);
+  return `${firstLabel}–${lastLabel}`;
 }
