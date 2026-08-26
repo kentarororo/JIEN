@@ -79,6 +79,7 @@ export function Button({
   disabled,
   busy,
   accessibilityLabel,
+  expanded,
   icon,
 }: {
   label: string;
@@ -87,6 +88,7 @@ export function Button({
   disabled?: boolean;
   busy?: boolean;
   accessibilityLabel?: string;
+  expanded?: boolean;
   icon?: IconName;
 }) {
   const { colors } = useJienTheme();
@@ -97,7 +99,7 @@ export function Button({
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || busy, busy }}
+      accessibilityState={{ disabled: disabled || busy, busy, expanded }}
       disabled={disabled || busy}
       onPress={onPress}
       onFocus={() => setFocused(true)}
@@ -119,7 +121,19 @@ export function Button({
   );
 }
 
-export function Pill({ label, active = false, onPress }: { label: string; active?: boolean; onPress?: () => void }) {
+export function Pill({
+  label,
+  active = false,
+  onPress,
+  accessibilityLabel,
+  accessibilityRole = 'button',
+}: {
+  label: string;
+  active?: boolean;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+  accessibilityRole?: 'button' | 'radio';
+}) {
   const { colors } = useJienTheme();
   const [focused, setFocused] = useState(false);
   const content = <AppText style={[styles.pillLabel, { color: active ? colors.textOnAccent : colors.text }]}>{label}</AppText>;
@@ -128,7 +142,8 @@ export function Pill({ label, active = false, onPress }: { label: string; active
   }
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={accessibilityRole}
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={{ selected: active }}
       onPress={onPress}
       onFocus={() => setFocused(true)}

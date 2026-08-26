@@ -1,8 +1,9 @@
-import { Stack, useGlobalSearchParams, usePathname } from 'expo-router';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { Stack, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { SQLiteProvider } from '@/lib/db/database-context';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/app-error-boundary';
 import { AppRuntime } from '@/components/app-runtime';
@@ -28,6 +29,7 @@ import { JienThemeProvider, useJienTheme } from '@/theme';
 configureNotificationHandling();
 
 function AppNavigator() {
+  const router = useRouter();
   const { colors, isDark } = useJienTheme();
   return (
     <View style={[styles.app, { backgroundColor: colors.canvas }]}>
@@ -38,6 +40,16 @@ function AppNavigator() {
           headerTintColor: colors.text,
           headerShadowVisible: false,
           headerBackButtonDisplayMode: 'minimal',
+          headerLeft: ({ canGoBack }) => canGoBack ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => router.back()}
+              style={({ pressed }) => [styles.headerBack, pressed && styles.headerBackPressed]}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.text} />
+            </Pressable>
+          ) : undefined,
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -131,4 +143,6 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   app: { flex: 1 },
   boot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7F1E7' },
+  headerBack: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerBackPressed: { opacity: 0.62 },
 });

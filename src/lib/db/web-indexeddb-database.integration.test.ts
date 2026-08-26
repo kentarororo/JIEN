@@ -83,27 +83,37 @@ test('the web runtime commits to account-scoped IndexedDB and reopens without OP
     '../../../node_modules/wa-sqlite/dist/wa-sqlite-async.wasm',
     import.meta.url,
   ));
+  const originalSharedArrayBuffer = globalThis.SharedArrayBuffer;
+  Object.defineProperty(globalThis, 'SharedArrayBuffer', { configurable: true, value: undefined });
+  Object.defineProperty(globalThis, 'crossOriginIsolated', { configurable: true, value: false });
+  try {
+    const first = await openWebIndexedDbDatabase(OWNER, { wasmBinary });
+    await migrateDatabase(first);
+    await first.runAsync(
+      'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+      ['cloud_owner_user_id', OWNER],
+    );
+    await first.runAsync(
+      'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+      ['indexeddb_integration', 'committed'],
+    );
+    await first.closeAsync();
 
-  const first = await openWebIndexedDbDatabase(OWNER, { wasmBinary });
-  await migrateDatabase(first);
-  await first.runAsync(
-    'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-    ['cloud_owner_user_id', OWNER],
-  );
-  await first.runAsync(
-    'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-    ['indexeddb_integration', 'committed'],
-  );
-  await first.closeAsync();
-
-  const reopened = await openWebIndexedDbDatabase(OWNER, { wasmBinary });
-  assert.deepEqual(
-    await reopened.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['indexeddb_integration']),
-    { value: 'committed' },
-  );
-  assert.deepEqual(await reopened.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
-  assert.equal(webIndexedDbDatabaseName(OWNER), `jien-web-sqlite-v2:${OWNER}`);
-  await reopened.closeAsync();
+    const reopened = await openWebIndexedDbDatabase(OWNER, { wasmBinary });
+    assert.deepEqual(
+      await reopened.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['indexeddb_integration']),
+      { value: 'committed' },
+    );
+    assert.deepEqual(await reopened.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
+    assert.equal(webIndexedDbDatabaseName(OWNER), `jien-web-sqlite-v2:${OWNER}`);
+    await reopened.closeAsync();
+  } finally {
+    Object.defineProperty(globalThis, 'SharedArrayBuffer', {
+      configurable: true,
+      value: originalSharedArrayBuffer,
+    });
+    Reflect.deleteProperty(globalThis, 'crossOriginIsolated');
+  }
 });
 
 test('a valid account-owned legacy snapshot is imported without deleting its bytes', async () => {

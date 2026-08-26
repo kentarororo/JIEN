@@ -114,7 +114,7 @@ The build clears Metro's environment-sensitive cache, refuses to export without 
 valid public Supabase URL and key, then validates the main-thread wa-sqlite WASM,
 moves it to a stable public asset URL, and content-hashes the repaired entry bundle.
 
-GitHub Pages remains useful only as a pointer and shows
-`CROSS_ORIGIN_ISOLATION_REQUIRED`. Vercel web uses an account-scoped IndexedDB VFS
-without Expo's OPFS access-handle worker; native builds continue to use persistent
-Expo SQLite. See `docs/web-tester-runtime.md` for the lifecycle and migration details.
+GitHub Pages remains useful only as a pointer and publishes a host-requirements
+screen. Vercel web uses an account-scoped IndexedDB VFS without Expo's OPFS
+access-handle worker or a SharedArrayBuffer requirement; native builds continue to
+use persistent Expo SQLite. See `docs/web-tester-runtime.md` for lifecycle details.

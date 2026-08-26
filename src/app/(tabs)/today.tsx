@@ -88,7 +88,7 @@ export default function TodayScreen() {
     if (openWorkspace) setDayWorkspaceOpen(true);
   };
   return (
-    <Screen>
+    <Screen contentContainerStyle={compactRecords ? styles.screenCompact : undefined}>
       <ScreenHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())} title="Today" />
 
       <View style={styles.actions}>
@@ -97,7 +97,7 @@ export default function TodayScreen() {
       </View>
 
       <SectionHeading title={monthExpanded ? 'Calendar' : 'Your week'} detail="Training, food and wellness at a glance" />
-      <Card style={styles.calendarCard}>
+      <Card style={[styles.calendarCard, compactRecords && styles.calendarCardCompact]}>
         <View style={styles.calendarHeader}>
           <Button label="‹" accessibilityLabel={monthExpanded ? 'Previous month' : 'Previous week'} onPress={() => changeCalendarPeriod(-1)} variant="quiet" />
           <View style={styles.calendarTitleWrap}>
@@ -335,6 +335,8 @@ const styles = StyleSheet.create({
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
   bodyCard: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: spacing.lg },
   calendarCard: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: spacing.sm },
+  screenCompact: { paddingHorizontal: spacing.md },
+  calendarCardCompact: { paddingHorizontal: 0 },
   calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   calendarTitleWrap: { flex: 1, alignItems: 'center' },
   calendarTitle: { ...typography.bodyLarge, fontWeight: '800' },

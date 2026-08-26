@@ -7,11 +7,14 @@ export default function TabLayout() {
   const { colors } = useJienTheme();
   return (
     <Tabs
+      detachInactiveScreens
+      tabBar={() => null}
       screenOptions={{
         headerShown: false,
+        freezeOnBlur: true,
+        lazy: true,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: { display: 'none' },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
       }}
     >

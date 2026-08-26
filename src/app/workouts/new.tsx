@@ -83,6 +83,7 @@ export default function NewWorkoutScreen() {
   const [draftOwnerUserId, setDraftOwnerUserId] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(process.env.EXPO_OS !== 'web');
   const [draftRecovered, setDraftRecovered] = useState(false);
+  const [showRpeGuide, setShowRpeGuide] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customNotes, setCustomNotes] = useState('');
@@ -367,22 +368,30 @@ export default function NewWorkoutScreen() {
 
       {jointProgressionHold ? (
         <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
-          <AppText style={[styles.suggestionTitle, { color: colors.warning }]}>Progression suggestions are on hold</AppText>
-          <AppText style={{ color: colors.textMuted }}>Your profile contains a joint or injury consideration. Previous sets remain available as a reference, but JIEN will not suggest adding load or reps.</AppText>
+          <AppText style={[styles.suggestionTitle, { color: colors.warning }]}>Progression paused</AppText>
+          <AppText style={{ color: colors.textMuted }}>Your joint note is active. Previous sets stay available; load and rep increases are withheld.</AppText>
         </Card>
       ) : null}
 
-      <Card style={styles.rpeGuide}>
-        <View style={styles.rpeHeader}><View style={styles.flex}><AppText style={styles.suggestionTitle}>RPE, simply</AppText><AppText style={{ color: colors.textMuted }}>Rate how many good reps you had left. It is optional.</AppText></View></View>
-        <AppText style={{ color: colors.textMuted }}>Estimate clean reps still possible with the same form, not pain or breathlessness.</AppText>
-        <View style={styles.rpeScale}>
-          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>6</AppText> · 4+ reps left</AppText>
-          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>7</AppText> · 3 left</AppText>
-          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>8</AppText> · 2 left</AppText>
-          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>9</AppText> · 1 left</AppText>
-          <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>10</AppText> · 0 clean reps left</AppText>
-        </View>
-      </Card>
+      <Button
+        label={showRpeGuide ? 'Hide RPE guide' : 'RPE guide'}
+        onPress={() => setShowRpeGuide((visible) => !visible)}
+        expanded={showRpeGuide}
+        variant="quiet"
+      />
+      {showRpeGuide ? (
+        <Card style={styles.rpeGuide}>
+          <AppText style={styles.suggestionTitle}>Rate reps in reserve</AppText>
+          <AppText style={{ color: colors.textMuted }}>Optional. Estimate clean reps still possible with the same form, not pain or breathlessness.</AppText>
+          <View style={styles.rpeScale}>
+            <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>6</AppText> · 4+ reps left</AppText>
+            <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>7</AppText> · 3 left</AppText>
+            <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>8</AppText> · 2 left</AppText>
+            <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>9</AppText> · 1 left</AppText>
+            <AppText style={styles.rpeItem}><AppText style={styles.rpeNumber}>10</AppText> · 0 clean reps left</AppText>
+          </View>
+        </Card>
+      ) : null}
 
       {formError ? <View accessibilityRole="alert" style={[styles.errorBanner, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
 
@@ -552,7 +561,6 @@ const styles = StyleSheet.create({
   errorBanner: { padding: spacing.md, borderRadius: radii.control },
   templateBanner: { padding: spacing.md, borderRadius: radii.control, gap: spacing.xxs },
   rpeGuide: { gap: spacing.sm },
-  rpeHeader: { flexDirection: 'row', alignItems: 'center' },
   rpeScale: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   rpeItem: { ...typography.label },
   rpeNumber: { fontWeight: '800' },

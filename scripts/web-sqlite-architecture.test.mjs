@@ -42,10 +42,10 @@ test('the provider installs the page lifecycle before app database consumers', (
   assert.ok(lifecycleIndex < runtimeIndex);
 });
 
-test('web refuses to mount SQLite without the host isolation contract', () => {
-  assert.match(gate, /crossOriginIsolated === true/);
-  assert.match(gate, /SharedArrayBuffer/);
-  assert.match(gate, /CROSS_ORIGIN_ISOLATION_REQUIRED/);
+test('web SQLite does not depend on cross-origin isolation or shared memory', () => {
+  assert.doesNotMatch(gate, /crossOriginIsolated/);
+  assert.doesNotMatch(gate, /SharedArrayBuffer/);
+  assert.doesNotMatch(webDatabase, /SharedArrayBuffer|Atomics/);
   assert.match(gate, /listenPageHide/);
   assert.match(gate, /listenPageShow/);
   assert.match(gate, /event\.persisted/);
@@ -73,7 +73,8 @@ test('startup failure and retry relinquish SQLite before reloading', () => {
 test('Vercel publishes the main-thread SQLite WASM at a stable public path', () => {
   const headers = Object.fromEntries(vercel.headers[0].headers.map(({ key, value }) => [key, value]));
   assert.equal(headers['Cross-Origin-Opener-Policy'], 'same-origin');
-  assert.equal(headers['Cross-Origin-Embedder-Policy'], 'credentialless');
+  assert.equal(headers['Cross-Origin-Embedder-Policy'], 'require-corp');
+  assert.equal(headers['Permissions-Policy'], 'cross-origin-isolated=(self)');
   assert.equal(vercel.outputDirectory, 'dist');
   assert.equal(vercel.buildCommand, 'pnpm run web:build');
   assert.deepEqual(vercel.rewrites, [{ source: '/(.*)', destination: '/index.html' }]);

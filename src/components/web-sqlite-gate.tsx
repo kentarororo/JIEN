@@ -68,8 +68,6 @@ export function WebSQLiteGate({ children }: PropsWithChildren) {
 }
 
 function WebSQLiteGateContent({ children }: PropsWithChildren) {
-  const hostSupportsSQLite = globalThis.crossOriginIsolated === true
-    && typeof globalThis.SharedArrayBuffer !== 'undefined';
   const [ownershipReadiness, setOwnershipReadiness] = useState<OwnershipReadiness>({
     state: 'preparing',
   });
@@ -91,8 +89,6 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    if (!hostSupportsSQLite) return;
-
     setOwnershipReadiness({ state: 'preparing' });
     try {
       const requestLock = 'locks' in navigator
@@ -138,9 +134,7 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
         failure: describeWebSQLiteStartupFailure(cause),
       });
     }
-  }, [hostSupportsSQLite]);
-
-  if (!hostSupportsSQLite) return <WebSQLiteHostRequirementsPanel />;
+  }, []);
 
   if (ownershipReadiness.state === 'ready') {
     return (
@@ -174,25 +168,6 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
       failure={failure}
       onRetry={retry}
     />
-  );
-}
-
-function WebSQLiteHostRequirementsPanel() {
-  const colorScheme = useColorScheme();
-  const { colors } = resolveTheme(colorScheme);
-  return (
-    <View style={[styles.screen, { backgroundColor: colors.canvas }]}>
-      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.eyebrow, { color: colors.accent }]}>WEB HOST CHECK</Text>
-        <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
-          This preview host cannot run JIEN safely
-        </Text>
-        <Text style={[styles.body, { color: colors.textMuted }]}>
-          This build is not running on JIEN&apos;s supported isolated web host. Use JIEN&apos;s Vercel deployment once it completes. No local data was removed.
-        </Text>
-        <Text selectable style={[styles.code, { color: colors.warning }]}>Host code: CROSS_ORIGIN_ISOLATION_REQUIRED</Text>
-      </View>
-    </View>
   );
 }
 

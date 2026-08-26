@@ -1,9 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
-import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import {
   getLastExerciseSessionSets,
   getUserProfile,
@@ -21,14 +22,18 @@ import {
   buildPlannedWorkoutExercise,
   hasStoredJointConsideration,
 } from '@/lib/planning/workout-plan';
-import { localTimestampForDateAndTime, toLocalDateKey } from '@/lib/time';
+import { formatShortDate, localTimestampForDateAndTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 const COMMON_EXERCISE_COUNT = 12;
 
 function tomorrowKey(): string {
+  return futureDateKey(1);
+}
+
+function futureDateKey(offset: number): string {
   const date = new Date();
-  date.setDate(date.getDate() + 1);
+  date.setDate(date.getDate() + offset);
   return toLocalDateKey(date);
 }
 
@@ -50,6 +55,8 @@ export default function PlanWorkoutScreen() {
   const [time, setTime] = useState('18:00');
   const [query, setQuery] = useState('');
   const [browseAll, setBrowseAll] = useState(false);
+  const [catalogLimit, setCatalogLimit] = useState(24);
+  const [showScheduleEditor, setShowScheduleEditor] = useState(Boolean(params.planWorkoutId));
   const [planned, setPlanned] = useState<PlannedWorkoutExercise[]>([]);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -101,6 +108,7 @@ export default function PlanWorkoutScreen() {
       setPlanned((current) => [...current, next]);
       setQuery('');
       setBrowseAll(false);
+      setCatalogLimit(24);
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'Could not add that exercise.');
     } finally {
@@ -162,6 +170,7 @@ export default function PlanWorkoutScreen() {
     return catalog.filter((exercise) => !term
       || `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(term));
   }, [browseAll, catalog, query]);
+  const visibleResults = results.slice(0, catalogLimit);
 
   if (!catalog && !loadingError) return <Screen><StatePanel title="Preparing your plan" body="Reading exercises and recent completed sessions from this device." loading /></Screen>;
   if (loadingError) return <Screen><StatePanel title="Planning is unavailable" body={loadingError} actionLabel="Try again" onAction={() => void load()} /></Screen>;
@@ -169,34 +178,70 @@ export default function PlanWorkoutScreen() {
   const common = catalog?.slice(0, COMMON_EXERCISE_COUNT) ?? [];
   return (
     <Screen contentContainerStyle={styles.screenContent}>
-      <ScreenHeading eyebrow="Calendar-backed plan" title={params.planWorkoutId ? 'Edit planned session' : 'Plan the next session'} />
-      <Card style={{ backgroundColor: colors.surfaceMuted }}>
-        <AppText style={styles.cardTitle}>Plan now, log the work later</AppText>
-        <AppText style={{ color: colors.textMuted }}>JIEN copies the last completed loads and reps. Green cues show the smallest optional progression without changing those fields.</AppText>
-      </Card>
-
-      {jointProgressionHold ? (
-        <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
-          <AppText style={[styles.cardTitle, { color: colors.warning }]}>Progression suggestions are on hold</AppText>
-          <AppText style={{ color: colors.textMuted }}>Your profile contains a joint or injury consideration. JIEN will preserve previous sets as a reference without suggesting more load or reps. You remain in control of what feels appropriate.</AppText>
+      {latestWorkout ? (
+        <Card style={{ backgroundColor: colors.surfaceMuted }}>
+          <View style={styles.rowWrap}>
+            <View style={styles.flex}>
+              <AppText style={styles.cardTitle}>Repeat latest session</AppText>
+              <AppText style={{ color: colors.textMuted }}>{latestWorkout.title} · {latestWorkout.exerciseCount} exercises</AppText>
+            </View>
+            <Button label="Use latest" onPress={() => void useLatestSession()} busy={busyExerciseId === 'latest'} variant="secondary" />
+          </View>
         </Card>
       ) : null}
 
-      <View style={[styles.scheduleFields, !compact && styles.scheduleFieldsWide]}>
-        <Field label="Session name" value={title} onChangeText={setTitle} containerStyle={styles.flex} />
-        <Field label="Date" hint="YYYY-MM-DD" value={date} onChangeText={setDate} containerStyle={styles.dateField} />
-        <Field label="Start time" hint="24-hour time" value={time} onChangeText={setTime} keyboardType="numbers-and-punctuation" containerStyle={styles.timeField} />
-      </View>
+      {jointProgressionHold ? (
+        <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
+          <AppText style={[styles.cardTitle, { color: colors.warning }]}>Progression paused</AppText>
+          <AppText style={{ color: colors.textMuted }}>Your joint or injury note is active, so previous sets are kept without a load or rep increase.</AppText>
+        </Card>
+      ) : null}
 
-      {latestWorkout ? (
-        <Card>
-          <View style={styles.row}>
-            <View style={styles.flex}>
-              <AppText style={styles.cardTitle}>Repeat {latestWorkout.title}</AppText>
-              <AppText style={{ color: colors.textMuted }}>{latestWorkout.exerciseCount} exercises from the most recent completed session.</AppText>
-            </View>
-            <Button label="Use session" onPress={() => void useLatestSession()} busy={busyExerciseId === 'latest'} variant="secondary" />
+      <SectionHeading title="Schedule" detail={`${formatPlanDate(date)} · ${formatPlanTime(time)}`} />
+      <Card>
+        <View style={styles.rowWrap}>
+          <View style={styles.flex}>
+            <AppText style={styles.cardTitle}>{title.trim() || 'Untitled workout'}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{formatPlanDate(date)} at {formatPlanTime(time)}</AppText>
           </View>
+          <Button label={showScheduleEditor ? 'Done' : 'Edit schedule'} onPress={() => setShowScheduleEditor((value) => !value)} expanded={showScheduleEditor} variant="secondary" />
+        </View>
+        {showScheduleEditor ? (
+          <View style={styles.scheduleEditor}>
+            <Field label="Session name" value={title} onChangeText={setTitle} />
+            <View>
+              <AppText style={styles.label}>Quick date</AppText>
+              <View style={styles.pills}>
+                {[
+                  { label: 'Today', value: futureDateKey(0) },
+                  { label: 'Tomorrow', value: futureDateKey(1) },
+                  { label: 'In two days', value: futureDateKey(2) },
+                ].map((option) => <Pill key={option.value} label={option.label} active={date === option.value} onPress={() => setDate(option.value)} />)}
+              </View>
+            </View>
+            <View>
+              <AppText style={styles.label}>Quick time</AppText>
+              <View style={styles.pills}>
+                {[
+                  { label: 'Morning · 07:00', value: '07:00' },
+                  { label: 'Lunch · 12:00', value: '12:00' },
+                  { label: 'Evening · 18:00', value: '18:00' },
+                  { label: 'Late · 20:00', value: '20:00' },
+                ].map((option) => <Pill key={option.value} label={option.label} active={time === option.value} onPress={() => setTime(option.value)} />)}
+              </View>
+            </View>
+            <View style={[styles.scheduleFields, !compact && styles.scheduleFieldsWide]}>
+              <Field label="Exact date" hint="YYYY-MM-DD" value={date} onChangeText={setDate} containerStyle={styles.dateField} />
+              <Field label="Exact time" hint="24-hour time" value={time} onChangeText={setTime} keyboardType="numbers-and-punctuation" containerStyle={styles.timeField} />
+            </View>
+          </View>
+        ) : null}
+      </Card>
+
+      {planned.length ? (
+        <Card>
+          <AppText style={styles.cardTitle}>Targets use your last completed sets</AppText>
+          <AppText style={{ color: colors.textMuted }}>Optional progression cues never overwrite the loads and reps you logged.</AppText>
         </Card>
       ) : null}
 
@@ -212,12 +257,13 @@ export default function PlanWorkoutScreen() {
           />
         ))}</View>
         <View style={styles.searchRow}>
-          <Field placeholder="Search exercise, muscle, or equipment" value={query} onChangeText={setQuery} containerStyle={styles.flex} />
-          <Button label={browseAll ? 'Close list' : `Browse all ${catalog?.length ?? 0}`} onPress={() => setBrowseAll((value) => !value)} variant="secondary" />
+          <Field placeholder="Search exercise, muscle, or equipment" value={query} onChangeText={(value) => { setQuery(value); setCatalogLimit(24); }} containerStyle={styles.flex} />
+          <Button label={browseAll ? 'Close list' : `Browse all ${catalog?.length ?? 0}`} onPress={() => { setBrowseAll((value) => !value); setCatalogLimit(24); }} variant="secondary" />
         </View>
         {query.trim() || browseAll ? (
-          <ScrollView style={[styles.results, { borderColor: colors.border }]} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-            {results.map((exercise) => {
+          <>
+            <ScrollView style={[styles.results, { borderColor: colors.border }]} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+            {visibleResults.map((exercise) => {
               const selected = planned.some((item) => item.exerciseId === exercise.id);
               return (
                 <Pressable
@@ -232,7 +278,9 @@ export default function PlanWorkoutScreen() {
                 </Pressable>
               );
             })}
-          </ScrollView>
+            </ScrollView>
+            {visibleResults.length < results.length ? <Button label={`Show ${results.length - visibleResults.length} more`} onPress={() => setCatalogLimit(results.length)} variant="quiet" /> : null}
+          </>
         ) : null}
       </Card>
 
@@ -270,7 +318,7 @@ export default function PlanWorkoutScreen() {
         ))}
       </View>
 
-      {!planned.length ? <StatePanel title="Choose the work you intend to do" body="Add exercises individually or use your latest completed session. Loads are never invented when no history exists." /> : null}
+      {!planned.length ? <StatePanel title="Add exercises" body="Choose them individually or repeat your latest session. Previous loads appear only when they exist." /> : null}
       <Button label={params.planWorkoutId ? 'Update planned workout' : 'Save planned workout'} onPress={() => void save()} busy={saving} disabled={!planned.length} />
     </Screen>
   );
@@ -280,10 +328,12 @@ const styles = StyleSheet.create({
   screenContent: { width: '100%', maxWidth: 960, alignSelf: 'center' },
   scheduleFields: { gap: spacing.md },
   scheduleFieldsWide: { flexDirection: 'row', alignItems: 'flex-start' },
+  scheduleEditor: { gap: spacing.md, paddingTop: spacing.md },
   dateField: { width: 180 },
   timeField: { width: 150 },
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  rowWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
   cardTitle: { ...typography.bodyLarge, fontWeight: '700' },
   label: { ...typography.label, fontWeight: '700' },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
@@ -309,4 +359,18 @@ function formatClock(value: string): string {
   const date = new Date(value);
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
-import * as Crypto from 'expo-crypto';
+
+function formatPlanDate(value: string): string {
+  try {
+    return formatShortDate(`${value}T12:00:00`);
+  } catch {
+    return value || 'Choose a date';
+  }
+}
+
+function formatPlanTime(value: string): string {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return value || 'Choose a time';
+  const date = new Date(2000, 0, 1, Number(match[1]), Number(match[2]));
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date);
+}

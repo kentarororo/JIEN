@@ -18,7 +18,11 @@
         },
         {
           "key": "Cross-Origin-Embedder-Policy",
-          "value": "credentialless"
+          "value": "require-corp"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "cross-origin-isolated=(self)"
         }
       ]
     }

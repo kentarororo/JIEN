@@ -6,14 +6,14 @@ The supported web tester is the Vercel deployment. Native and web expose the sam
 | --- | --- | --- |
 | iOS / Android | persistent native `jien.db` | Expo SQLite |
 | Vercel web tester | persistent, account-scoped `jien.db` | wa-sqlite Asyncify on the main thread with `IDBBatchAtomicVFS` in IndexedDB |
-| GitHub Pages | none | shows `CROSS_ORIGIN_ISOLATION_REQUIRED`; functional web testing remains Vercel-only |
+| GitHub Pages | none | publishes a host-requirements screen; functional web testing remains Vercel-only |
 
-The web runtime does not mount Expo SQLite's web worker, use `AccessHandlePoolVFS`, or call `createSyncAccessHandle`. Expo's OPFS driver can leave an access handle owned by an abandoned or singleton worker, which makes a later page fail with `NoModificationAllowedError` before application-level recovery can close it. Native still uses the supported Expo SQLite implementation.
+The web runtime does not mount Expo SQLite's web worker, use `AccessHandlePoolVFS`, call `createSyncAccessHandle`, or require `SharedArrayBuffer`. Its main-thread Asyncify WASM and IndexedDB VFS run when `crossOriginIsolated` is false, including mobile browsers that do not implement COEP `credentialless`. Expo's OPFS driver can leave an access handle owned by an abandoned or singleton worker, which makes a later page fail with `NoModificationAllowedError` before application-level recovery can close it. Native still uses the supported Expo SQLite implementation.
 
 ## Startup order
 
 1. OAuth callbacks finish before the ownership gate or database provider mounts. Supabase persists the PKCE session in browser storage.
-2. The Vercel host contract is checked before local persistence is touched. Vercel continues to send COOP/COEP headers and GitHub Pages remains an unsupported tester.
+2. Vercel may enable cross-origin isolation as defense in depth, but application startup does not depend on it. GitHub Pages remains an intentionally unsupported tester through its separate build finalizer.
 3. JIEN installs worker tracking, opens the same-origin ownership `BroadcastChannel`, and announces the new page.
 4. An older page that receives a newer ownership request starts deterministic teardown. The requester waits for the origin Web Lock `jien:sqlite:jien.db` and a short handoff-settle interval.
 5. Only the lock owner mounts `SQLiteProvider`. The web provider obtains the authenticated user ID and opens `jien-web-sqlite-v2:<user-id>` with strict IndexedDB durability. The database filename inside that account-scoped VFS is `jien.db`.
@@ -36,7 +36,7 @@ No recovery path clears OPFS, IndexedDB, Supabase authentication, or user record
 
 ## Deployment expectations
 
-- `vercel.json` keeps the supported-host COOP/COEP response contract.
+- `vercel.json` uses `require-corp` rather than the less broadly implemented `credentialless` COEP mode. These headers are defense in depth; the IndexedDB driver no longer gates startup on them.
 - `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be available at build time.
 - `pnpm run web:build` exports the Expo Router app, validates the wa-sqlite Asyncify WASM, copies it to a stable `/assets/jien-sqlite/` URL, and content-hashes the patched entry bundle.
 - Google and Supabase OAuth callback configuration remains in `docs/google-oauth.md`.

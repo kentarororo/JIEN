@@ -5,6 +5,10 @@ import test from 'node:test';
 const today = readFileSync(new URL('../src/app/(tabs)/today.tsx', import.meta.url), 'utf8');
 const training = readFileSync(new URL('../src/app/(tabs)/train.tsx', import.meta.url), 'utf8');
 const exercises = readFileSync(new URL('../src/app/exercises/index.tsx', import.meta.url), 'utf8');
+const workoutPlan = readFileSync(new URL('../src/app/workouts/plan.tsx', import.meta.url), 'utf8');
+const tabLayout = readFileSync(new URL('../src/app/(tabs)/_layout.tsx', import.meta.url), 'utf8');
+const rootLayout = readFileSync(new URL('../src/app/_layout.tsx', import.meta.url), 'utf8');
+const workoutLogger = readFileSync(new URL('../src/app/workouts/new.tsx', import.meta.url), 'utf8');
 
 test('Today is week-first while preserving the month and day workspace', () => {
   assert.match(today, /const \[monthExpanded, setMonthExpanded\] = useState\(false\)/);
@@ -29,4 +33,36 @@ test('Exercise review is incremental, reason-coded, and keeps every target selec
   assert.match(exercises, /exerciseTargetsNeedReview/);
   assert.match(exercises, /MUSCLE_GROUP_SECTIONS\.map[\s\S]*setActiveSection/);
   assert.match(exercises, /updateExerciseTargets/);
+});
+
+test('Workout planning keeps repeat, scheduling, catalog, and save in one progressive journey', () => {
+  assert.match(workoutPlan, /Repeat latest session/);
+  assert.match(workoutPlan, /showScheduleEditor/);
+  assert.match(workoutPlan, /expanded=\{showScheduleEditor\}/);
+  assert.match(workoutPlan, /Quick date/);
+  assert.match(workoutPlan, /Exact date/);
+  assert.match(workoutPlan, /results\.slice\(0, catalogLimit\)/);
+  assert.match(workoutPlan, /savePlannedWorkout/);
+  assert.match(workoutPlan, /router\.replace/);
+  assert.doesNotMatch(workoutPlan, /<ScreenHeading/, 'the native modal header is the sole level-one heading');
+});
+
+test('Navigation exposes one tab bar and keeps core targets at least 44 points', () => {
+  assert.match(tabLayout, /tabBar=\{\(\) => null\}/);
+  assert.match(tabLayout, /detachInactiveScreens/);
+  assert.match(tabLayout, /freezeOnBlur: true/);
+  assert.match(today, /screenCompact: \{ paddingHorizontal: spacing\.md \}/);
+  assert.match(today, /calendarCardCompact: \{ paddingHorizontal: 0 \}/);
+  assert.match(rootLayout, /headerBack: \{ width: 44, height: 44/);
+});
+
+test('Workout logging keeps guidance available without delaying set entry', () => {
+  assert.match(workoutLogger, /const \[showRpeGuide, setShowRpeGuide\] = useState\(false\)/);
+  assert.match(workoutLogger, /showRpeGuide \? 'Hide RPE guide' : 'RPE guide'/);
+  assert.match(workoutLogger, /expanded=\{showRpeGuide\}/);
+  assert.match(workoutLogger, /\{showRpeGuide \? \(/);
+  assert.match(workoutLogger, /Progression paused/);
+  assert.match(workoutLogger, /saveWorkout/);
+  assert.match(workoutLogger, /completePlannedWorkout/);
+  assert.match(workoutLogger, /updateWorkout/);
 });

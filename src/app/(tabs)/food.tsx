@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useState } from 'react';
@@ -13,7 +14,7 @@ import {
   retryQueuedMealPhotos,
 } from '@/lib/db';
 import { historicalDateKey, shiftLocalDateKey, toLocalDateKey, formatTime } from '@/lib/time';
-import { spacing, typography, useJienTheme } from '@/theme';
+import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 function Macro({ label, value, target, color }: { label: string; value: number; target?: number; color?: string }) {
   const remaining = target == null ? null : target - value;
@@ -46,6 +47,16 @@ function MacroCalorieSplit({ protein, carbs, fat }: { protein: number; carbs: nu
   );
 }
 
+function MacroSnapshot({ label, value }: { label: string; value: number }) {
+  const { colors } = useJienTheme();
+  return (
+    <View style={[styles.macroSnapshot, { backgroundColor: colors.surfaceMuted }]}>
+      <AppText style={[styles.snapshotLabel, { color: colors.textMuted }]}>{label}</AppText>
+      <AppText style={styles.snapshotValue}>{Math.round(value)} g</AppText>
+    </View>
+  );
+}
+
 export default function FoodScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -63,6 +74,7 @@ export default function FoodScreen() {
   const { data, error, loading, reload } = useScreenData(loader);
   const [queueBusy, setQueueBusy] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [showNutritionDetails, setShowNutritionDetails] = useState(false);
   const nutrition = data?.nutrition.date === selectedDate ? data.nutrition : null;
   const openDate = (nextDate: string) => {
     router.replace({ pathname: '/food', params: nextDate === todayKey ? {} : { date: nextDate } } as never);
@@ -105,7 +117,7 @@ export default function FoodScreen() {
       <ScreenHeading
         title="Food"
         eyebrow={selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}
-        action={<Button label="Add meal" onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} />}
+        action={<Button label="Add meal" icon="add-circle-outline" onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} />}
       />
       <Card style={[styles.dateNavigator, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.dateNavigatorRow}>
@@ -127,7 +139,7 @@ export default function FoodScreen() {
             <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}>
               <AppText style={styles.mealName}>{data.photoQueue.readyCount} photo result{data.photoQueue.readyCount === 1 ? '' : 's'} ready</AppText>
               <AppText style={{ color: colors.textMuted }}>Open the latest estimate, then review and edit every item before saving.</AppText>
-              <Button label="Review latest result" onPress={() => router.push({ pathname: '/meals/new', params: { photoJob: data.photoQueue.latestReadyId! } })} />
+              <Button label="Review latest result" onPress={() => router.push({ pathname: '/meals/new', params: { photoJob: data.photoQueue.latestReadyId! } })} variant="secondary" />
             </Card>
           ) : null}
           {data.photoQueue.pendingCount > 0 ? (
@@ -140,7 +152,7 @@ export default function FoodScreen() {
             <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
               <AppText style={styles.mealName}>Queued photo needs attention</AppText>
               <AppText>{data.photoQueue.latestFailureMessage ?? 'Check sign-in, AI consent, or the server configuration, then try again.'}</AppText>
-              <View style={styles.row}>
+              <View style={styles.actionRow}>
                 <Button label="Try again" onPress={() => void retryQueuedPhotos()} busy={queueBusy} variant="secondary" />
                 <Button label="Remove photo" onPress={() => void discardFailedPhoto()} disabled={queueBusy} variant="quiet" />
               </View>
@@ -149,21 +161,37 @@ export default function FoodScreen() {
           {queueMessage ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>{queueMessage}</AppText></Card> : null}
           <Card>
             <View style={styles.calorieLine}>
-              <View><AppText style={[styles.kicker, { color: colors.textMuted }]}>CALORIES</AppText><AppText style={styles.calories}>{Math.round(nutrition.totals.caloriesKcal).toLocaleString()}</AppText></View>
+              <View style={styles.calorieValue}><AppText style={[styles.kicker, { color: colors.textMuted }]}>CALORIES</AppText><AppText style={styles.calories}>{Math.round(nutrition.totals.caloriesKcal).toLocaleString()}</AppText></View>
               <AppText style={{ color: colors.textMuted }}>{nutrition.target ? `of ${Math.round(nutrition.target.caloriesKcal).toLocaleString()} kcal` : 'No target set'}</AppText>
             </View>
             <ProgressBar value={nutrition.target ? nutrition.totals.caloriesKcal / nutrition.target.caloriesKcal : 0} />
             {nutrition.target ? <AppText style={{ color: nutrition.totals.caloriesKcal > nutrition.target.caloriesKcal ? colors.warning : colors.textMuted }}>{nutrition.totals.caloriesKcal <= nutrition.target.caloriesKcal ? `${Math.round(nutrition.target.caloriesKcal - nutrition.totals.caloriesKcal).toLocaleString()} kcal remaining today` : `${Math.round(nutrition.totals.caloriesKcal - nutrition.target.caloriesKcal).toLocaleString()} kcal over today`}</AppText> : null}
-            <Macro label="Protein" value={nutrition.totals.proteinG} target={nutrition.target?.proteinG} color={colors.success} />
-            <Macro label="Carbs" value={nutrition.totals.carbohydrateG} target={nutrition.target?.carbohydrateG} color={colors.wood} />
-            <Macro label="Fat" value={nutrition.totals.fatG} target={nutrition.target?.fatG} color={colors.warning} />
-            <MacroCalorieSplit protein={nutrition.totals.proteinG} carbs={nutrition.totals.carbohydrateG} fat={nutrition.totals.fatG} />
-            {nutrition.target ? <AppText style={{ color: colors.textMuted }}>Starting targets are calculated from your onboarding weight and goal, then remain fully editable.</AppText> : null}
-            <Button label={nutrition.target ? 'Edit macro targets' : 'Set macro targets'} onPress={() => router.push('/settings/macros')} variant="secondary" />
+            <View style={styles.macroSummary}>
+              <MacroSnapshot label="Protein" value={nutrition.totals.proteinG} />
+              <MacroSnapshot label="Carbs" value={nutrition.totals.carbohydrateG} />
+              <MacroSnapshot label="Fat" value={nutrition.totals.fatG} />
+            </View>
+            <Button
+              label={showNutritionDetails ? 'Hide nutrition details' : 'Nutrition details'}
+              icon={showNutritionDetails ? 'chevron-up-outline' : 'chevron-down-outline'}
+              onPress={() => setShowNutritionDetails((visible) => !visible)}
+              expanded={showNutritionDetails}
+              variant="quiet"
+            />
+            {showNutritionDetails ? (
+              <View style={styles.nutritionDetails}>
+                <Macro label="Protein" value={nutrition.totals.proteinG} target={nutrition.target?.proteinG} color={colors.success} />
+                <Macro label="Carbs" value={nutrition.totals.carbohydrateG} target={nutrition.target?.carbohydrateG} color={colors.wood} />
+                <Macro label="Fat" value={nutrition.totals.fatG} target={nutrition.target?.fatG} color={colors.warning} />
+                <MacroCalorieSplit protein={nutrition.totals.proteinG} carbs={nutrition.totals.carbohydrateG} fat={nutrition.totals.fatG} />
+                {nutrition.target ? <AppText style={{ color: colors.textMuted }}>Targets use your profile and goal. You can edit them at any time.</AppText> : null}
+                <Button label={nutrition.target ? 'Edit macro targets' : 'Set macro targets'} onPress={() => router.push('/settings/macros')} variant="secondary" />
+              </View>
+            ) : null}
           </Card>
 
-          <SectionHeading title="Meals" detail={`${nutrition.meals.length} logged on ${selectedDate === todayKey ? 'today' : formatFoodDate(selectedDate)}`} />
-          {nutrition.meals.length === 0 ? <StatePanel title="No meals logged" body="Add the food and portions you know. Exact is useful, but consistent estimates count too." actionLabel="Log a meal" onAction={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} /> : null}
+          <SectionHeading title="Meals" detail={`${nutrition.meals.length} logged · ${selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}`} />
+          {nutrition.meals.length === 0 ? <StatePanel title="No meals yet" body="Add what you know. Estimates are fine." actionLabel="Log a meal" onAction={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} /> : null}
           <View style={styles.list}>
             {nutrition.meals.map((meal) => (
               <Pressable
@@ -171,10 +199,13 @@ export default function FoodScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${meal.name}, ${Math.round(meal.caloriesKcal)} calories`}
                 onPress={() => router.push(`/meals/${meal.id}` as Href)}
-                style={({ pressed }) => pressed && styles.pressed}
+                style={({ pressed }) => [styles.mealPressable, pressed && styles.pressed]}
               >
                 <Card>
-                  <View style={styles.row}><View style={styles.flex}><AppText style={styles.mealName}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.type ?? 'meal'} · {formatTime(meal.eatenAt)}</AppText></View><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText></View>
+                  <View style={styles.mealRow}>
+                    <View style={styles.flex}><AppText style={styles.mealName}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.type ?? 'meal'} · {formatTime(meal.eatenAt)}</AppText></View>
+                    <View style={styles.mealTotal}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><Ionicons name="chevron-forward" size={18} color={colors.textMuted} /></View>
+                  </View>
                   <AppText style={{ color: colors.textMuted }}>P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText>
                 </Card>
               </Pressable>
@@ -190,18 +221,28 @@ const styles = StyleSheet.create({
   dateNavigator: { gap: spacing.xs },
   dateNavigatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   dateNavigatorLabel: { flex: 1, minWidth: 0, alignItems: 'center' },
-  calorieLine: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
+  calorieLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
+  calorieValue: { flexGrow: 1, flexShrink: 1, minWidth: 140 },
   kicker: { ...typography.caption, fontWeight: '700', letterSpacing: 0.7 },
   calories: { ...typography.display, fontWeight: '700' },
   macro: { gap: spacing.xs },
   remaining: { ...typography.caption, opacity: 0.7, textAlign: 'right' },
   splitSection: { gap: spacing.xs, marginTop: spacing.xs },
-  splitTrack: { height: 12, borderRadius: 999, overflow: 'hidden', flexDirection: 'row' },
+  splitTrack: { height: 12, borderRadius: radii.pill, overflow: 'hidden', flexDirection: 'row' },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   value: { fontWeight: '700' },
-  flex: { flex: 1 },
+  flex: { flex: 1, minWidth: 0 },
+  macroSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  macroSnapshot: { flexGrow: 1, flexBasis: 132, minWidth: 0, borderRadius: radii.control, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  snapshotLabel: { ...typography.caption, fontWeight: '600' },
+  snapshotValue: { ...typography.bodyLarge, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  nutritionDetails: { gap: spacing.sm },
   list: { gap: spacing.sm },
   mealName: { ...typography.bodyLarge, fontWeight: '700' },
+  mealPressable: { minHeight: 44 },
+  mealRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  mealTotal: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   pressed: { opacity: 0.68 },
 });
 
