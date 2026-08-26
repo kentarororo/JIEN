@@ -40,8 +40,9 @@ run behind the signed-in server boundary while Open Food Facts remains the no-ac
 fallback. Search results remain usable if the local cache write fails, and barcode
 digits remain visible if no product matches.
 
-When an online name search returns no match, the meal logger carries that name into an
-editable blank row. After the serving and macros are complete, `Save as private food`
+When an online name search returns no match—or the provider is temporarily
+unavailable—the meal logger offers to carry that name into an editable blank row.
+After the serving and macros are complete, `Save as private food`
 performs one local SQLite transaction and immediately makes the item searchable. It
 never waits for an API response and never clears provider caches, meal history, or
 authentication storage.

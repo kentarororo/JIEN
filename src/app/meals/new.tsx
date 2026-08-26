@@ -355,7 +355,9 @@ export default function NewMealScreen() {
         // Search results remain usable if the optional local cache write fails.
       }
     } catch (cause) {
-      setToolMessage(cause instanceof Error ? cause.message : 'Online food search is unavailable.');
+      setNoMatchQuery(cleanQuery);
+      const message = cause instanceof Error ? cause.message : 'Online food search is unavailable.';
+      setToolMessage(`${message} You can still create a private food below.`);
     } finally {
       setSearching(false);
     }

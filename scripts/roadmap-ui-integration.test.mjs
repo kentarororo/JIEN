@@ -100,6 +100,7 @@ test('Workout set completion connects local history to the five-percent progress
 test('Meal no-match entry saves an editable private food through the SQLite catalog', () => {
   assert.match(mealLogger, /No database matches found/);
   assert.match(mealLogger, /Create private food/);
+  assert.match(mealLogger, /catch \(cause\) \{[\s\S]*?setNoMatchQuery\(cleanQuery\)[\s\S]*?still create a private food below/);
   assert.match(mealLogger, /savePrivateFood\(db, \{/);
   assert.match(mealLogger, /Save as private food/);
   assert.match(mealLogger, /Update private food/);
