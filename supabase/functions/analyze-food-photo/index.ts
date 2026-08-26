@@ -8,8 +8,8 @@ import {
   resolvePhotoProvider,
 } from '../_shared/photo-provider.ts';
 import {
-  AI_DAILY_LIMITS,
-  claimAiUsage,
+  AI_USAGE_POLICY,
+  LEGACY_UNCAPPED_DAILY_LIMIT,
   loadPersonalAiConfiguration,
   resolveSupabaseServerKey,
 } from '../_shared/user-ai.ts';
@@ -116,7 +116,8 @@ Deno.serve(async (request) => {
         available: true,
         provider: provider.configuration.provider,
         credentialSource: personalConfiguration ? 'personal' : 'app',
-        dailyLimit: AI_DAILY_LIMITS.photo,
+        usagePolicy: AI_USAGE_POLICY,
+        dailyLimit: LEGACY_UNCAPPED_DAILY_LIMIT,
       });
     }
 
@@ -131,21 +132,6 @@ Deno.serve(async (request) => {
     }
     if (typeof mediaType !== 'string' || !allowedMediaTypes.has(mediaType)) {
       return failure(requestId, 'PHOTO_TYPE_UNSUPPORTED', 'Use a JPEG, PNG, or WebP meal photo.', false, 415);
-    }
-
-    try {
-      const usage = await claimAiUsage(admin, userData.user.id, 'photo');
-      if (!usage.allowed) {
-        return failure(
-          requestId,
-          'AI_DAILY_LIMIT_REACHED',
-          `Today's JIEN photo allowance is used. It resets at ${usage.resetsAt ?? '00:00 UTC'}.`,
-          false,
-          429,
-        );
-      }
-    } catch {
-      return failure(requestId, 'AI_USAGE_UNAVAILABLE', 'The photo allowance could not be checked. Try again.', true, 503);
     }
 
     let providerText;

@@ -131,7 +131,9 @@ export default function AiSettingsScreen() {
             </View>
             <Pill label={status.configured ? 'Connected' : 'Off'} active={status.configured} />
           </View>
-          <AppText style={{ color: colors.textMuted }}>JIEN allowance: {status.limits.photoPerUtcDay} photo analyses and {status.limits.contextPerUtcDay} contextual replies per account per UTC day.</AppText>
+          <AppText style={{ color: colors.textMuted }}>{status.usagePolicy === 'provider_managed'
+            ? 'No JIEN daily request cap. Gemini’s project quota, rate limits, and billing settings apply.'
+            : `This deployment still limits JIEN to ${status.limits?.photoPerUtcDay ?? 5} photos and ${status.limits?.contextPerUtcDay ?? 10} contextual replies per UTC day.`}</AppText>
           {status.configured ? (
             <Button label="Test with a meal photo" onPress={() => router.push('/meals/new')} variant="secondary" />
           ) : null}
@@ -142,7 +144,7 @@ export default function AiSettingsScreen() {
       <Card>
         <AppText>Open Google AI Studio, sign in, choose or create a project marked <AppText style={styles.strong}>Free</AppText>, then choose <AppText style={styles.strong}>Create API key</AppText> and copy it.</AppText>
         <Button label="Open Google AI Studio" onPress={() => void Linking.openURL(GEMINI_KEY_URL)} />
-        <AppText style={[styles.small, { color: colors.textMuted }]}>If you want zero Gemini charges, do not upgrade that project or attach paid billing. A paid project can still charge you under Google’s terms.</AppText>
+        <AppText style={[styles.small, { color: colors.textMuted }]}>For $0 usage, keep the project on Gemini’s Free tier and do not attach paid billing. If you use a paid project, review its spend settings before connecting the key.</AppText>
       </Card>
 
       <SectionHeading title="2. Connect it securely" detail="The key is verified before storage" />
@@ -160,7 +162,7 @@ export default function AiSettingsScreen() {
           hint="Sent once over HTTPS to JIEN’s Edge Function, then encrypted in Supabase Vault. It is never saved in this browser or returned to the app."
         />
         <Acknowledgement
-          label="I understand Google controls whether this project is Free or Paid, and JIEN cannot change Google billing settings."
+          label="I understand JIEN does not cap requests; Google controls this project’s quota and billing. I will keep it Free or set the lowest available project spend cap before use."
           value={acknowledgesBillingControl}
           onValueChange={setAcknowledgesBillingControl}
         />
@@ -191,12 +193,12 @@ export default function AiSettingsScreen() {
         </View>
       </Card>
 
-      <SectionHeading title="3. Keep costs bounded" detail="Two independent safeguards" />
-      <Card>
-        <AppText style={styles.cardTitle}>JIEN request allowance</AppText>
-        <AppText style={{ color: colors.textMuted }}>JIEN stops at {status?.limits.photoPerUtcDay ?? 5} photos and {status?.limits.contextPerUtcDay ?? 10} contextual replies per UTC day. This limits JIEN traffic but cannot cap use of the same key outside JIEN.</AppText>
-        <AppText style={styles.cardTitle}>Google project spend cap</AppText>
-        <AppText style={{ color: colors.textMuted }}>If you ever enable billing, set a project cap in AI Studio too. Google labels project caps experimental and warns billing signals may lag by about ten minutes, so they are not a zero-overage guarantee.</AppText>
+      <SectionHeading title="3. Control Gemini spend" detail="Google owns the usage boundary" />
+      <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
+        <AppText style={styles.cardTitle}>No JIEN daily cap</AppText>
+        <AppText style={{ color: colors.textMuted }}>Meal-photo analyses and contextual replies continue until Gemini applies the project’s own quota, rate limit, or billing boundary. JIEN still uses finite timeouts and bounded retries.</AppText>
+        <AppText style={styles.cardTitle}>Recommended: keep the effective limit at $0</AppText>
+        <AppText style={{ color: colors.textMuted }}>The safest option is a Free project with no paid billing attached. If AI Studio offers a project spend cap for your paid project, set it to $0 or the lowest value Google accepts. Google describes spend caps as experimental and says billing can lag by about ten minutes, so a cap is not a strict zero-overage guarantee.</AppText>
         <Button label="Open Gemini spend settings" onPress={() => void Linking.openURL(GEMINI_SPEND_URL)} variant="secondary" />
       </Card>
 

@@ -96,6 +96,19 @@ export type SetProgressionPlan = {
   cues: SetProgressionCue[];
 };
 
+export type CompletedExerciseVolumeFeedback = {
+  status: 'baseline' | 'hold' | 'target_reached' | 'progress';
+  targetPercent: number;
+  currentVolumeKg: number;
+  previousVolumeKg: number | null;
+  targetVolumeKg: number | null;
+  changePercent: number | null;
+  projectedChangePercent: number | null;
+  cueTiming: 'current_session' | 'next_session' | null;
+  reason: string;
+  cues: SetProgressionCue[];
+};
+
 export type DeloadSignal = {
   kind: 'none' | 'stagnation' | 'volume_drop';
   message: string;
@@ -371,6 +384,152 @@ export function buildSetProgressionPlan(input: {
       changePercent: null,
       label: `Try ${formatProgressionNumber(set.loadValue)} ${set.loadUnit} x ${Math.min(input.repMax, set.reps + 1)} · +1 rep`,
     }],
+  };
+}
+
+/**
+ * Reviews a completed exercise against its latest completed exposure.
+ * The five-percent target is a guide; safe double progression determines
+ * the smallest opt-in change and logged sets are never mutated here.
+ */
+export function buildCompletedExerciseVolumeFeedback(input: {
+  currentSets: ProgressionSet[];
+  previousSets?: ProgressionSet[] | null;
+  repMin: number;
+  repMax: number;
+  loadIncrement: number;
+  jointFlag?: boolean;
+  targetPercent?: number;
+}): CompletedExerciseVolumeFeedback {
+  const requestedTargetPercent = input.targetPercent;
+  const targetPercent = requestedTargetPercent != null && Number.isFinite(requestedTargetPercent) && requestedTargetPercent > 0
+    ? requestedTargetPercent
+    : 5;
+  const currentSets = input.currentSets.filter((set) => (set.kind ?? 'working') === 'working');
+  const currentVolumeKg = currentSets.reduce((total, set) => total + calculateSetVolumeKg(set), 0);
+  const previousSets = (input.previousSets ?? []).filter((set) => (set.kind ?? 'working') === 'working');
+  const previousVolumeKg = previousSets.length > 0
+    ? previousSets.reduce((total, set) => total + calculateSetVolumeKg(set), 0)
+    : null;
+  const hasInvalidCurrentSet = currentSets.length === 0 || currentSets.some((set) => (
+    !Number.isFinite(set.loadValue)
+    || set.loadValue < 0
+    || !Number.isFinite(set.reps)
+    || set.reps <= 0
+  ));
+
+  if (hasInvalidCurrentSet) {
+    return {
+      status: 'hold',
+      targetPercent,
+      currentVolumeKg,
+      previousVolumeKg,
+      targetVolumeKg: previousVolumeKg != null && previousVolumeKg > 0
+        ? previousVolumeKg * (1 + targetPercent / 100)
+        : null,
+      changePercent: previousVolumeKg != null
+        ? calculateOverloadChangePercent(currentVolumeKg, previousVolumeKg)
+        : null,
+      projectedChangePercent: null,
+      cueTiming: null,
+      reason: 'Complete every load and rep field before reviewing progression.',
+      cues: [],
+    };
+  }
+
+  if (previousVolumeKg == null || previousVolumeKg <= 0) {
+    return {
+      status: 'baseline',
+      targetPercent,
+      currentVolumeKg,
+      previousVolumeKg: null,
+      targetVolumeKg: null,
+      changePercent: null,
+      projectedChangePercent: null,
+      cueTiming: null,
+      reason: 'Baseline saved. The next completed exposure can be compared with this work.',
+      cues: [],
+    };
+  }
+
+  const targetVolumeKg = previousVolumeKg * (1 + targetPercent / 100);
+  const changePercent = calculateOverloadChangePercent(currentVolumeKg, previousVolumeKg);
+  if (input.jointFlag || currentSets.some((set) => set.rpe != null && set.rpe > 9)) {
+    const hold = buildSetProgressionPlan({
+      sets: currentSets,
+      repMin: input.repMin,
+      repMax: input.repMax,
+      loadIncrement: input.loadIncrement,
+      jointFlag: input.jointFlag,
+    });
+    return {
+      status: 'hold',
+      targetPercent,
+      currentVolumeKg,
+      previousVolumeKg,
+      targetVolumeKg,
+      changePercent,
+      projectedChangePercent: null,
+      cueTiming: null,
+      reason: hold.reason,
+      cues: [],
+    };
+  }
+  if (currentVolumeKg >= targetVolumeKg) {
+    return {
+      status: 'target_reached',
+      targetPercent,
+      currentVolumeKg,
+      previousVolumeKg,
+      targetVolumeKg,
+      changePercent,
+      projectedChangePercent: changePercent,
+      cueTiming: null,
+      reason: `Volume is at least ${formatProgressionNumber(targetPercent)}% above the latest completed exposure.`,
+      cues: [],
+    };
+  }
+
+  const plan = buildSetProgressionPlan({
+    sets: currentSets,
+    repMin: input.repMin,
+    repMax: input.repMax,
+    loadIncrement: input.loadIncrement,
+    jointFlag: input.jointFlag,
+  });
+  if (plan.cues.length === 0) {
+    return {
+      status: 'hold',
+      targetPercent,
+      currentVolumeKg,
+      previousVolumeKg,
+      targetVolumeKg,
+      changePercent,
+      projectedChangePercent: null,
+      cueTiming: null,
+      reason: plan.reason,
+      cues: [],
+    };
+  }
+
+  const projectedSets = currentSets.map((set, workingSetIndex) => {
+    const cue = plan.cues.find((candidate) => candidate.workingSetIndex === workingSetIndex);
+    return cue == null ? set : { ...set, loadValue: cue.loadValue, reps: cue.targetReps };
+  });
+  const projectedVolumeKg = projectedSets.reduce((total, set) => total + calculateSetVolumeKg(set), 0);
+  return {
+    status: 'progress',
+    targetPercent,
+    currentVolumeKg,
+    previousVolumeKg,
+    targetVolumeKg,
+    changePercent,
+    projectedChangePercent: calculateOverloadChangePercent(projectedVolumeKg, previousVolumeKg),
+    cueTiming: 'next_session',
+    reason: plan.action === 'add_load'
+      ? 'The rep ceiling is complete. Use the smallest load step at the bottom of the rep range next session.'
+      : 'One controlled rep next time is the smallest safe step toward the volume guide.',
+    cues: plan.cues,
   };
 }
 

@@ -12,7 +12,6 @@ import {
   storedReplyMatchesRequest,
 } from '../_shared/wellness-contract.ts';
 import {
-  claimAiUsage,
   loadPersonalAiConfiguration,
   resolveSupabaseServerKey,
 } from '../_shared/user-ai.ts';
@@ -156,20 +155,6 @@ Deno.serve(async (request) => {
       return failure('CONTEXT_UNAVAILABLE', 'Your recent context could not be loaded. Try again.', true, 503, requestId);
     }
     const safePlan = planBrief;
-    try {
-      const usage = await claimAiUsage(admin, userId, 'context');
-      if (!usage.allowed) {
-        return failure(
-          'AI_DAILY_LIMIT_REACHED',
-          `Today's JIEN contextual AI allowance is used. It resets at ${usage.resetsAt ?? '00:00 UTC'}.`,
-          false,
-          429,
-          requestId,
-        );
-      }
-    } catch {
-      return failure('AI_USAGE_UNAVAILABLE', 'The AI allowance could not be checked. Try again.', true, 503, requestId);
-    }
     let providerResult;
     try {
       providerResult = await requestWellnessGuidance(provider.configuration, {

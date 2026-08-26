@@ -42,13 +42,26 @@ test('confirms the configured server provider instead of a generic enabled flag'
       available: true,
       provider: 'gemini',
       credentialSource: 'personal',
-      dailyLimit: 5,
+      usagePolicy: 'provider_managed',
+      dailyLimit: 1000,
     }),
-    { provider: 'gemini', credentialSource: 'personal', dailyLimit: 5 },
+    { provider: 'gemini', credentialSource: 'personal', usagePolicy: 'provider_managed', dailyLimit: null },
   );
   assert.throws(
     () => parseMealPhotoCapabilityData({ available: true }),
     /availability could not be confirmed/i,
+  );
+});
+
+test('photo capability remains compatible with a legacy capped deployment', () => {
+  assert.deepEqual(
+    parseMealPhotoCapabilityData({
+      available: true,
+      provider: 'gemini',
+      credentialSource: 'app',
+      dailyLimit: 5,
+    }),
+    { provider: 'gemini', credentialSource: 'app', usagePolicy: 'legacy_daily_cap', dailyLimit: 5 },
   );
 });
 

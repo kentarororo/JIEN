@@ -1,7 +1,8 @@
 export const PERSONAL_GEMINI_MODEL = 'gemini-3.5-flash-lite';
-export const AI_DAILY_LIMITS = { photo: 5, context: 10 } as const;
-
-export type AiUsageKind = keyof typeof AI_DAILY_LIMITS;
+export const AI_USAGE_POLICY = 'provider_managed' as const;
+// Kept only so an older cached client can parse capability/status responses
+// during a coordinated rollout. It is not consulted or enforced by JIEN.
+export const LEGACY_UNCAPPED_DAILY_LIMIT = 1000;
 
 export type PersonalAiConfiguration = {
   provider: 'gemini';
@@ -44,27 +45,6 @@ export async function loadPersonalAiConfiguration(
   const model = typeof row.model === 'string' ? row.model.trim() : '';
   if (row.provider !== 'gemini' || !apiKey || !validModel.test(model)) return null;
   return { provider: 'gemini', apiKey, model };
-}
-
-export async function claimAiUsage(
-  admin: AdminClient,
-  userId: string,
-  kind: AiUsageKind,
-): Promise<{ allowed: boolean; used: number; remaining: number; resetsAt: string | null }> {
-  const { data, error } = await admin.rpc('claim_user_ai_usage', {
-    p_user_id: userId,
-    p_usage_kind: kind,
-    p_daily_limit: AI_DAILY_LIMITS[kind],
-  });
-  if (error) throw new Error('AI_USAGE_LOOKUP_FAILED');
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!isRecord(row)) throw new Error('AI_USAGE_LOOKUP_FAILED');
-  return {
-    allowed: row.allowed === true,
-    used: finiteInteger(row.used),
-    remaining: finiteInteger(row.remaining),
-    resetsAt: typeof row.resets_at === 'string' ? row.resets_at : null,
-  };
 }
 
 export async function verifyGeminiApiKey(
@@ -115,8 +95,4 @@ const validModel = /^[A-Za-z0-9._-]{1,128}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function finiteInteger(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }

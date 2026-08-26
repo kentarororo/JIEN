@@ -66,3 +66,14 @@ test('Workout logging keeps guidance available without delaying set entry', () =
   assert.match(workoutLogger, /completePlannedWorkout/);
   assert.match(workoutLogger, /updateWorkout/);
 });
+
+test('Workout set completion connects local history to the five-percent progression review', () => {
+  assert.match(workoutLogger, /const \[completedBlockKeys, setCompletedBlockKeys\] = useState<string\[\]>\(\[\]\)/);
+  assert.match(workoutLogger, /buildCompletedExerciseVolumeFeedback\(\{[\s\S]*currentSets: draftSetsForProgression\(block\.sets, unit\)[\s\S]*previousSets: block\.sourceSets/);
+  assert.match(workoutLogger, /\{ \.\.\.block, progression, sourceSets: history \}/, 'the history fetched for the visible cue is retained for completed-set comparison');
+  assert.match(workoutLogger, /function completeSets\(blockKey: string\)[\s\S]*setCompletedBlockKeys/);
+  assert.match(workoutLogger, /label=\{setsComplete \? 'Check again' : 'Complete sets'\}/);
+  assert.match(workoutLogger, /5% VOLUME GUIDE/);
+  assert.match(workoutLogger, /function markBlockIncomplete[\s\S]*updateSet[\s\S]*markBlockIncomplete\(blockKey\)/);
+  assert.match(workoutLogger, /Next time[\s\S]*formatCompletionCues/);
+});

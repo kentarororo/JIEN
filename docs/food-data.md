@@ -58,8 +58,9 @@ and never writes the key into the Expo bundle or Git history.
 Google sign-in supplies only the Supabase identity used for authentication and RLS.
 No Google provider access token is sent to Gemini, and a Gemini/ChatGPT consumer
 subscription is unrelated to inference. A separate Gemini API key is required. JIEN
-allows 5 meal-photo calls per account per UTC day; Google separately controls free-tier
-quota and any project billing.
+does not impose a daily meal-photo cap; Google controls the project's quota, rate
+limits, and billing. JIEN still bounds photo size, request duration, retries, and
+provider output so uncapped product access does not mean an unbounded request.
 
 Google responses are classified separately: 401/403 means the key/project did not
 permit generation, 404 means the selected model is unavailable, 429 means project

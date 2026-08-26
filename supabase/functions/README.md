@@ -56,18 +56,21 @@ functions:
 Signed-in testers then open **Settings > AI connection**, follow the direct Google AI
 Studio link, and paste their own Gemini key. `ai-settings` verifies the key against
 `gemini-3.5-flash-lite` without sending user content, then stores it encrypted in
-Supabase Vault. The browser receives only configured/source/model/limit metadata; it
+Supabase Vault. The browser receives only configured/source/model/usage-policy metadata; it
 never receives the stored key. The same personal key is resolved server-side for
-meal-photo estimates and contextual wellness guidance. A hard JIEN allowance permits
-5 photo requests and 10 contextual requests per account per UTC day.
+meal-photo estimates and contextual wellness guidance. JIEN does not impose a daily
+request cap; Gemini's project quota, rate limits, and billing policy apply.
 
 Google controls the key's Free/Paid plan. A project with no paid billing uses the
 Gemini free tier and stops at Google's quota; JIEN cannot upgrade it. If the tester
 enables billing, Google may charge them. Google's current free-tier terms say
 submitted content may be used to improve its products; the setup screen discloses
 this before accepting a key. Google's project spend caps are separate, experimental,
-and can lag, so JIEN's request allowance is an additional abuse bound—not a monetary
-guarantee.
+and can lag. For a zero-cost setup, keep the project on Free without paid billing. If
+AI Studio exposes a project spend cap for a paid project, set `$0` or the lowest value
+Google accepts, while treating it as a warning boundary rather than a strict
+zero-overage guarantee. JIEN independently retains finite request timeouts, bounded
+retries, payload-size limits, and idempotent reply identifiers.
 
 ### Deployment-owned fallback (optional)
 

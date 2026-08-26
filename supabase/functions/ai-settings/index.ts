@@ -2,7 +2,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 import {
-  AI_DAILY_LIMITS,
+  AI_USAGE_POLICY,
+  LEGACY_UNCAPPED_DAILY_LIMIT,
   loadPersonalAiConfiguration,
   PERSONAL_GEMINI_MODEL,
   resolveSupabaseServerKey,
@@ -103,9 +104,10 @@ Deno.serve(async (request) => {
       credentialSource: personal ? 'personal' : appGeminiConfigured ? 'app' : null,
       provider: personal || appGeminiConfigured ? 'gemini' : null,
       model: personal?.model ?? (appGeminiConfigured ? Deno.env.get('GEMINI_MODEL')?.trim() || PERSONAL_GEMINI_MODEL : PERSONAL_GEMINI_MODEL),
+      usagePolicy: AI_USAGE_POLICY,
       limits: {
-        photoPerUtcDay: AI_DAILY_LIMITS.photo,
-        contextPerUtcDay: AI_DAILY_LIMITS.context,
+        photoPerUtcDay: LEGACY_UNCAPPED_DAILY_LIMIT,
+        contextPerUtcDay: LEGACY_UNCAPPED_DAILY_LIMIT,
       },
     });
   } catch {

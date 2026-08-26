@@ -77,6 +77,9 @@ Docker Desktop is not required. The script finishes by listing the remote functi
 the success message is printed only after that verification passes.
 
 The same personal Gemini connection used for food photos supplies wellness replies.
-The server allows 10 contextual requests per account per UTC day, after the idempotent
-saved-reply check and before inference. This bounds JIEN traffic; it is not a Google
-billing guarantee and does not replace the tester's Google project controls.
+JIEN does not impose a daily contextual-reply cap. The runtime keeps finite timeouts,
+bounded retries, idempotent reply identifiers, and safe response-size limits, while
+Gemini applies the user's project quota, rate limits, and billing policy. For zero-cost
+use, keep the project on the Free tier without paid billing. If AI Studio offers a
+project spend cap for a paid project, use `$0` or the lowest accepted value; Google
+documents that spend-cap signals can lag and are not a strict zero-overage guarantee.

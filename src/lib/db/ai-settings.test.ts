@@ -9,12 +9,31 @@ test('AI connection status parses only the safe non-secret response', () => {
     credentialSource: 'personal',
     provider: 'gemini',
     model: 'gemini-3.5-flash-lite',
-    limits: { photoPerUtcDay: 5, contextPerUtcDay: 10 },
+    usagePolicy: 'provider_managed',
+    limits: { photoPerUtcDay: 1000, contextPerUtcDay: 1000 },
   }), {
     configured: true,
     credentialSource: 'personal',
     provider: 'gemini',
     model: 'gemini-3.5-flash-lite',
+    usagePolicy: 'provider_managed',
+    limits: null,
+  });
+});
+
+test('AI connection status remains compatible with a legacy capped deployment', () => {
+  assert.deepEqual(parseAiConnectionStatus({
+    configured: true,
+    credentialSource: 'app',
+    provider: 'gemini',
+    model: 'gemini-3.5-flash-lite',
+    limits: { photoPerUtcDay: 5, contextPerUtcDay: 10 },
+  }), {
+    configured: true,
+    credentialSource: 'app',
+    provider: 'gemini',
+    model: 'gemini-3.5-flash-lite',
+    usagePolicy: 'legacy_daily_cap',
     limits: { photoPerUtcDay: 5, contextPerUtcDay: 10 },
   });
 });

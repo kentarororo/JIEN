@@ -20,10 +20,12 @@ import {
 } from '@/lib/db';
 import { getAccountState } from '@/lib/auth';
 import {
+  buildCompletedExerciseVolumeFeedback,
   buildSetProgressionPlan,
   MUSCLE_GROUP_OPTIONS,
   MUSCLE_GROUP_SECTIONS,
   muscleGroupLabel,
+  type CompletedExerciseVolumeFeedback,
   type ProgressionSet,
   type SetProgressionCue,
   type SetProgressionPlan,
@@ -76,6 +78,7 @@ export default function NewWorkoutScreen() {
   const [unit, setUnit] = useState<LoadUnit>('kg');
   const [jointProgressionHold, setJointProgressionHold] = useState(false);
   const [blocks, setBlocks] = useState<DraftExercise[]>([]);
+  const [completedBlockKeys, setCompletedBlockKeys] = useState<string[]>([]);
   const [exerciseQueries, setExerciseQueries] = useState<Record<string, string>>({});
   const [exerciseBrowsers, setExerciseBrowsers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
@@ -185,7 +188,9 @@ export default function NewWorkoutScreen() {
       loadIncrement: unit === 'lb' ? Math.max(5, exercise.loadIncrement) : exercise.loadIncrement,
       jointFlag: jointProgressionHold,
     });
-    setBlocks((current) => current.map((block) => block.key === blockKey ? { ...block, progression } : block));
+    setBlocks((current) => current.map((block) => block.key === blockKey
+      ? { ...block, progression, sourceSets: history }
+      : block));
   }, [catalog, db, jointProgressionHold, unit]);
 
   useEffect(() => {
@@ -194,7 +199,83 @@ export default function NewWorkoutScreen() {
     });
   }, [blocks, updateProgression]);
 
+  const completedFeedbackByKey = useMemo(() => {
+    const feedback = new Map<string, CompletedExerciseVolumeFeedback>();
+    for (const block of blocks) {
+      if (!completedBlockKeys.includes(block.key) || block.sourceSets == null) continue;
+      const exercise = catalog?.find((item) => item.id === block.exerciseId);
+      if (!exercise) continue;
+      feedback.set(block.key, buildCompletedExerciseVolumeFeedback({
+        currentSets: draftSetsForProgression(block.sets, unit),
+        previousSets: block.sourceSets,
+        repMin: exercise.targetRepMin,
+        repMax: exercise.targetRepMax,
+        loadIncrement: unit === 'lb' ? Math.max(5, exercise.loadIncrement) : exercise.loadIncrement,
+        jointFlag: jointProgressionHold,
+      }));
+    }
+    return feedback;
+  }, [blocks, catalog, completedBlockKeys, jointProgressionHold, unit]);
+
+  const completedBlockCount = completedBlockKeys.filter((key) => blocks.some((block) => block.key === key)).length;
+
+  function markBlockIncomplete(blockKey: string) {
+    setCompletedBlockKeys((current) => current.filter((key) => key !== blockKey));
+  }
+
+  function completeSets(blockKey: string) {
+    const block = blocks.find((item) => item.key === blockKey);
+    const exercise = catalog?.find((item) => item.id === block?.exerciseId);
+    if (!block || !exercise) {
+      setFormError('Choose an exercise before completing its sets.');
+      return;
+    }
+    const startedRows = block.sets
+      .map((set, index) => ({ set, index }))
+      .filter(({ set }) => !isRowEmpty(set));
+    if (startedRows.length === 0) {
+      setFormError(`${exercise.name}: enter at least one set before completing it.`);
+      return;
+    }
+    for (const { set, index } of startedRows) {
+      if (!set.load.trim() || !set.reps.trim()) {
+        setFormError(`${exercise.name}, set ${index + 1}: enter both load and reps.`);
+        return;
+      }
+      const load = Number(set.load);
+      const reps = Number(set.reps);
+      const rpe = set.rpe.trim() ? Number(set.rpe) : null;
+      if (!Number.isFinite(load) || load < 0 || !Number.isInteger(reps) || reps <= 0
+        || (rpe != null && (!Number.isFinite(rpe) || rpe < 1 || rpe > 10))) {
+        setFormError(`${exercise.name}, set ${index + 1}: use a non-negative load, whole-number reps, and optional RPE from 1–10.`);
+        return;
+      }
+    }
+    setFormError(null);
+    setCompletedBlockKeys((current) => current.includes(blockKey) ? current : [...current, blockKey]);
+  }
+
+  function removeSet(blockKey: string, setKey: string) {
+    markBlockIncomplete(blockKey);
+    setBlocks((current) => current.map((block) => block.key === blockKey
+      ? { ...block, sets: block.sets.filter((set) => set.key !== setKey) }
+      : block));
+  }
+
+  function removeExercise(blockKey: string) {
+    markBlockIncomplete(blockKey);
+    setBlocks((current) => current.filter((block) => block.key !== blockKey));
+  }
+
+  function changeUnit(nextUnit: LoadUnit) {
+    if (nextUnit === unit) return;
+    setCompletedBlockKeys([]);
+    setBlocks((current) => current.map((block) => ({ ...block, progression: null })));
+    setUnit(nextUnit);
+  }
+
   const setExercise = (blockKey: string, exerciseId: string) => {
+    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? { ...block, exerciseId, progression: null, sourceSets: null } : block));
     setExerciseQueries((current) => ({ ...current, [blockKey]: '' }));
     setExerciseBrowsers((current) => ({ ...current, [blockKey]: false }));
@@ -202,6 +283,7 @@ export default function NewWorkoutScreen() {
 
   const updateSet = (blockKey: string, setKey: string, field: 'load' | 'reps' | 'rpe', value: string) => {
     setFormError(null);
+    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? {
       ...block,
       sets: block.sets.map((set) => set.key === setKey ? { ...set, [field]: value } : set),
@@ -210,6 +292,7 @@ export default function NewWorkoutScreen() {
 
   const addSet = (blockKey: string) => {
     setFormError(null);
+    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? {
       ...block,
       sets: [...block.sets, newSet(latestValidWorkoutLoad(block.sets) ?? '')],
@@ -218,6 +301,7 @@ export default function NewWorkoutScreen() {
 
   const fillBlankLoads = (blockKey: string) => {
     setFormError(null);
+    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => {
       if (block.key !== blockKey) return block;
       const filled = fillBlankWorkoutLoads(block.sets);
@@ -226,6 +310,7 @@ export default function NewWorkoutScreen() {
   };
 
   const applySetCue = (blockKey: string, cue: SetProgressionCue) => {
+    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? {
       ...block,
       sets: block.sets.map((set, index) => index === cue.workingSetIndex ? {
@@ -355,7 +440,7 @@ export default function NewWorkoutScreen() {
         <Field label="Session name" value={title} onChangeText={setTitle} returnKeyType="done" containerStyle={styles.flex} />
         <View style={styles.unitGroup}>
           <AppText style={styles.label}>Load unit</AppText>
-          <View style={styles.pills}><Pill label="kg" active={unit === 'kg'} onPress={() => setUnit('kg')} /><Pill label="lb" active={unit === 'lb'} onPress={() => setUnit('lb')} /></View>
+          <View style={styles.pills}><Pill label="kg" active={unit === 'kg'} onPress={() => changeUnit('kg')} /><Pill label="lb" active={unit === 'lb'} onPress={() => changeUnit('lb')} /></View>
         </View>
       </View>
 
@@ -404,11 +489,16 @@ export default function NewWorkoutScreen() {
           : [];
         const loadFill = fillBlankWorkoutLoads(block.sets);
         const latestLoad = latestValidWorkoutLoad(block.sets);
+        const setsComplete = completedBlockKeys.includes(block.key);
+        const completionFeedback = completedFeedbackByKey.get(block.key) ?? null;
         return (
           <Card key={block.key} style={styles.exerciseCard}>
             <View style={styles.blockHeader}>
               <View style={styles.flex}><AppText style={styles.blockNumber}>EXERCISE {blockIndex + 1}</AppText><AppText style={styles.exerciseName}>{selected?.name ?? 'Choose exercise'}</AppText></View>
-              {blocks.length > 1 ? <Button label="Remove" onPress={() => setBlocks((current) => current.filter((item) => item.key !== block.key))} variant="quiet" /> : null}
+              <View style={styles.blockHeaderActions}>
+                {setsComplete ? <Pill label="Sets checked" active /> : null}
+                {blocks.length > 1 ? <Button label="Remove" onPress={() => removeExercise(block.key)} variant="quiet" /> : null}
+              </View>
             </View>
 
             <View style={styles.pickerSection}>
@@ -467,7 +557,7 @@ export default function NewWorkoutScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Remove set ${setIndex + 1}`}
                       disabled={block.sets.length === 1}
-                      onPress={() => setBlocks((current) => current.map((item) => item.key === block.key ? { ...item, sets: item.sets.filter((row) => row.key !== set.key) } : item))}
+                      onPress={() => removeSet(block.key, set.key)}
                       style={({ pressed }) => [styles.removeSet, { borderColor: colors.border }, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}
                     ><AppText style={{ color: colors.textMuted }}>×</AppText></Pressable>
                   </View>
@@ -480,7 +570,7 @@ export default function NewWorkoutScreen() {
               <View style={styles.mobileSetList}>
                 {block.sets.map((set, setIndex) => (
                   <View key={set.key} style={[styles.mobileSetCard, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}>
-                    <View style={styles.mobileSetHeader}><AppText style={styles.suggestionTitle}>Set {setIndex + 1}</AppText><Pressable accessibilityRole="button" accessibilityLabel={`Remove set ${setIndex + 1}`} disabled={block.sets.length === 1} onPress={() => setBlocks((current) => current.map((item) => item.key === block.key ? { ...item, sets: item.sets.filter((row) => row.key !== set.key) } : item))} style={({ pressed }) => [styles.mobileRemove, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}><AppText style={{ color: colors.textMuted }}>Remove</AppText></Pressable></View>
+                    <View style={styles.mobileSetHeader}><AppText style={styles.suggestionTitle}>Set {setIndex + 1}</AppText><Pressable accessibilityRole="button" accessibilityLabel={`Remove set ${setIndex + 1}`} disabled={block.sets.length === 1} onPress={() => removeSet(block.key, set.key)} style={({ pressed }) => [styles.mobileRemove, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}><AppText style={{ color: colors.textMuted }}>Remove</AppText></Pressable></View>
                     <View style={styles.mobileSetFields}>
                       <Field label={`Load (${unit})`} value={set.load} onChangeText={(value) => updateSet(block.key, set.key, 'load', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
                       <Field label="Reps" value={set.reps} onChangeText={(value) => updateSet(block.key, set.key, 'reps', value)} keyboardType="number-pad" containerStyle={styles.mobileSetField} />
@@ -500,6 +590,68 @@ export default function NewWorkoutScreen() {
                 ? `A new set reuses ${latestLoad} ${unit}; reps and RPE stay blank.`
                 : 'Enter one load to unlock quick fill. Existing loads are never overwritten.'}</AppText>
             </View>
+            <View style={[styles.completeSets, { borderTopColor: colors.border }]}>
+              <View style={styles.completeSetsCopy}>
+                <AppText style={styles.suggestionTitle}>Done with this exercise?</AppText>
+                <AppText style={{ color: colors.textMuted }}>Check the completed sets against the latest exposure and prepare the smallest safe next step.</AppText>
+              </View>
+              <Button
+                label={setsComplete ? 'Check again' : 'Complete sets'}
+                accessibilityLabel={`${setsComplete ? 'Check again' : 'Complete sets'} for ${selected?.name ?? `exercise ${blockIndex + 1}`}`}
+                onPress={() => completeSets(block.key)}
+                variant="secondary"
+              />
+            </View>
+            {setsComplete && !completionFeedback ? (
+              <View accessibilityLiveRegion="polite" style={[styles.completionReview, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+                <AppText style={styles.suggestionTitle}>Reviewing recent history…</AppText>
+              </View>
+            ) : completionFeedback ? (
+              <View
+                accessibilityLiveRegion="polite"
+                style={[
+                  styles.completionReview,
+                  {
+                    backgroundColor: completionFeedback.status === 'hold'
+                      ? colors.warningSoft
+                      : completionFeedback.status === 'progress'
+                        ? colors.accentSoft
+                        : colors.successSoft,
+                    borderColor: completionFeedback.status === 'hold'
+                      ? colors.warning
+                      : completionFeedback.status === 'progress'
+                        ? colors.accent
+                        : colors.success,
+                  },
+                ]}
+              >
+                <View style={styles.completionHeader}>
+                  <View style={styles.flex}>
+                    <AppText style={styles.completionEyebrow}>5% VOLUME GUIDE</AppText>
+                    <AppText style={styles.completionTitle}>{completionTitle(completionFeedback)}</AppText>
+                  </View>
+                  <Pill label="Sets checked" active />
+                </View>
+                <View style={styles.completionMetrics}>
+                  <VolumeMetric label="Latest" value={completionFeedback.previousVolumeKg} />
+                  <VolumeMetric label="Today" value={completionFeedback.currentVolumeKg} />
+                  <View style={styles.completionMetric}>
+                    <AppText style={styles.completionValue}>{formatVolumeChange(completionFeedback.changePercent)}</AppText>
+                    <AppText style={{ color: colors.textMuted }}>change</AppText>
+                  </View>
+                </View>
+                <AppText style={{ color: colors.textMuted }}>{completionFeedback.reason}</AppText>
+                {completionFeedback.cues.length ? (
+                  <View style={[styles.nextExposure, { borderColor: colors.border }]}>
+                    <AppText style={styles.suggestionTitle}>Next time</AppText>
+                    <AppText>{formatCompletionCues(completionFeedback.cues)}</AppText>
+                    {completionFeedback.projectedChangePercent != null ? (
+                      <AppText style={{ color: colors.textMuted }}>Projected volume: {formatVolumeChange(completionFeedback.projectedChangePercent)} vs latest. The 5% figure is a guide, not a forced jump.</AppText>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </Card>
         );
       })}
@@ -543,6 +695,7 @@ export default function NewWorkoutScreen() {
         <View style={styles.draftSummaryMetrics}>
           <View style={styles.draftSummaryMetric}><AppText style={styles.draftSummaryValue}>{draftSummary.completedSetCount}</AppText><AppText style={{ color: colors.textMuted }}>sets ready</AppText></View>
           <View style={styles.draftSummaryMetric}><AppText style={styles.draftSummaryValue}>{formatDraftWork(draftSummary.work)}</AppText><AppText style={{ color: colors.textMuted }}>{unit}·reps work</AppText></View>
+          <View style={styles.draftSummaryMetric}><AppText style={styles.draftSummaryValue}>{completedBlockCount}/{blocks.length}</AppText><AppText style={{ color: colors.textMuted }}>exercises checked</AppText></View>
         </View>
       </Card>
       <Button label={editWorkoutId ? 'Save workout changes' : planWorkoutId ? 'Complete planned workout' : 'Save completed workout'} onPress={() => void submit()} busy={saving} />
@@ -566,6 +719,7 @@ const styles = StyleSheet.create({
   rpeNumber: { fontWeight: '800' },
   exerciseCard: { paddingHorizontal: 0, overflow: 'hidden' },
   blockHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, gap: spacing.sm },
+  blockHeaderActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.xs },
   blockNumber: { ...typography.caption, fontWeight: '700', opacity: 0.65 },
   exerciseName: { ...typography.section, fontWeight: '700' },
   pickerSection: { gap: spacing.sm, paddingHorizontal: spacing.md },
@@ -598,6 +752,16 @@ const styles = StyleSheet.create({
   removeSet: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
   setActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md },
   setActionNote: { ...typography.caption, flexGrow: 1, flexBasis: 220 },
+  completeSets: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.xs, paddingHorizontal: spacing.md, paddingTop: spacing.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  completeSetsCopy: { flexGrow: 1, flexShrink: 1, flexBasis: 280, gap: spacing.xxs },
+  completionReview: { marginHorizontal: spacing.md, padding: spacing.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, gap: spacing.sm },
+  completionHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  completionEyebrow: { ...typography.caption, fontWeight: '800', letterSpacing: 0.7, opacity: 0.68 },
+  completionTitle: { ...typography.section, fontWeight: '800' },
+  completionMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  completionMetric: { flexGrow: 1, flexBasis: 120 },
+  completionValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  nextExposure: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, gap: spacing.xxs },
   draftSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   draftSummaryMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   draftSummaryMetric: { flexGrow: 1, flexBasis: 160 },
@@ -616,6 +780,51 @@ const styles = StyleSheet.create({
 
 function formatDraftWork(value: number): string {
   return (Math.round(value * 10) / 10).toLocaleString();
+}
+
+function draftSetsForProgression(sets: DraftSet[], unit: LoadUnit): ProgressionSet[] {
+  return sets.filter((set) => !isRowEmpty(set)).map((set) => ({
+    loadValue: Number(set.load),
+    loadUnit: unit,
+    reps: Number(set.reps),
+    rpe: set.rpe.trim() ? Number(set.rpe) : null,
+    kind: 'working',
+  }));
+}
+
+function completionTitle(feedback: CompletedExerciseVolumeFeedback): string {
+  if (feedback.status === 'baseline') return 'Baseline established';
+  if (feedback.status === 'target_reached') return 'Guide reached';
+  if (feedback.status === 'hold') return 'Hold here';
+  return 'Next step prepared';
+}
+
+function formatVolumeChange(value: number | null): string {
+  if (value == null) return '—';
+  const rounded = Math.round(value * 10) / 10;
+  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString()}%`;
+}
+
+function formatCompletionCues(cues: SetProgressionCue[]): string {
+  if (cues.length === 1) {
+    const cue = cues[0]!;
+    return `Set ${cue.workingSetIndex + 1} · ${cue.label.replace(/^Try /, '')}`;
+  }
+  const first = cues[0];
+  if (first && cues.every((cue) => cue.loadValue === first.loadValue && cue.targetReps === first.targetReps)) {
+    return `All ${cues.length} sets · ${first.label.replace(/^Try /, '')}`;
+  }
+  return cues.map((cue) => `Set ${cue.workingSetIndex + 1}: ${cue.label.replace(/^Try /, '')}`).join(' · ');
+}
+
+function VolumeMetric({ label, value }: { label: string; value: number | null }) {
+  const { colors } = useJienTheme();
+  return (
+    <View style={styles.completionMetric}>
+      <AppText style={styles.completionValue}>{value == null ? '—' : formatDraftWork(value)}</AppText>
+      <AppText style={{ color: colors.textMuted }}>{label.toLocaleLowerCase()} kg·reps</AppText>
+    </View>
+  );
 }
 
 function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {

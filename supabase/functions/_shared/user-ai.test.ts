@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  AI_DAILY_LIMITS,
+  AI_USAGE_POLICY,
+  LEGACY_UNCAPPED_DAILY_LIMIT,
   loadPersonalAiConfiguration,
   PERSONAL_GEMINI_MODEL,
   resolveSupabaseServerKey,
@@ -23,8 +24,8 @@ test('personal credential parsing accepts only a complete Gemini configuration',
   assert.deepEqual(configuration, {
     provider: 'gemini', model: PERSONAL_GEMINI_MODEL, apiKey: 'secret-user-key',
   });
-  assert.equal(AI_DAILY_LIMITS.photo, 5);
-  assert.equal(AI_DAILY_LIMITS.context, 10);
+  assert.equal(AI_USAGE_POLICY, 'provider_managed');
+  assert.equal(LEGACY_UNCAPPED_DAILY_LIMIT, 1000);
 });
 
 test('Gemini keys are verified with a minimal real generateContent request', async () => {
@@ -67,19 +68,21 @@ test('credential migration keeps plaintext out of public tables and revokes ever
   assert.match(migration, /for update;/i, 'daily allowance claims and key rotation must be serialized');
 });
 
-test('both AI runtimes resolve personal Vault credentials and claim bounded usage', () => {
+test('both AI runtimes resolve personal Vault credentials without a JIEN request cap', () => {
   const photo = readFileSync(new URL('../analyze-food-photo/index.ts', import.meta.url), 'utf8');
   const wellness = readFileSync(new URL('../wellness-chat/index.ts', import.meta.url), 'utf8');
   const settings = readFileSync(new URL('../ai-settings/index.ts', import.meta.url), 'utf8');
+  const settingsScreen = readFileSync(new URL('../../../src/app/settings/ai.tsx', import.meta.url), 'utf8');
   assert.match(photo, /loadPersonalAiConfiguration\(admin, userData\.user\.id\)/);
-  assert.match(photo, /claimAiUsage\(admin, userData\.user\.id, 'photo'\)/);
+  assert.match(photo, /usagePolicy: AI_USAGE_POLICY/);
+  assert.doesNotMatch(photo, /claimAiUsage|AI_DAILY_LIMIT_REACHED|AI_USAGE_UNAVAILABLE/);
   assert.match(wellness, /loadPersonalAiConfiguration\(admin, userId\)/);
-  assert.match(wellness, /claimAiUsage\(admin, userId, 'context'\)/);
-  assert.ok(
-    wellness.indexOf('if (existingReply)') < wellness.indexOf("claimAiUsage(admin, userId, 'context')"),
-    'an idempotent wellness retry must not consume another allowance',
-  );
+  assert.doesNotMatch(wellness, /claimAiUsage|AI_DAILY_LIMIT_REACHED|AI_USAGE_UNAVAILABLE/);
+  assert.match(settings, /usagePolicy: AI_USAGE_POLICY/);
   assert.match(settings, /verifyGeminiApiKey\(apiKey\)/);
   assert.match(settings, /admin\.rpc\('set_user_ai_credential'/);
   assert.doesNotMatch(settings, /console\.(log|info|debug)\(/, 'key-bearing requests must never be logged');
+  assert.match(settingsScreen, /No JIEN daily cap/);
+  assert.match(settingsScreen, /set it to \$0 or the lowest value Google accepts/);
+  assert.doesNotMatch(settingsScreen, /JIEN stops at/);
 });

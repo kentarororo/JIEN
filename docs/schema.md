@@ -307,13 +307,13 @@ to SQLite, and have no `anon` or `authenticated` grants or policies.
   sync queue, export, log, or API response. A versioned server timestamp records the
   required billing-control and free-tier-data acknowledgements without storing the
   key or duplicating its value.
-- `private.ai_usage_daily` records server-claimed photo/context request counts by UTC
-  day. The trusted functions enforce 5 photo requests and 10 contextual requests per
-  account per day. This is an application abuse/cost bound, not provider billing data
-  or a guarantee against charges on a Google project used elsewhere.
+- `private.ai_usage_daily` is a retained legacy counter from the earlier capped
+  rollout. Current photo and contextual-reply runtimes do not claim or enforce this
+  allowance; leaving the private rows intact avoids a destructive migration. Gemini's
+  project quota, rate limits, and billing policy are now the usage boundary.
 
 Four `public` RPC entry points are exposed only to `service_role`: set, resolve, and
-delete the encrypted credential, plus atomically claim a daily allowance. All execute
+delete the encrypted credential, plus the retained legacy daily-allowance claim. All execute
 privileges are explicitly revoked from `public`, `anon`, and `authenticated`. The
 authenticated browser calls only the `ai-settings` Edge Function, which verifies the
 Gemini key before writing Vault and returns non-secret status metadata.

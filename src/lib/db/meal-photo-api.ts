@@ -16,6 +16,7 @@ export type MealPhotoCapability = {
   requestId: string | null;
   provider: 'gemini' | 'anthropic' | null;
   credentialSource?: 'personal' | 'app' | null;
+  usagePolicy?: 'provider_managed' | 'legacy_daily_cap';
   dailyLimit?: number | null;
 };
 
@@ -48,19 +49,31 @@ export function parseMealPhotoAnalysisData(value: unknown): ParsedMealPhotoAnaly
 export function parseMealPhotoCapabilityData(value: unknown): {
   provider: 'gemini' | 'anthropic';
   credentialSource: 'personal' | 'app';
-  dailyLimit: number;
+  usagePolicy: 'provider_managed' | 'legacy_daily_cap';
+  dailyLimit: number | null;
 } {
   const record = asRecord(value);
   if (!record || record.available !== true
     || (record.provider !== 'gemini' && record.provider !== 'anthropic')
-    || (record.credentialSource !== 'personal' && record.credentialSource !== 'app')
-    || typeof record.dailyLimit !== 'number' || !Number.isInteger(record.dailyLimit)
+    || (record.credentialSource !== 'personal' && record.credentialSource !== 'app')) {
+    throw new Error('Photo analysis availability could not be confirmed.');
+  }
+  if (record.usagePolicy === 'provider_managed') {
+    return {
+      provider: record.provider,
+      credentialSource: record.credentialSource,
+      usagePolicy: 'provider_managed',
+      dailyLimit: null,
+    };
+  }
+  if (typeof record.dailyLimit !== 'number' || !Number.isInteger(record.dailyLimit)
     || record.dailyLimit < 1 || record.dailyLimit > 1000) {
     throw new Error('Photo analysis availability could not be confirmed.');
   }
   return {
     provider: record.provider,
     credentialSource: record.credentialSource,
+    usagePolicy: 'legacy_daily_cap',
     dailyLimit: record.dailyLimit,
   };
 }

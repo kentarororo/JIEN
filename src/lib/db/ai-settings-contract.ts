@@ -3,7 +3,8 @@ export type AiConnectionStatus = {
   credentialSource: 'personal' | 'app' | null;
   provider: 'gemini' | null;
   model: string;
-  limits: {
+  usagePolicy: 'provider_managed' | 'legacy_daily_cap';
+  limits: null | {
     photoPerUtcDay: number;
     contextPerUtcDay: number;
   };
@@ -76,13 +77,26 @@ export function parseAiConnectionStatus(value: unknown): Omit<AiConnectionStatus
   const row = asRecord(value);
   const limits = asRecord(row?.limits);
   const model = typeof row?.model === 'string' ? row.model.trim() : '';
-  const photoPerUtcDay = positiveInteger(limits?.photoPerUtcDay);
-  const contextPerUtcDay = positiveInteger(limits?.contextPerUtcDay);
   const source = row?.credentialSource;
   if (!row || typeof row.configured !== 'boolean'
     || (source !== 'personal' && source !== 'app' && source !== null)
     || (row.provider !== 'gemini' && row.provider !== null)
-    || !model || photoPerUtcDay == null || contextPerUtcDay == null) {
+    || !model) {
+    throw new Error('AI connection status could not be read.');
+  }
+  if (row.usagePolicy === 'provider_managed') {
+    return {
+      configured: row.configured,
+      credentialSource: source,
+      provider: row.provider,
+      model,
+      usagePolicy: 'provider_managed',
+      limits: null,
+    };
+  }
+  const photoPerUtcDay = positiveInteger(limits?.photoPerUtcDay);
+  const contextPerUtcDay = positiveInteger(limits?.contextPerUtcDay);
+  if (photoPerUtcDay == null || contextPerUtcDay == null) {
     throw new Error('AI connection status could not be read.');
   }
   return {
@@ -90,6 +104,7 @@ export function parseAiConnectionStatus(value: unknown): Omit<AiConnectionStatus
     credentialSource: source,
     provider: row.provider,
     model,
+    usagePolicy: 'legacy_daily_cap',
     limits: { photoPerUtcDay, contextPerUtcDay },
   };
 }

@@ -200,6 +200,7 @@ export async function getMealPhotoAnalysisCapability(): Promise<MealPhotoCapabil
       requestId: response.requestId,
       provider: capability.provider,
       credentialSource: capability.credentialSource,
+      usagePolicy: capability.usagePolicy,
       dailyLimit: capability.dailyLimit,
     };
   } catch (cause) {

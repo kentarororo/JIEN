@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   aggregateWeeklyVolume,
+  buildCompletedExerciseVolumeFeedback,
   buildMuscleGroupTrends,
   buildSetProgressionPlan,
   calculateOverloadChangePercent,
@@ -133,6 +134,95 @@ test('adds one rep to the lowest set and holds on a joint flag', () => {
   assert.equal(planHold.action, 'hold');
   assert.deepEqual(planHold.cues, []);
   assert.match(planHold.reason, /previous sets remain visible/i);
+});
+
+test('completed exercise review establishes a baseline without inventing a target', () => {
+  const result = buildCompletedExerciseVolumeFeedback({
+    currentSets: [
+      { reps: 10, loadValue: 40, loadUnit: 'kg', rpe: 8 },
+      { reps: 10, loadValue: 40, loadUnit: 'kg', rpe: 8 },
+    ],
+    previousSets: null,
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(result.status, 'baseline');
+  assert.equal(result.currentVolumeKg, 800);
+  assert.equal(result.targetVolumeKg, null);
+  assert.equal(result.cues.length, 0);
+});
+
+test('completed exercise review confirms when the five-percent guide is reached', () => {
+  const result = buildCompletedExerciseVolumeFeedback({
+    currentSets: [{ reps: 11, loadValue: 10, loadUnit: 'kg', rpe: 8 }],
+    previousSets: [{ reps: 10, loadValue: 10, loadUnit: 'kg', rpe: 8 }],
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(result.status, 'target_reached');
+  assert.equal(result.changePercent, 10);
+  assert.equal(result.cues.length, 0);
+});
+
+test('completed exercise review offers one controlled rep toward the guide', () => {
+  const sets = [0, 1, 2].map(() => ({ reps: 10, loadValue: 10, loadUnit: 'kg' as const, rpe: 8 }));
+  const result = buildCompletedExerciseVolumeFeedback({
+    currentSets: sets,
+    previousSets: sets,
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(result.status, 'progress');
+  assert.equal(result.cueTiming, 'next_session');
+  assert.deepEqual(result.cues.map((cue) => [cue.workingSetIndex, cue.targetReps]), [[0, 11]]);
+  assert.ok(Math.abs((result.projectedChangePercent ?? 0) - (10 / 3)) < 0.001);
+});
+
+test('completed exercise review holds under joint or high-effort constraints', () => {
+  const previousSets = [{ reps: 10, loadValue: 10, loadUnit: 'kg' as const, rpe: 8 }];
+  const jointHold = buildCompletedExerciseVolumeFeedback({
+    currentSets: previousSets,
+    previousSets,
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+    jointFlag: true,
+  });
+  assert.equal(jointHold.status, 'hold');
+  assert.equal(jointHold.cues.length, 0);
+
+  const effortHold = buildCompletedExerciseVolumeFeedback({
+    currentSets: [{ ...previousSets[0]!, reps: 12, rpe: 9.5 }],
+    previousSets,
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(effortHold.status, 'hold');
+  assert.equal(effortHold.cues.length, 0);
+  assert.ok((effortHold.changePercent ?? 0) > 5, 'a high-effort hold outranks target celebration');
+});
+
+test('completed exercise review defers a load increase to the next session', () => {
+  const topSets = [0, 1, 2].map(() => ({ reps: 12, loadValue: 40, loadUnit: 'kg' as const, rpe: 8 }));
+  const result = buildCompletedExerciseVolumeFeedback({
+    currentSets: topSets,
+    previousSets: topSets,
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(result.status, 'progress');
+  assert.equal(result.cueTiming, 'next_session');
+  assert.equal(result.cues.length, 3);
+  assert.deepEqual(result.cues.map((cue) => [cue.loadValue, cue.targetReps]), [
+    [42.5, 8],
+    [42.5, 8],
+    [42.5, 8],
+  ]);
 });
 
 test('keeps rear delts and core as explicit volume buckets', () => {
