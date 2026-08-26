@@ -3,6 +3,10 @@
 Deploy `food-search`, `food-barcode`, `ai-settings`, `analyze-food-photo`, and `wellness-chat` with
 Supabase's normal JWT verification enabled. Configure these server-only secrets:
 
+On Windows, deploy the food-search function with `scripts/deploy-food-search.ps1`.
+The helper resolves the repository's bundled Supabase CLI, so a global `supabase`
+command is not required.
+
 - `USDA_FDC_API_KEY` from USDA FoodData Central.
 - `FATSECRET_CLIENT_ID` and `FATSECRET_CLIENT_SECRET` from a FatSecret Platform
   application with `premier` search access.

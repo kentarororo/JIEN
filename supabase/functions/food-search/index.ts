@@ -19,10 +19,18 @@ Deno.serve(async (request) => {
   }
 
   const envelope = await request.json().catch(() => null);
-  if (!isRecord(envelope) || envelope.version !== 1 || !isRecord(envelope.data)) {
+  // Keep one rolling-deployment bridge for the currently published client, which
+  // predates the versioned envelope. Remove only after every supported web build
+  // sends { version: 1, data: { query } }.
+  const requestData = isRecord(envelope) && envelope.version === 1 && isRecord(envelope.data)
+    ? envelope.data
+    : isRecord(envelope) && typeof envelope.query === 'string'
+      ? envelope
+      : null;
+  if (!requestData) {
     return failure(requestId, 'INVALID_REQUEST', 'This food search request is not supported.', false, 400);
   }
-  const clean = typeof envelope.data.query === 'string' ? envelope.data.query.trim() : '';
+  const clean = typeof requestData.query === 'string' ? requestData.query.trim() : '';
   if (clean.length < 2 || clean.length > 120) {
     return failure(requestId, 'INVALID_QUERY', 'Enter 2–120 characters.', false, 400);
   }
