@@ -49,6 +49,8 @@ type DraftExercise = {
   sets: DraftSet[];
   progression: SetProgressionPlan | null;
   sourceSets: ProgressionSet[] | null;
+  historyStatus: 'idle' | 'loading' | 'ready' | 'error';
+  historyRequestId: string | null;
 };
 
 const COMMON_EXERCISE_COUNT = 12;
@@ -59,6 +61,8 @@ const newBlock = (exerciseId: string): DraftExercise => ({
   sets: [newSet(), newSet(), newSet()],
   progression: null,
   sourceSets: null,
+  historyStatus: 'idle',
+  historyRequestId: null,
 });
 const isRowEmpty = (set: DraftSet) => !set.load.trim() && !set.reps.trim() && !set.rpe.trim();
 
@@ -153,6 +157,8 @@ export default function NewWorkoutScreen() {
         sets: block.sets.map((set) => newSet(set.load, set.reps, set.rpe, set.id)),
         progression: null,
         sourceSets: null,
+        historyStatus: 'idle',
+        historyRequestId: null,
       })));
       setDraftRecovered(true);
     }
@@ -180,22 +186,50 @@ export default function NewWorkoutScreen() {
   const updateProgression = useCallback(async (blockKey: string, exerciseId: string, sourceSets: ProgressionSet[] | null) => {
     const exercise = catalog?.find((item) => item.id === exerciseId);
     if (!exercise) return;
-    const history = sourceSets ?? await getLastExerciseSessionSets(db, exerciseId);
-    const progression = buildSetProgressionPlan({
-      sets: history,
-      repMin: exercise.targetRepMin,
-      repMax: exercise.targetRepMax,
-      loadIncrement: unit === 'lb' ? Math.max(5, exercise.loadIncrement) : exercise.loadIncrement,
-      jointFlag: jointProgressionHold,
+    const requestId = Crypto.randomUUID();
+    setBlocks((current) => {
+      let updated = false;
+      const next = current.map((block) => {
+        if (block.key !== blockKey || block.exerciseId !== exerciseId) return block;
+        updated = true;
+        return { ...block, historyStatus: 'loading' as const, historyRequestId: requestId };
+      });
+      return updated ? next : current;
     });
-    setBlocks((current) => current.map((block) => block.key === blockKey
-      ? { ...block, progression, sourceSets: history }
-      : block));
+    try {
+      const history = sourceSets ?? await getLastExerciseSessionSets(db, exerciseId);
+      const progression = buildSetProgressionPlan({
+        sets: history,
+        repMin: exercise.targetRepMin,
+        repMax: exercise.targetRepMax,
+        loadIncrement: unit === 'lb' ? Math.max(5, exercise.loadIncrement) : exercise.loadIncrement,
+        jointFlag: jointProgressionHold,
+      });
+      setBlocks((current) => {
+        let updated = false;
+        const next = current.map((block) => {
+          if (block.key !== blockKey || block.exerciseId !== exerciseId || block.historyRequestId !== requestId) return block;
+          updated = true;
+          return { ...block, progression, sourceSets: history, historyStatus: 'ready' as const, historyRequestId: null };
+        });
+        return updated ? next : current;
+      });
+    } catch {
+      setBlocks((current) => {
+        let updated = false;
+        const next = current.map((block) => {
+          if (block.key !== blockKey || block.exerciseId !== exerciseId || block.historyRequestId !== requestId) return block;
+          updated = true;
+          return { ...block, progression: null, sourceSets: null, historyStatus: 'error' as const, historyRequestId: null };
+        });
+        return updated ? next : current;
+      });
+    }
   }, [catalog, db, jointProgressionHold, unit]);
 
   useEffect(() => {
     blocks.forEach((block) => {
-      if (block.exerciseId && block.progression == null) void updateProgression(block.key, block.exerciseId, block.sourceSets);
+      if (block.exerciseId && block.historyStatus === 'idle') void updateProgression(block.key, block.exerciseId, block.sourceSets);
     });
   }, [blocks, updateProgression]);
 
@@ -270,13 +304,25 @@ export default function NewWorkoutScreen() {
   function changeUnit(nextUnit: LoadUnit) {
     if (nextUnit === unit) return;
     setCompletedBlockKeys([]);
-    setBlocks((current) => current.map((block) => ({ ...block, progression: null })));
+    setBlocks((current) => current.map((block) => ({
+      ...block,
+      progression: null,
+      historyStatus: 'idle',
+      historyRequestId: null,
+    })));
     setUnit(nextUnit);
   }
 
   const setExercise = (blockKey: string, exerciseId: string) => {
     markBlockIncomplete(blockKey);
-    setBlocks((current) => current.map((block) => block.key === blockKey ? { ...block, exerciseId, progression: null, sourceSets: null } : block));
+    setBlocks((current) => current.map((block) => block.key === blockKey ? {
+      ...block,
+      exerciseId,
+      progression: null,
+      sourceSets: null,
+      historyStatus: 'idle',
+      historyRequestId: null,
+    } : block));
     setExerciseQueries((current) => ({ ...current, [blockKey]: '' }));
     setExerciseBrowsers((current) => ({ ...current, [blockKey]: false }));
   };
@@ -352,7 +398,14 @@ export default function NewWorkoutScreen() {
       setBlocks((current) => {
         const last = current.at(-1);
         if (last && last.sets.every(isRowEmpty)) {
-          return current.map((block) => block.key === last.key ? { ...block, exerciseId: exercise.id, progression: null, sourceSets: null } : block);
+          return current.map((block) => block.key === last.key ? {
+            ...block,
+            exerciseId: exercise.id,
+            progression: null,
+            sourceSets: null,
+            historyStatus: 'idle',
+            historyRequestId: null,
+          } : block);
         }
         return [...current, newBlock(exercise.id)];
       });
@@ -602,7 +655,15 @@ export default function NewWorkoutScreen() {
                 variant="secondary"
               />
             </View>
-            {setsComplete && !completionFeedback ? (
+            {setsComplete && block.historyStatus === 'error' ? (
+              <View accessibilityRole="alert" style={[styles.completionReview, { backgroundColor: colors.warningSoft, borderColor: colors.warning }]}>
+                <AppText style={[styles.suggestionTitle, { color: colors.warning }]}>Recent sets unavailable</AppText>
+                <AppText style={styles.suggestionText}>Your entered sets are safe. Retry the history check before using a progression suggestion.</AppText>
+                <View style={styles.historyRetryAction}>
+                  <Button label="Retry history" onPress={() => void updateProgression(block.key, block.exerciseId, null)} variant="secondary" />
+                </View>
+              </View>
+            ) : setsComplete && !completionFeedback ? (
               <View accessibilityLiveRegion="polite" style={[styles.completionReview, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
                 <AppText style={styles.suggestionTitle}>Reviewing recent history…</AppText>
               </View>
@@ -755,6 +816,7 @@ const styles = StyleSheet.create({
   completeSets: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.xs, paddingHorizontal: spacing.md, paddingTop: spacing.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   completeSetsCopy: { flexGrow: 1, flexShrink: 1, flexBasis: 280, gap: spacing.xxs },
   completionReview: { marginHorizontal: spacing.md, padding: spacing.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, gap: spacing.sm },
+  historyRetryAction: { alignItems: 'flex-start' },
   completionHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   completionEyebrow: { ...typography.caption, fontWeight: '800', letterSpacing: 0.7, opacity: 0.68 },
   completionTitle: { ...typography.section, fontWeight: '800' },
@@ -836,6 +898,8 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
       sets: [],
       progression: null,
       sourceSets: [],
+      historyStatus: 'idle',
+      historyRequestId: null,
     };
     block.sets.push(newSet(String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe)));
     block.sourceSets?.push({
@@ -854,7 +918,7 @@ function blocksFromEdit(template: WorkoutDetail): DraftExercise[] {
   const grouped = new Map<string, DraftExercise>();
   template.sets.filter((set) => set.kind === 'working').forEach((set) => {
     const block = grouped.get(set.exerciseId) ?? {
-      key: Crypto.randomUUID(), exerciseId: set.exerciseId, sets: [], progression: null, sourceSets: null,
+      key: Crypto.randomUUID(), exerciseId: set.exerciseId, sets: [], progression: null, sourceSets: null, historyStatus: 'idle', historyRequestId: null,
     };
     block.sets.push(newSet(
       String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe), set.id,
@@ -880,6 +944,8 @@ function blocksFromPlan(template: WorkoutDetail): DraftExercise[] {
       rpe: null,
       kind: 'working' as const,
     }]),
+    historyStatus: exercise.progression ? 'ready' : 'idle',
+    historyRequestId: null,
   })) ?? [];
 }
 

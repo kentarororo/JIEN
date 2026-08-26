@@ -70,7 +70,11 @@ test('Workout logging keeps guidance available without delaying set entry', () =
 test('Workout set completion connects local history to the five-percent progression review', () => {
   assert.match(workoutLogger, /const \[completedBlockKeys, setCompletedBlockKeys\] = useState<string\[\]>\(\[\]\)/);
   assert.match(workoutLogger, /buildCompletedExerciseVolumeFeedback\(\{[\s\S]*currentSets: draftSetsForProgression\(block\.sets, unit\)[\s\S]*previousSets: block\.sourceSets/);
-  assert.match(workoutLogger, /\{ \.\.\.block, progression, sourceSets: history \}/, 'the history fetched for the visible cue is retained for completed-set comparison');
+  assert.match(workoutLogger, /\{ \.\.\.block, progression, sourceSets: history, historyStatus: 'ready'/, 'the history fetched for the visible cue is retained for completed-set comparison');
+  assert.match(workoutLogger, /block\.exerciseId !== exerciseId \|\| block\.historyRequestId !== requestId/, 'an obsolete lookup cannot attach history to a changed or superseded exercise request');
+  assert.match(workoutLogger, /historyStatus === 'idle'/, 'only idle exercise histories are loaded automatically');
+  assert.match(workoutLogger, /historyStatus: 'error'/, 'history failures settle into a recoverable state instead of an endless loading panel');
+  assert.match(workoutLogger, /Recent sets unavailable[\s\S]*Retry history/, 'failed history reads explain that entered sets are safe and offer an explicit retry');
   assert.match(workoutLogger, /function completeSets\(blockKey: string\)[\s\S]*setCompletedBlockKeys/);
   assert.match(workoutLogger, /label=\{setsComplete \? 'Check again' : 'Complete sets'\}/);
   assert.match(workoutLogger, /5% VOLUME GUIDE/);
