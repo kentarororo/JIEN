@@ -4,6 +4,14 @@ Deploy `food-search`, `food-barcode`, `ai-settings`, `analyze-food-photo`, and `
 Supabase's normal JWT verification enabled. Configure these server-only secrets:
 
 - `USDA_FDC_API_KEY` from USDA FoodData Central.
+- `FATSECRET_CLIENT_ID` and `FATSECRET_CLIENT_SECRET` from a FatSecret Platform
+  application with `premier` search access.
+- `FATSECRET_REGION` and `FATSECRET_LANGUAGE` optionally localize food search (for
+  example `SG` and `en`).
+- `FATSECRET_OFFLINE_SNAPSHOT_LICENSED=true` only after the deployment's written
+  FatSecret agreement permits permanent editable nutrition snapshots. Standard API
+  access permits permanent storage of identifiers only, so credentials do not bypass
+  this gate.
 - `PHOTO_AI_PROVIDER` set to `gemini`, `anthropic`, or `auto`.
 - `WELLNESS_AI_PROVIDER` optionally set to `gemini`, `anthropic`, or `auto`; it
   defaults to `auto` when omitted.
@@ -107,8 +115,11 @@ Never place provider keys in Expo, GitHub Pages variables, browser storage, or G
 OAuth configuration. Deployment-owned keys use Supabase Function Secrets; tester-owned
 keys use the authenticated `ai-settings` proxy and encrypted Supabase Vault storage.
 
-Food search normalizes USDA results to a 100 g portion. Barcode lookup uses Open Food
-Facts and returns its attribution.
+Food search accepts the version 1 authenticated envelope and combines configured
+FatSecret and USDA results. FatSecret v5 uses the default serving (then 100 g), returns
+`food_id:serving_id` as normalized source provenance, and is inert unless the explicit
+licensing gate is true. USDA remains normalized to a 100 g portion. Barcode lookup
+uses Open Food Facts and returns its attribution.
 
 `wellness-chat` verifies AI consent and the first-use medical disclaimer, reads the
 signed-in user's recent training, food, wellness, and conversation rows through RLS,

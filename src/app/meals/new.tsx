@@ -777,7 +777,7 @@ export default function NewMealScreen() {
             ))}
           </View>
         ) : null}
-        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food data: USDA FoodData Central and Open Food Facts contributors (ODbL). Without an account, search and barcode lookup fall back to Open Food Facts.</AppText>
+        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food data: USDA FoodData Central and Open Food Facts contributors (ODbL). Licensed FatSecret Platform results identify their source in the list. Without an account, search and barcode lookup fall back to Open Food Facts.</AppText>
       </Card>
 
       <Modal visible={cameraMode != null} animationType="slide" transparent onRequestClose={closeCamera}>
@@ -1101,6 +1101,7 @@ function MealSummaryMetric({ label, value }: { label: string; value: string }) {
 function sourceName(source: FoodCatalogItem['source']): string {
   if (source === 'usda_fdc') return 'USDA FoodData Central';
   if (source === 'open_food_facts') return 'Open Food Facts';
+  if (source === 'fatsecret') return 'FatSecret Platform';
   if (source === 'ai_photo') return 'AI photo estimate';
   return 'JIEN starter estimate';
 }

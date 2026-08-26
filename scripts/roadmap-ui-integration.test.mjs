@@ -61,10 +61,23 @@ test('Workout logging keeps guidance available without delaying set entry', () =
   assert.match(workoutLogger, /showRpeGuide \? 'Hide RPE guide' : 'RPE guide'/);
   assert.match(workoutLogger, /expanded=\{showRpeGuide\}/);
   assert.match(workoutLogger, /\{showRpeGuide \? \(/);
-  assert.match(workoutLogger, /Progression paused/);
+  assert.match(workoutLogger, /JointProgressionChoicePanel/);
+  assert.match(workoutLogger, /jointProgressionChoice === 'hold'/);
+  assert.match(workoutLogger, /chooseJointProgression[\s\S]*historyStatus: 'idle'/, 'changing the session choice rebuilds every visible progression suggestion');
   assert.match(workoutLogger, /saveWorkout/);
   assert.match(workoutLogger, /completePlannedWorkout/);
   assert.match(workoutLogger, /updateWorkout/);
+});
+
+test('Joint considerations recommend a hold but preserve an explicit session choice', () => {
+  const choicePanel = readFileSync(new URL('../src/components/joint-progression-choice.tsx', import.meta.url), 'utf8');
+  const planning = readFileSync(new URL('../src/app/workouts/plan.tsx', import.meta.url), 'utf8');
+  const repository = readFileSync(new URL('../src/lib/db/workouts.ts', import.meta.url), 'utf8');
+  assert.match(choicePanel, /Hold progression[\s\S]*Recommended:/);
+  assert.match(choicePanel, /Continue progression[\s\S]*suggestions for this session/);
+  assert.match(choicePanel, /changes suggestions only/);
+  assert.match(planning, /jointProgressionChoice: hasJointConsideration \? jointProgressionChoice : undefined/);
+  assert.match(repository, /jointProgressionChoice: input\.jointProgressionChoice/);
 });
 
 test('Workout set completion connects local history to the five-percent progression review', () => {

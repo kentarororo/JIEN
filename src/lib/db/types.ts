@@ -153,6 +153,7 @@ export type PlannedWorkoutSet = {
   loadValue: number | null;
   loadUnit: LoadUnit;
   reps: number | null;
+  rpe?: number | null;
 };
 
 export type PlannedWorkoutExercise = {
@@ -179,6 +180,7 @@ export type PlannedWorkoutExercise = {
 export type PlannedWorkoutPlan = {
   version: 1;
   exercises: PlannedWorkoutExercise[];
+  jointProgressionChoice?: 'hold' | 'continue';
 };
 
 export type SavePlannedWorkoutInput = {
@@ -188,6 +190,7 @@ export type SavePlannedWorkoutInput = {
   scheduledAt: string;
   notes?: string;
   exercises: PlannedWorkoutExercise[];
+  jointProgressionChoice?: 'hold' | 'continue';
 };
 
 export type WorkoutSummary = {
@@ -292,7 +295,7 @@ export type FoodCatalogItem = {
   carbohydrateG: number;
   fatG: number;
   fibreG: number | null;
-  source: 'starter' | 'usda_fdc' | 'open_food_facts' | 'ai_photo';
+  source: 'starter' | 'usda_fdc' | 'open_food_facts' | 'fatsecret' | 'ai_photo';
   sourceRef: string | null;
   barcode: string | null;
   confidence: number | null;

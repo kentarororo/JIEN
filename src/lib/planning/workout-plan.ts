@@ -26,7 +26,7 @@ export function applyStoredJointConsiderationHold(
   plan: PlannedWorkoutPlan | null,
   active: boolean,
 ): PlannedWorkoutPlan | null {
-  if (!plan || !active) return plan;
+  if (!plan || !active || plan.jointProgressionChoice === 'continue') return plan;
   return {
     ...plan,
     exercises: plan.exercises.map((exercise) => {
@@ -44,6 +44,34 @@ export function applyStoredJointConsiderationHold(
       };
     }),
   };
+}
+
+export function rebuildPlannedWorkoutProgression(
+  planned: PlannedWorkoutExercise[],
+  catalog: Exercise[],
+  jointFlag: boolean,
+): PlannedWorkoutExercise[] {
+  return planned.map((item) => {
+    const exercise = catalog.find((candidate) => candidate.id === item.exerciseId);
+    if (!exercise) return item;
+    const loadUnit = item.sets[0]?.loadUnit ?? 'kg';
+    const progression = buildSetProgressionPlan({
+      sets: item.sets.flatMap((set) => set.loadValue == null || set.reps == null ? [] : [{
+        loadValue: set.loadValue,
+        loadUnit: set.loadUnit,
+        reps: set.reps,
+        rpe: set.rpe ?? null,
+        kind: 'working' as const,
+      }]),
+      repMin: exercise.targetRepMin,
+      repMax: exercise.targetRepMax,
+      loadIncrement: loadUnit === 'lb'
+        ? Math.max(5, exercise.loadIncrement)
+        : exercise.loadIncrement,
+      jointFlag,
+    });
+    return { ...item, progression };
+  });
 }
 
 export function buildPlannedWorkoutExercise(input: {
@@ -75,6 +103,7 @@ export function buildPlannedWorkoutExercise(input: {
         loadValue: set.loadValue,
         loadUnit: set.loadUnit,
         reps: set.reps,
+        rpe: set.rpe,
       }))
       : Array.from({ length: DEFAULT_WORKING_SETS }, () => ({
         loadValue: null,
@@ -95,9 +124,16 @@ export function parsePlannedWorkoutPlan(value: unknown): PlannedWorkoutPlan | nu
     }
   }
   if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.exercises)) return null;
+  if (parsed.jointProgressionChoice !== undefined
+    && parsed.jointProgressionChoice !== 'hold'
+    && parsed.jointProgressionChoice !== 'continue') return null;
   const exercises = parsed.exercises.map(parseExercise);
   return exercises.every((exercise): exercise is PlannedWorkoutExercise => exercise != null)
-    ? { version: 1, exercises }
+    ? {
+        version: 1,
+        exercises,
+        ...(parsed.jointProgressionChoice === undefined ? {} : { jointProgressionChoice: parsed.jointProgressionChoice }),
+      }
     : null;
 }
 
@@ -117,8 +153,14 @@ function parseExercise(value: unknown): PlannedWorkoutExercise | null {
     if (!isRecord(set)
       || (set.loadUnit !== 'kg' && set.loadUnit !== 'lb')
       || !isNullableNonNegativeNumber(set.loadValue)
-      || !isNullablePositiveInteger(set.reps)) return null;
-    return { loadValue: set.loadValue, loadUnit: set.loadUnit, reps: set.reps };
+      || !isNullablePositiveInteger(set.reps)
+      || !(set.rpe === undefined || set.rpe === null || (isFiniteNumber(set.rpe) && set.rpe >= 1 && set.rpe <= 10))) return null;
+    return {
+      loadValue: set.loadValue,
+      loadUnit: set.loadUnit,
+      reps: set.reps,
+      ...(set.rpe === undefined ? {} : { rpe: set.rpe }),
+    };
   });
   if (sets.some((set) => set == null)) return null;
 

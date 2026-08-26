@@ -380,8 +380,11 @@ condition clears, and deep-link only through an explicit in-app route allowlist.
 table. It stores normalized food names, brands, portions, macros, optional barcodes,
 provider attribution, and source identifiers. Starter entries keep core food search
 useful offline; Open Food Facts and USDA FoodData Central results are cached only after
-retrieval. Users always edit the copied meal-item macros before saving if the database
-portion does not match what they ate.
+retrieval. FatSecret search results are never bulk-written to this discovery cache;
+only a result the user selects and saves can persist inside the meal's editable
+snapshot, and even that provider remains inert unless the deployment's explicit
+offline-snapshot licensing gate is enabled. Users always edit the copied meal-item
+macros before saving if the database portion does not match what they ate.
 
 ## Row Level Security
 

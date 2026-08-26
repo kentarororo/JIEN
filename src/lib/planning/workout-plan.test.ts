@@ -7,6 +7,7 @@ import {
   buildPlannedWorkoutExercise,
   hasStoredJointConsideration,
   parsePlannedWorkoutPlan,
+  rebuildPlannedWorkoutProgression,
 } from './workout-plan.ts';
 
 const exercise: Exercise = {
@@ -95,11 +96,20 @@ test('stored profile considerations preserve prior sets and suppress progression
   assert.equal(overlaid?.exercises[0]?.progression.action, 'hold');
   assert.deepEqual(overlaid?.exercises[0]?.progression.cues, []);
   assert.equal(savedPlan.exercises[0]?.progression.action, 'add_load');
+
+  const continuedPlan = { ...savedPlan, jointProgressionChoice: 'continue' as const };
+  assert.equal(applyStoredJointConsiderationHold(continuedPlan, true)?.exercises[0]?.progression.action, 'add_load');
+
+  const [continued] = rebuildPlannedWorkoutProgression(overlaid?.exercises ?? [], [exercise], false);
+  assert.equal(continued?.progression.action, 'add_load');
+  assert.deepEqual(continued?.progression.cues.map((cue) => cue.loadValue), [42.5, 42.5]);
 });
 
 test('planned workout parsing rejects malformed provider or sync content', () => {
   const validExercise = buildPlannedWorkoutExercise({ exercise, history: [set(10, 40, 8)], preferredLoadUnit: 'kg' });
   assert.ok(parsePlannedWorkoutPlan(JSON.stringify({ version: 1, exercises: [validExercise] })));
+  assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], jointProgressionChoice: 'continue' })?.jointProgressionChoice, 'continue');
+  assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], jointProgressionChoice: 'always' }), null);
   assert.equal(parsePlannedWorkoutPlan('{bad json'), null);
   assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [{ ...validExercise, sets: [{ loadValue: -1, loadUnit: 'kg', reps: 8 }] }] }), null);
 });

@@ -33,11 +33,12 @@ loads and reps.
 
 Onboarding joint and injury considerations are currently stored as free-form profile
 notes, without exercise-level scope. While any non-empty consideration is saved,
-workout planning and logging use the conservative rule: copy the previous completed
-sets as a reference, return a `hold` action, and emit no add-rep or add-load cues.
-This prevents an unscoped note from being silently ignored or interpreted as medical
-advice. The user can still record the work they choose and can review the
-consideration from profile settings.
+workout planning and logging recommend the conservative rule by default: copy the
+previous completed sets as a reference, return a `hold` action, and emit no add-rep
+or add-load cues. The user can explicitly continue normal progression suggestions
+for that session or saved plan when their current condition and clinician guidance
+allow it. This choice changes derived cues only; it never changes recorded sets or
+removes the profile consideration.
 
 The numeric engine remains deterministic and offline. A future structured mapping
 may narrow a consideration to relevant movements, but it must remain explicit,

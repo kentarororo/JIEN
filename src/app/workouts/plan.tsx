@@ -4,6 +4,7 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
+import { JointProgressionChoicePanel, type JointProgressionChoice } from '@/components/joint-progression-choice';
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import {
   getLastExerciseSessionSets,
@@ -21,6 +22,7 @@ import {
   applyStoredJointConsiderationHold,
   buildPlannedWorkoutExercise,
   hasStoredJointConsideration,
+  rebuildPlannedWorkoutProgression,
 } from '@/lib/planning/workout-plan';
 import { formatShortDate, localTimestampForDateAndTime, toLocalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -48,7 +50,8 @@ export default function PlanWorkoutScreen() {
   const submitLockRef = useRef(false);
   const [catalog, setCatalog] = useState<Exercise[] | null>(null);
   const [preferredUnit, setPreferredUnit] = useState<LoadUnit>('kg');
-  const [jointProgressionHold, setJointProgressionHold] = useState(false);
+  const [hasJointConsideration, setHasJointConsideration] = useState(false);
+  const [jointProgressionChoice, setJointProgressionChoice] = useState<JointProgressionChoice>('hold');
   const [latestWorkout, setLatestWorkout] = useState<WorkoutDetail | null>(null);
   const [title, setTitle] = useState('Next training session');
   const [date, setDate] = useState(params.date ?? tomorrowKey());
@@ -73,18 +76,22 @@ export default function PlanWorkoutScreen() {
         params.planWorkoutId ? getWorkoutDetail(db, params.planWorkoutId) : Promise.resolve(null),
       ]);
       const shouldHoldProgression = hasStoredJointConsideration(profile?.injuryFlags);
+      const savedJointChoice = existingPlan?.plan?.jointProgressionChoice ?? 'hold';
       setCatalog(exercises);
       setPreferredUnit(profile?.preferredLoadUnit ?? 'kg');
-      setJointProgressionHold(shouldHoldProgression);
+      setHasJointConsideration(shouldHoldProgression);
+      setJointProgressionChoice(savedJointChoice);
       setLatestWorkout(recent[0] ? await getWorkoutDetail(db, recent[0].id) : null);
       if (existingPlan?.status === 'planned' && existingPlan.plan) {
         setTitle(existingPlan.title);
         setDate(existingPlan.performedOn);
         setTime(existingPlan.scheduledAt ? formatClock(existingPlan.scheduledAt) : '18:00');
-        setPlanned(
-          applyStoredJointConsiderationHold(existingPlan.plan, shouldHoldProgression)?.exercises
-            ?? existingPlan.plan.exercises,
-        );
+        const currentPlan = applyStoredJointConsiderationHold(existingPlan.plan, shouldHoldProgression);
+        setPlanned(rebuildPlannedWorkoutProgression(
+          currentPlan?.exercises ?? existingPlan.plan.exercises,
+          exercises,
+          shouldHoldProgression && savedJointChoice === 'hold',
+        ));
       }
     } catch (cause) {
       setLoadingError(cause instanceof Error ? cause.message : 'Could not prepare workout planning.');
@@ -92,6 +99,17 @@ export default function PlanWorkoutScreen() {
   }, [db, params.planWorkoutId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const jointProgressionHold = hasJointConsideration && jointProgressionChoice === 'hold';
+
+  const chooseJointProgression = (choice: JointProgressionChoice) => {
+    setJointProgressionChoice(choice);
+    setPlanned((current) => rebuildPlannedWorkoutProgression(
+      current,
+      catalog ?? [],
+      hasJointConsideration && choice === 'hold',
+    ));
+  };
 
   const addExercise = async (exercise: Exercise) => {
     if (planned.some((item) => item.exerciseId === exercise.id)) return;
@@ -155,6 +173,7 @@ export default function PlanWorkoutScreen() {
         performedOn: date,
         scheduledAt,
         exercises: planned,
+        jointProgressionChoice: hasJointConsideration ? jointProgressionChoice : undefined,
       });
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
@@ -190,12 +209,7 @@ export default function PlanWorkoutScreen() {
         </Card>
       ) : null}
 
-      {jointProgressionHold ? (
-        <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
-          <AppText style={[styles.cardTitle, { color: colors.warning }]}>Progression paused</AppText>
-          <AppText style={{ color: colors.textMuted }}>Your joint or injury note is active, so previous sets are kept without a load or rep increase.</AppText>
-        </Card>
-      ) : null}
+      {hasJointConsideration ? <JointProgressionChoicePanel value={jointProgressionChoice} onChange={chooseJointProgression} /> : null}
 
       <SectionHeading title="Schedule" detail={`${formatPlanDate(date)} · ${formatPlanTime(time)}`} />
       <Card>

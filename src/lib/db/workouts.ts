@@ -242,7 +242,11 @@ export async function savePlannedWorkout(
   if (existing && existing.status !== 'planned') {
     throw new Error('Only an upcoming planned workout can be edited.');
   }
-  const plan = { version: 1 as const, exercises: input.exercises };
+  const plan = {
+    version: 1 as const,
+    exercises: input.exercises,
+    ...(input.jointProgressionChoice ? { jointProgressionChoice: input.jointProgressionChoice } : {}),
+  };
   const payload = {
     id,
     title: input.title.trim(),

@@ -13,6 +13,7 @@ import {
   type OpenFoodFactsProductResponse,
   type OpenFoodFactsSearchResponse,
 } from './open-food-facts';
+import { foodItemsEligibleForDiscoveryCache, parseFoodSearchData } from './food-search-contract';
 import type { FoodCatalogItem } from './types';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import {
@@ -87,9 +88,14 @@ export async function searchLocalFoodCatalog(
 }
 
 export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatalogItem[]): Promise<void> {
+  // FatSecret search payloads are not a general-purpose offline catalog. A selected
+  // item is preserved by saveMeal as part of the user's meal history, but unselected
+  // proprietary search results must not be bulk-cached here.
+  const cacheableItems = foodItemsEligibleForDiscoveryCache(items);
+  if (cacheableItems.length === 0) return;
   const now = new Date().toISOString();
   await withExclusiveTransaction(db, async (db) => {
-    for (const item of items) {
+    for (const item of cacheableItems) {
       await db.runAsync(
         `INSERT INTO food_catalog_cache (
           id, name, brand, serving_quantity, serving_unit, calories_kcal,
@@ -136,16 +142,16 @@ export async function searchFoodDatabase(query: string): Promise<FoodCatalogItem
     sort_by: 'unique_scans_n',
     fields: OPEN_FOOD_FACTS_FIELDS,
   });
-  const [openFoodFacts, usda] = await Promise.allSettled([
+  const [openFoodFacts, providerSearch] = await Promise.allSettled([
     fetchOpenFoodFacts<OpenFoodFactsSearchResponse>(
       `https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`,
     ).then((response) => (response.products ?? [])
       .map(mapOpenFoodFactsProduct)
       .filter((item): item is FoodCatalogItem => item != null)),
-    invokeOptionalFoodFunction('food-search', { query: clean }),
+    invokeOptionalFoodSearch(clean),
   ]);
   const items = dedupeFoods([
-    ...(usda.status === 'fulfilled' ? usda.value : []),
+    ...(providerSearch.status === 'fulfilled' ? providerSearch.value : []),
     ...(openFoodFacts.status === 'fulfilled' ? openFoodFacts.value : []),
   ]).slice(0, 20);
   if (!items.length && openFoodFacts.status === 'rejected') {
@@ -154,6 +160,19 @@ export async function searchFoodDatabase(query: string): Promise<FoodCatalogItem
       : new Error('The online food database is unavailable.');
   }
   return items;
+}
+
+async function invokeOptionalFoodSearch(query: string): Promise<FoodCatalogItem[]> {
+  try {
+    const response = await invokeEdgeFunctionEnvelope<unknown>(
+      'food-search',
+      { query },
+      8_000,
+    );
+    return parseFoodSearchData(response.data).items;
+  } catch {
+    return [];
+  }
 }
 
 export async function lookupFoodBarcode(barcode: string): Promise<FoodCatalogItem[]> {

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
+import { JointProgressionChoicePanel, type JointProgressionChoice } from '@/components/joint-progression-choice';
 import {
   createCustomExercise,
   completePlannedWorkout,
@@ -80,7 +81,8 @@ export default function NewWorkoutScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [title, setTitle] = useState('Training session');
   const [unit, setUnit] = useState<LoadUnit>('kg');
-  const [jointProgressionHold, setJointProgressionHold] = useState(false);
+  const [hasJointConsideration, setHasJointConsideration] = useState(false);
+  const [jointProgressionChoice, setJointProgressionChoice] = useState<JointProgressionChoice>('hold');
   const [blocks, setBlocks] = useState<DraftExercise[]>([]);
   const [completedBlockKeys, setCompletedBlockKeys] = useState<string[]>([]);
   const [exerciseQueries, setExerciseQueries] = useState<Record<string, string>>({});
@@ -109,7 +111,8 @@ export default function NewWorkoutScreen() {
           : Promise.resolve(null),
       ]);
       setCatalog(exercises);
-      setJointProgressionHold(hasStoredJointConsideration(profile?.injuryFlags));
+      setHasJointConsideration(hasStoredJointConsideration(profile?.injuryFlags));
+      setJointProgressionChoice(template?.plan?.jointProgressionChoice ?? 'hold');
       if (template?.sets[0]) setUnit(template.sets[0].loadUnit);
       else if (template?.plan?.exercises[0]?.sets[0]) setUnit(template.plan.exercises[0].sets[0].loadUnit);
       else if (profile) setUnit(profile.preferredLoadUnit);
@@ -183,6 +186,8 @@ export default function NewWorkoutScreen() {
     }));
   }, [blocks, draftContext, draftOwnerUserId, draftReady, editStartedAt, title, unit]);
 
+  const jointProgressionHold = hasJointConsideration && jointProgressionChoice === 'hold';
+
   const updateProgression = useCallback(async (blockKey: string, exerciseId: string, sourceSets: ProgressionSet[] | null) => {
     const exercise = catalog?.find((item) => item.id === exerciseId);
     if (!exercise) return;
@@ -226,6 +231,16 @@ export default function NewWorkoutScreen() {
       });
     }
   }, [catalog, db, jointProgressionHold, unit]);
+
+  const chooseJointProgression = (choice: JointProgressionChoice) => {
+    setJointProgressionChoice(choice);
+    setBlocks((current) => current.map((block) => ({
+      ...block,
+      progression: null,
+      historyStatus: 'idle',
+      historyRequestId: null,
+    })));
+  };
 
   useEffect(() => {
     blocks.forEach((block) => {
@@ -504,12 +519,7 @@ export default function NewWorkoutScreen() {
         </View>
       ) : null}
 
-      {jointProgressionHold ? (
-        <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
-          <AppText style={[styles.suggestionTitle, { color: colors.warning }]}>Progression paused</AppText>
-          <AppText style={{ color: colors.textMuted }}>Your joint note is active. Previous sets stay available; load and rep increases are withheld.</AppText>
-        </Card>
-      ) : null}
+      {hasJointConsideration ? <JointProgressionChoicePanel value={jointProgressionChoice} onChange={chooseJointProgression} /> : null}
 
       <Button
         label={showRpeGuide ? 'Hide RPE guide' : 'RPE guide'}
@@ -941,7 +951,7 @@ function blocksFromPlan(template: WorkoutDetail): DraftExercise[] {
       loadValue: set.loadValue,
       loadUnit: set.loadUnit,
       reps: set.reps,
-      rpe: null,
+      rpe: set.rpe ?? null,
       kind: 'working' as const,
     }]),
     historyStatus: exercise.progression ? 'ready' : 'idle',
