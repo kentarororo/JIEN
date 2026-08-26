@@ -8,6 +8,10 @@ The supported web tester is the Vercel deployment. Native and web expose the sam
 | Vercel web tester | persistent, account-scoped `jien.db` | wa-sqlite Asyncify on the main thread with `IDBBatchAtomicVFS` in IndexedDB |
 | GitHub Pages | none | publishes a host-requirements screen; functional web testing remains Vercel-only |
 
+The Pages finalizer replaces every exported HTML route with that static handoff and
+removes all application scripts from those documents, so a direct deep link cannot
+mount authentication, SQLite, or another local-data consumer.
+
 The web runtime does not mount Expo SQLite's web worker, use `AccessHandlePoolVFS`, call `createSyncAccessHandle`, or require `SharedArrayBuffer`. Its main-thread Asyncify WASM and IndexedDB VFS run when `crossOriginIsolated` is false, including mobile browsers that do not implement COEP `credentialless`. Expo's OPFS driver can leave an access handle owned by an abandoned or singleton worker, which makes a later page fail with `NoModificationAllowedError` before application-level recovery can close it. Native still uses the supported Expo SQLite implementation.
 
 ## Startup order

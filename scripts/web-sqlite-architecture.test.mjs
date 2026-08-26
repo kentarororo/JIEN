@@ -93,7 +93,9 @@ test('Vercel publishes the main-thread SQLite WASM at a stable public path', () 
 
 test('GitHub Pages publishes a safe host-requirements screen instead of SQLite', () => {
   assert.match(packageJson.scripts['pages:build'], /finalize-pages-host-build\.mjs/);
-  assert.match(pagesHostFinalizer, /CROSS_ORIGIN_ISOLATION_REQUIRED/);
+  assert.match(pagesHostFinalizer, /PAGES_HOST_UNSUPPORTED/);
+  assert.match(pagesHostFinalizer, /listHtmlFiles/);
+  assert.match(pagesHostFinalizer, /does not open JIEN's local database/);
   assert.match(pagesHostFinalizer, /\.nojekyll/);
   assert.doesNotMatch(packageJson.scripts['pages:build'], /finalize-pages-build\.mjs/);
 });
