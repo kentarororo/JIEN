@@ -23,6 +23,8 @@ export {
   searchFoodDatabase,
   searchLocalFoodCatalog,
 } from './food-catalog';
+export { savePrivateFood } from './private-food';
+export type { SavePrivateFoodInput } from './private-food';
 export { classifyMealPhotoAnalysisError } from './meal-photo-api';
 export type {
   MealPhotoAnalysisFailure,

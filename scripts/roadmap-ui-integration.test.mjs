@@ -9,6 +9,8 @@ const workoutPlan = readFileSync(new URL('../src/app/workouts/plan.tsx', import.
 const tabLayout = readFileSync(new URL('../src/app/(tabs)/_layout.tsx', import.meta.url), 'utf8');
 const rootLayout = readFileSync(new URL('../src/app/_layout.tsx', import.meta.url), 'utf8');
 const workoutLogger = readFileSync(new URL('../src/app/workouts/new.tsx', import.meta.url), 'utf8');
+const mealLogger = readFileSync(new URL('../src/app/meals/new.tsx', import.meta.url), 'utf8');
+const privateFood = readFileSync(new URL('../src/lib/db/private-food.ts', import.meta.url), 'utf8');
 
 test('Today is week-first while preserving the month and day workspace', () => {
   assert.match(today, /const \[monthExpanded, setMonthExpanded\] = useState\(false\)/);
@@ -93,4 +95,16 @@ test('Workout set completion connects local history to the five-percent progress
   assert.match(workoutLogger, /5% VOLUME GUIDE/);
   assert.match(workoutLogger, /function markBlockIncomplete[\s\S]*updateSet[\s\S]*markBlockIncomplete\(blockKey\)/);
   assert.match(workoutLogger, /Next time[\s\S]*formatCompletionCues/);
+});
+
+test('Meal no-match entry saves an editable private food through the SQLite catalog', () => {
+  assert.match(mealLogger, /No database matches found/);
+  assert.match(mealLogger, /Create private food/);
+  assert.match(mealLogger, /savePrivateFood\(db, \{/);
+  assert.match(mealLogger, /Save as private food/);
+  assert.match(mealLogger, /Update private food/);
+  assert.match(mealLogger, /source === 'custom'/);
+  assert.match(privateFood, /withExclusiveTransaction\(db, async \(transactionDb\)/);
+  assert.match(privateFood, /ON CONFLICT\(id\) DO UPDATE SET/);
+  assert.match(privateFood, /last_used_at = excluded\.last_used_at/);
 });

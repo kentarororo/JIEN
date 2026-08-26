@@ -121,9 +121,10 @@ export function resolvePhotoProvider(
 
 export function buildPhotoEstimatePrompt(description: string): string {
   return [
-    'Estimate the visible meal as editable food line items.',
+    'Convert the image into editable food line items.',
     `User description: ${description.trim() || 'none provided'}`,
-    'Use realistic portions and nutrition estimates. Confidence must be from 0 to 1.',
+    'If the image is a nutrition label, transcribe values for exactly the label serving instead of estimating them. Use the visible product name or user description, and lower confidence when text is unclear.',
+    'Otherwise, use realistic portions and nutrition estimates. Confidence must be from 0 to 1.',
     'If no food is visible, return an empty items array. Do not provide medical advice.',
   ].join('\n');
 }

@@ -4,6 +4,7 @@ import test from 'node:test';
 import { parseProviderPhotoItems } from './photo-contract.ts';
 import {
   PhotoProviderError,
+  buildPhotoEstimatePrompt,
   requestPhotoEstimate,
   resolvePhotoProvider,
   type PhotoProviderConfiguration,
@@ -18,6 +19,14 @@ const providerJson = JSON.stringify({ items: [{
   name: 'Chicken rice', quantity: 1, unit: 'plate', caloriesKcal: 610,
   proteinG: 38, carbohydrateG: 74, fatG: 18, fibreG: 4, confidence: 0.78,
 }] });
+
+test('photo guidance treats a nutrition label as transcription, not a meal estimate', () => {
+  const prompt = buildPhotoEstimatePrompt('Protein cereal');
+  assert.match(prompt, /nutrition label/i);
+  assert.match(prompt, /exactly the label serving/i);
+  assert.match(prompt, /instead of estimating/i);
+  assert.match(prompt, /Protein cereal/);
+});
 
 test('provider selection is explicit and auto mode deterministically prefers Gemini', () => {
   const both = {

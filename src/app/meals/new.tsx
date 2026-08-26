@@ -22,6 +22,7 @@ import {
   markFoodCatalogItemUsed,
   queueMealPhotoAnalysis,
   saveMeal,
+  savePrivateFood,
   searchFoodDatabase,
   searchLocalFoodCatalog,
   type FoodCatalogItem,
@@ -95,6 +96,8 @@ export default function NewMealScreen() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<FoodCatalogItem[]>([]);
   const [searching, setSearching] = useState(false);
+  const [noMatchQuery, setNoMatchQuery] = useState<string | null>(null);
+  const [savingPrivateFoodKey, setSavingPrivateFoodKey] = useState<string | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -334,15 +337,17 @@ export default function NewMealScreen() {
   };
 
   const runDatabaseSearch = async () => {
-    if (query.trim().length < 2) {
+    const cleanQuery = query.trim();
+    if (cleanQuery.length < 2) {
       setToolMessage('Enter at least two characters to search the online database.');
       return;
     }
     setSearching(true);
     setToolMessage(null);
     try {
-      const items = await searchFoodDatabase(query);
+      const items = await searchFoodDatabase(cleanQuery);
       setResults(items);
+      setNoMatchQuery(items.length ? null : cleanQuery);
       setToolMessage(items.length ? `Found ${items.length} online food matches.` : 'No database matches found.');
       try {
         await cacheFoodCatalogItems(db, items);
@@ -353,6 +358,68 @@ export default function NewMealScreen() {
       setToolMessage(cause instanceof Error ? cause.message : 'Online food search is unavailable.');
     } finally {
       setSearching(false);
+    }
+  };
+
+  const beginPrivateFood = () => {
+    const seedName = (noMatchQuery ?? query).trim();
+    const nextFood = { ...emptyFood(), name: seedName };
+    setFoods((current) => {
+      const blankIndex = current.findIndex(isBlankFood);
+      if (blankIndex < 0) return [...current, nextFood];
+      return current.map((food, index) => index === blankIndex ? nextFood : food);
+    });
+    setQuery('');
+    setResults([]);
+    setNoMatchQuery(null);
+    setToolMessage('Add the serving and label values below, then save it to your private foods for one-tap reuse.');
+    setTimeout(() => {
+      screenRef.current?.scrollTo({ y: Math.max(0, mealItemsYRef.current - spacing.md), animated: true });
+    }, 80);
+  };
+
+  const saveFoodForReuse = async (food: DraftFood) => {
+    if (savingPrivateFoodKey) return;
+    setSavingPrivateFoodKey(food.key);
+    setFormError(null);
+    try {
+      const item = await savePrivateFood(db, {
+        id: food.catalogId,
+        name: food.name,
+        servingQuantity: Number(food.quantity),
+        servingUnit: food.unit,
+        caloriesKcal: Number(food.calories),
+        proteinG: Number(food.protein),
+        carbohydrateG: Number(food.carbs),
+        fatG: Number(food.fat),
+        fibreG: food.fibre.trim() ? Number(food.fibre) : null,
+      });
+      setFoods((current) => current.map((draft) => draft.key === food.key ? {
+        ...draft,
+        catalogId: item.id,
+        name: item.name,
+        quantity: String(item.servingQuantity),
+        unit: item.servingUnit,
+        source: draft.source,
+        sourceLabel: food.catalogId?.startsWith('custom-') || !food.sourceLabel
+          ? 'Private food'
+          : `Private food · ${food.sourceLabel}`,
+        confidence: draft.source === 'ai_photo' ? draft.confidence : null,
+        referenceQuantity: item.servingQuantity,
+        referenceUnit: item.servingUnit,
+        referenceMacros: {
+          caloriesKcal: item.caloriesKcal,
+          proteinG: item.proteinG,
+          carbohydrateG: item.carbohydrateG,
+          fatG: item.fatG,
+          fibreG: item.fibreG ?? 0,
+        },
+      } : draft));
+      setToolMessage(`${item.name} ${food.catalogId?.startsWith('custom-') ? 'updated' : 'saved'} in your private foods on this device.`);
+    } catch (cause) {
+      setFormError(cause instanceof Error ? cause.message : 'This private food could not be saved.');
+    } finally {
+      setSavingPrivateFoodKey(null);
     }
   };
 
@@ -718,8 +785,8 @@ export default function NewMealScreen() {
       <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>
 
       <Card style={styles.discoveryCard}>
-        <View style={styles.discoveryHeader}><View style={styles.flex}><AppText style={styles.sectionTitle}>Find food quickly</AppText><AppText style={{ color: colors.textMuted }}>Search local foods instantly, then expand to the online database.</AppText></View></View>
-        <Field label="Food search" value={query} onChangeText={setQuery} placeholder="Try chicken, rice, yogurt…" returnKeyType="search" onSubmitEditing={() => void runDatabaseSearch()} />
+        <View style={styles.discoveryHeader}><View style={styles.flex}><AppText style={styles.sectionTitle}>Find food quickly</AppText><AppText style={{ color: colors.textMuted }}>Search local foods instantly, expand online, or use a meal or nutrition-label photo.</AppText></View></View>
+        <Field label="Food search" value={query} onChangeText={(value) => { setQuery(value); setNoMatchQuery(null); }} placeholder="Try chicken, rice, yogurt…" returnKeyType="search" onSubmitEditing={() => void runDatabaseSearch()} />
         <View style={styles.toolActions}>
           <Button label="Search food database" onPress={() => void runDatabaseSearch()} busy={searching} variant="secondary" />
           <Button label="Scan barcode" onPress={() => void openCamera('barcode')} variant="secondary" />
@@ -775,6 +842,15 @@ export default function NewMealScreen() {
                 </View>
               </Pressable>
             ))}
+          </View>
+        ) : null}
+        {noMatchQuery ? (
+          <View accessibilityLiveRegion="polite" style={[styles.privateFoodPrompt, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+            <View style={styles.flex}>
+              <AppText style={styles.resultHeadingTitle}>Make “{noMatchQuery}” your own</AppText>
+              <AppText style={{ color: colors.textMuted }}>Enter its serving and nutrition label once, then reuse it from local search.</AppText>
+            </View>
+            <Button label="Create private food" onPress={beginPrivateFood} variant="quiet" />
           </View>
         ) : null}
         <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food data: USDA FoodData Central and Open Food Facts contributors (ODbL). Licensed FatSecret Platform results identify their source in the list. Without an account, search and barcode lookup fall back to Open Food Facts.</AppText>
@@ -836,7 +912,7 @@ export default function NewMealScreen() {
               label="What is in this meal? (optional)"
               value={photoFlow.description}
               onChangeText={(description) => dispatchPhoto({ type: 'description_changed', description })}
-              placeholder="e.g. grilled chicken, rice, sauce on the side"
+              placeholder="e.g. grilled chicken and rice, or the product name on this label"
               editable={!cameraBusy && photoFlow.phase !== 'succeeded'}
             />
             {photoFlow.phase === 'ready' && photoFlow.capability ? (
@@ -959,6 +1035,21 @@ export default function NewMealScreen() {
             <Field label="Fat (g)" value={food.fat} onChangeText={(value) => updateMacro(food.key, 'fat', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
             <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => updateMacro(food.key, 'fibre', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
           </View>
+          <View style={[styles.privateFoodAction, { borderColor: colors.border }]}>
+            <View style={styles.flex}>
+              <AppText style={styles.resultHeadingTitle}>{food.catalogId?.startsWith('custom-') ? 'Private food saved' : 'Reuse this food'}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{food.catalogId?.startsWith('custom-')
+                ? 'Update the saved serving after changing these values.'
+                : 'Save this serving privately on this device. Your meal can still be saved separately.'}</AppText>
+            </View>
+            <Button
+              label={food.catalogId?.startsWith('custom-') ? 'Update private food' : 'Save as private food'}
+              onPress={() => void saveFoodForReuse(food)}
+              busy={savingPrivateFoodKey === food.key}
+              disabled={!isCompletedFood(food) || (savingPrivateFoodKey != null && savingPrivateFoodKey !== food.key)}
+              variant="quiet"
+            />
+          </View>
           {food.source === 'ai_photo' ? <AppText style={[styles.attribution, { color: colors.warning }]}>AI estimate—review before saving. Not medical advice.</AppText> : null}
         </Card>
       ))}
@@ -1001,7 +1092,7 @@ function toDraftFood(item: FoodCatalogItem): DraftFood {
     carbs: String(roundMacro(item.carbohydrateG)),
     fat: String(roundMacro(item.fatG)),
     fibre: item.fibreG == null ? '' : String(roundMacro(item.fibreG)),
-    source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' ? 'manual' : 'imported',
+    source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' || item.source === 'custom' ? 'manual' : 'imported',
     sourceLabel: sourceName(item.source),
     confidence: item.confidence,
     referenceQuantity: item.servingQuantity,
@@ -1099,11 +1190,16 @@ function MealSummaryMetric({ label, value }: { label: string; value: string }) {
 }
 
 function sourceName(source: FoodCatalogItem['source']): string {
+  if (source === 'custom') return 'Private food';
   if (source === 'usda_fdc') return 'USDA FoodData Central';
   if (source === 'open_food_facts') return 'Open Food Facts';
   if (source === 'fatsecret') return 'FatSecret Platform';
   if (source === 'ai_photo') return 'AI photo estimate';
   return 'JIEN starter estimate';
+}
+
+function isCompletedFood(food: DraftFood): boolean {
+  return summarizeMealDraft([food]).completedFoodCount === 1;
 }
 
 function roundMacro(value: number): number {
@@ -1127,6 +1223,7 @@ const styles = StyleSheet.create({
   resultName: { fontWeight: '700' },
   resultCalories: { fontWeight: '800', textAlign: 'right' },
   attribution: { ...typography.caption },
+  privateFoodPrompt: { minHeight: 76, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   cameraFrame: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, overflow: 'hidden', borderRadius: radii.card },
   cameraOverlay: { flex: 1, justifyContent: 'flex-end' },
   cameraSheet: { width: '100%', maxWidth: 760, maxHeight: '96%', alignSelf: 'center', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: spacing.lg },
@@ -1143,6 +1240,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },
   fieldGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  privateFoodAction: { minHeight: 76, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   portionSection: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.md },
   quantityField: { flexBasis: 160, flexGrow: 0 },
   unitSection: { flex: 1, minWidth: 220, gap: spacing.xs },

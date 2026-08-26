@@ -6,7 +6,11 @@ a network service.
 
 ## Current sources
 
-- The on-device starter/recent-food cache answers immediately and works offline.
+- The account-owned on-device starter/recent-food cache answers immediately and works
+  offline. A completed editable row can be saved as a private custom food, updated in
+  place, and reused from the same local search. The shortcut stays on that device;
+  meals created from it remain ordinary durable meal snapshots and follow the existing
+  account sync path.
 - [USDA FoodData Central](https://fdc.nal.usda.gov/api-guide/) supplies generic and
   branded food search through the `food-search` Supabase Edge Function when its
   server-only API key is configured.
@@ -27,11 +31,20 @@ a network service.
   sheet immediately; a successful analysis inserts every normalized result into the
   editable meal draft exactly once. Retryable failures retain the photo and context,
   and saved AI-derived items carry request provenance plus a completed AI status.
+  The same review path recognizes a nutrition-label image: the provider is instructed
+  to transcribe the stated serving instead of estimating a visible plate. The user must
+  still verify the label values before saving the result as a meal item or private food.
 
 FatSecret, USDA, and Open Food Facts enrichment are best-effort. FatSecret and USDA
 run behind the signed-in server boundary while Open Food Facts remains the no-account
 fallback. Search results remain usable if the local cache write fails, and barcode
 digits remain visible if no product matches.
+
+When an online name search returns no match, the meal logger carries that name into an
+editable blank row. After the serving and macros are complete, `Save as private food`
+performs one local SQLite transaction and immediately makes the item searchable. It
+never waits for an API response and never clears provider caches, meal history, or
+authentication storage.
 
 ## Why not MyFitnessPal
 

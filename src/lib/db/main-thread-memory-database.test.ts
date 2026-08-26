@@ -17,6 +17,7 @@ import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './ex
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
+import { savePrivateFood } from './private-food.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
@@ -67,6 +68,48 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
     assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'arms', secondaryMuscleGroups: [] }), true);
     assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'biceps', secondaryMuscleGroups: ['forearms'] }), false);
+
+    const privateFood = await savePrivateFood(database, {
+      id: 'custom-protein-cereal',
+      name: '  Protein cereal  ',
+      servingQuantity: 55,
+      servingUnit: 'g',
+      caloriesKcal: 210,
+      proteinG: 20,
+      carbohydrateG: 24,
+      fatG: 4,
+      fibreG: 7,
+    });
+    assert.equal(privateFood.source, 'custom');
+    assert.equal(privateFood.name, 'Protein cereal');
+    assert.deepEqual(
+      await database.getAllAsync(
+        `SELECT id, name, source, calories_kcal AS caloriesKcal
+         FROM food_catalog_cache WHERE name LIKE ? COLLATE NOCASE`,
+        ['%protein cereal%'],
+      ),
+      [{ id: 'custom-protein-cereal', name: 'Protein cereal', source: 'custom', caloriesKcal: 210 }],
+    );
+    await savePrivateFood(database, {
+      id: privateFood.id,
+      name: privateFood.name,
+      servingQuantity: 55,
+      servingUnit: 'g',
+      caloriesKcal: 215,
+      proteinG: 21,
+      carbohydrateG: 24,
+      fatG: 4,
+      fibreG: 7,
+    });
+    assert.deepEqual(
+      await database.getFirstAsync(
+        `SELECT COUNT(*) AS count, MAX(calories_kcal) AS calories_kcal
+         FROM food_catalog_cache WHERE id = ? AND source = 'custom'`,
+        [privateFood.id],
+      ),
+      { count: 1, calories_kcal: 215 },
+      'updating a private food must replace its reusable serving instead of creating a duplicate',
+    );
 
     await updateExerciseTargetsAtomically(database, '10000000-0000-4000-8000-000000000004', {
       primaryMuscleGroup: 'front delts',
@@ -319,6 +362,14 @@ test('main-thread database persists committed work and isolates delayed transact
         ['11111111-1111-4111-8111-111111111111'],
       ),
       { description: 'restore me', status: 'pending' },
+    );
+    assert.deepEqual(
+      await restored.getFirstAsync(
+        'SELECT name, calories_kcal, protein_g, source FROM food_catalog_cache WHERE id = ?',
+        ['custom-protein-cereal'],
+      ),
+      { name: 'Protein cereal', calories_kcal: 215, protein_g: 21, source: 'custom' },
+      'private foods must survive a durable database close and fresh SQLite lifecycle',
     );
     assert.deepEqual(await restored.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await restored.getAllAsync('PRAGMA foreign_key_check'), []);

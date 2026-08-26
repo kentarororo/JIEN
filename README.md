@@ -59,7 +59,9 @@ silently merging two people's health data.
 
 Online food search combines Open Food Facts with USDA FoodData Central when the
 optional Supabase function is configured; barcode lookup falls back safely to Open
-Food Facts. Consent-gated meal-photo analysis remains a Supabase Edge Function. The
+Food Facts. Completed manual or label-assisted entries can be saved as device-local
+private foods and reused from offline search without delaying the meal save.
+Consent-gated meal-photo analysis remains a Supabase Edge Function. The
 provider boundaries and server-only setup are documented in [docs/food-data.md](docs/food-data.md)
 and [supabase/functions/README.md](supabase/functions/README.md).
 For Vercel, add the same two public Supabase values as project environment variables.

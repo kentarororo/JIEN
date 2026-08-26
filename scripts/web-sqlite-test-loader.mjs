@@ -11,6 +11,12 @@ const aliases = new Map([
 ]);
 
 export function resolve(specifier, context, nextResolve) {
+  if (specifier === 'expo-crypto') {
+    return {
+      shortCircuit: true,
+      url: `data:text/javascript,${encodeURIComponent('export const randomUUID = () => globalThis.crypto.randomUUID();')}`,
+    };
+  }
   const target = aliases.get(specifier);
   if (target) {
     return { shortCircuit: true, url: pathToFileURL(path.join(projectRoot, target)).href };
