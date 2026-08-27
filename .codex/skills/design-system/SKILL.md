@@ -15,6 +15,21 @@ Apply the chosen token set from `src/theme/` rather than embedding visual values
 4. Include loading, empty, error, offline, disabled, pressed, and focus states wherever they apply.
 5. Prefer platform-native behavior, restrained motion, strong hierarchy, and decoration only when it improves comprehension.
 6. Verify light and dark themes, dynamic type, contrast, reduced motion, and touch targets of at least 44 by 44 points.
+7. Apply `docs/product-voice.md` to every user-visible label, status, empty state, error, notification, and AI disclosure.
+
+## Product voice
+
+Use direct product language in the order **state → consequence → action**.
+
+- Keep JIEN as a product name, not a character. Do not write copy that says JIEN will
+  guide, carry, keep, build, recommend, wait, or understand on the user's behalf.
+- Prefer verifiable outcomes over reassurance: `No records were deleted` rather than
+  `Your data is safe`.
+- Avoid generic assistant and motivational language such as `next small win`, `when you
+  are ready`, `starts here`, `at a glance`, or `make it your own`.
+- Name the affected record or process and the next available action.
+- Preserve precise safety, privacy, consent, billing, and medical limitations.
+- Run the copy-quality harness and update it when a repeated failure mode is found.
 
 ## Approved tokens
 

@@ -61,7 +61,7 @@ export default function AiSettingsScreen() {
       setActionIssue({
         code: 'ACKNOWLEDGEMENT_REQUIRED',
         title: 'Confirm both notes first',
-        message: 'Turn on both switches above so JIEN can verify and store the key.',
+        message: 'Turn on both switches before verifying and storing the key.',
         requestId: null,
         retryable: false,
       });
@@ -103,7 +103,7 @@ export default function AiSettingsScreen() {
       <ScreenHeading eyebrow="Private AI setup" title="Connect Gemini" />
       <Card style={{ backgroundColor: colors.accentSoft }}>
         <AppText style={styles.cardTitle}>One connection, both AI features</AppText>
-        <AppText style={{ color: colors.textMuted }}>Your Gemini key powers meal-photo estimates and JIEN’s contextual wellness explanations. Training progression remains deterministic and works without AI.</AppText>
+        <AppText style={{ color: colors.textMuted }}>Your Gemini key is used for meal-photo estimates and contextual wellness explanations. Training progression remains deterministic and works without AI.</AppText>
       </Card>
 
       {loading ? <StatePanel title="Checking AI connection" body="Reading only your secure connection status—not the key itself." loading /> : null}
@@ -162,7 +162,7 @@ export default function AiSettingsScreen() {
           hint="Sent once over HTTPS to JIEN’s Edge Function, then encrypted in Supabase Vault. It is never saved in this browser or returned to the app."
         />
         <Acknowledgement
-          label="I understand JIEN does not cap requests; Google controls this project’s quota and billing. I will keep it Free or set the lowest available project spend cap before use."
+          label="I understand this app does not cap requests; Google controls this project’s quota and billing. I will keep it Free or set the lowest available project spend cap before use."
           value={acknowledgesBillingControl}
           onValueChange={setAcknowledgesBillingControl}
         />
@@ -177,7 +177,7 @@ export default function AiSettingsScreen() {
           busy={busy}
         />
         <View accessibilityLiveRegion="polite">
-          {busy ? <AppText style={{ color: colors.textMuted }}>Checking the key with Gemini and securing it to your JIEN account…</AppText> : null}
+          {busy ? <AppText style={{ color: colors.textMuted }}>Checking the key with Gemini and encrypting it for this account…</AppText> : null}
           {actionIssue ? (
             <View style={[styles.inlineResult, { backgroundColor: colors.dangerSoft }]}>
               <AppText style={styles.cardTitle}>{actionIssue.title}</AppText>
@@ -196,7 +196,7 @@ export default function AiSettingsScreen() {
       <SectionHeading title="3. Control Gemini spend" detail="Google owns the usage boundary" />
       <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
         <AppText style={styles.cardTitle}>No JIEN daily cap</AppText>
-        <AppText style={{ color: colors.textMuted }}>Meal-photo analyses and contextual replies continue until Gemini applies the project’s own quota, rate limit, or billing boundary. JIEN still uses finite timeouts and bounded retries.</AppText>
+        <AppText style={{ color: colors.textMuted }}>Meal-photo analyses and contextual replies continue until Gemini applies the project’s own quota, rate limit, or billing boundary. Requests still use finite timeouts and bounded retries.</AppText>
         <AppText style={styles.cardTitle}>Recommended: keep the effective limit at $0</AppText>
         <AppText style={{ color: colors.textMuted }}>The safest option is a Free project with no paid billing attached. If AI Studio offers a project spend cap for your paid project, set it to $0 or the lowest value Google accepts. Google describes spend caps as experimental and says billing can lag by about ten minutes, so a cap is not a strict zero-overage guarantee.</AppText>
         <Button label="Open Gemini spend settings" onPress={() => void Linking.openURL(GEMINI_SPEND_URL)} variant="secondary" />

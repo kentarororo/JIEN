@@ -121,7 +121,7 @@ export class WebDatabaseSnapshotStore {
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error ?? new Error('Durable web storage could not be opened.'));
-      request.onblocked = () => reject(new Error('Another JIEN tab is updating local storage. Close it, then retry.'));
+      request.onblocked = () => reject(new Error('Another tab is updating local storage. Close it, then retry.'));
     });
     return new WebDatabaseSnapshotStore(database, ownerUserId);
   }
@@ -405,7 +405,7 @@ function sameNullableIdentity(
 }
 
 function staleSnapshotError(): Error {
-  return new Error('This JIEN tab is stale because the account was updated elsewhere. Refresh before saving again.');
+  return new Error('This tab is stale because the account was updated elsewhere. Refresh before saving again.');
 }
 
 function randomKey(): string {

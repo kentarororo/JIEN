@@ -237,7 +237,7 @@ export async function processPendingMealPhotoJobs(
   } catch {
     await storeFailure(db, job, {
       code: 'PHOTO_PAYLOAD_STORAGE_UNAVAILABLE',
-      message: 'The retained photo could not be opened on this device. Reopen JIEN and retry.',
+      message: 'The retained photo could not be opened on this device. Reopen the app and retry.',
       retryable: true,
       requestId: null,
     });

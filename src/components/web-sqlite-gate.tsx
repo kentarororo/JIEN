@@ -156,7 +156,7 @@ function WebSQLiteGateContent({ children }: PropsWithChildren) {
   const handoffFailure = ownershipReadiness.state === 'displaced'
     ? {
         code: 'LOCAL_STORAGE_HANDED_OFF',
-        message: 'JIEN is open in a newer tab. Your local data is safe. Use this tab to move JIEN back here.',
+        message: 'A newer tab is using local storage. No local data was deleted. Move control back to this tab to continue here.',
       }
     : null;
   const failure = handoffFailure
@@ -277,7 +277,7 @@ function WebSQLiteStartupPanel({
         </Text>
         <Text style={[styles.body, { color: colors.textMuted }]}>
           {isPreparing
-            ? 'Starting your secure session. JIEN may retry once automatically.'
+            ? 'Opening local storage. This page may retry once automatically.'
             : failure?.message}
         </Text>
         {failure ? (

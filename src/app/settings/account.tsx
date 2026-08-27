@@ -23,7 +23,7 @@ export default function AccountScreen() {
     <Screen>
       <Card>
         <AppText style={{ color: colors.textMuted }}>
-          Logging always works without an account. Sign in once to restore your profile and history on another device. The first account used here becomes this local database's owner, so JIEN never merges two people's records silently.
+          Logging works without an account. Sign in to restore your profile and history on another device. The first account used here owns this local database. Records from different accounts are never merged automatically.
         </AppText>
       </Card>
       <AccountAuthControls allowSignUp onAuthenticated={finishSync} />

@@ -214,7 +214,7 @@ export async function getMealPhotoAnalysisCapability(): Promise<MealPhotoCapabil
     return {
       available: true,
       status: 'ready',
-      message: `${providerLabel} is connected through JIEN's secure server. Nothing is sent until you choose Analyze photo; Google sign-in only identifies your JIEN account.`,
+      message: `${providerLabel} is connected through the secure server. Nothing is sent until you choose Analyze photo; Google sign-in only identifies your account.`,
       retryable: false,
       requestId: response.requestId,
       provider: capability.provider,

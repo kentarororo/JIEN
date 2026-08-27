@@ -54,7 +54,7 @@ function WebCloudHydrationGateContent({ children }: PropsWithChildren) {
       if (canOpen) await webDatabase.resumePersistenceAsync?.();
       setState({ result, canOpen, error: null });
     } catch {
-      setState({ result: null, canOpen: false, error: 'Local recovery could not be completed safely. Refresh JIEN, then try again.' });
+      setState({ result: null, canOpen: false, error: 'Local data recovery failed. Refresh the page, then try again.' });
     }
   }, [db]);
   useEffect(() => { void hydrate(); }, [hydrate]);
@@ -64,7 +64,7 @@ function WebCloudHydrationGateContent({ children }: PropsWithChildren) {
   return (
     <View style={styles.screen}>
       <StatePanel
-        title={state.error ? 'JIEN needs to recover local data' : copy.title}
+        title={state.error ? 'Local data recovery required' : copy.title}
         body={state.error ?? copy.body}
         loading={state.result == null && !state.error}
         actionLabel={state.result || state.error ? 'Try again' : undefined}

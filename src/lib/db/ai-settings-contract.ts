@@ -54,12 +54,12 @@ export function describeAiConnectionIssue(cause: unknown): AiConnectionIssue {
     case 'AUTH_REQUIRED':
       return { ...issue, title: 'Sign in again first', message: 'Your JIEN session expired. Sign in with Google again, then reconnect the key.' };
     case 'HTTP_404':
-      return { ...issue, title: 'JIEN’s AI connector is not deployed', message: 'This build is missing the ai-settings Edge Function. Deploy the current Supabase functions, then try again.' };
+      return { ...issue, title: 'AI connector not deployed', message: 'This build is missing the ai-settings Edge Function. Deploy the current Supabase functions, then try again.' };
     case 'AI_KEY_SAVE_FAILED':
     case 'AI_KEY_STATUS_FAILED':
-      return { ...issue, title: 'JIEN’s secure key store is not ready', message: 'The current Supabase AI-credentials migration has not been applied successfully. Apply it, then try again.' };
+      return { ...issue, title: 'Secure key store unavailable', message: 'The current Supabase AI-credentials migration has not been applied successfully. Apply it, then try again.' };
     case 'SERVICE_NOT_CONFIGURED':
-      return { ...issue, title: 'JIEN’s secure AI service is not ready', message: 'The Edge Function cannot reach its protected Supabase server credentials. This is a deployment issue, not a problem with your key.' };
+      return { ...issue, title: 'Secure AI service unavailable', message: 'The Edge Function cannot reach its protected Supabase server credentials. This is a deployment issue, not a problem with your key.' };
     case 'AI_KEY_VERIFICATION_FAILED':
       return { ...issue, title: 'Gemini could not verify the key', message: 'Google’s key check is temporarily unavailable. Your key was not stored; try again shortly.' };
     default:

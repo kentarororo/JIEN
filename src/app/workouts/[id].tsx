@@ -112,7 +112,7 @@ export default function WorkoutDetailScreen() {
           </View>
         ))}
         <Card style={{ backgroundColor: colors.surfaceMuted }}>
-          <AppText style={styles.progressName}>When you are ready</AppText>
+          <AppText style={styles.progressName}>Start this plan</AppText>
           <AppText style={{ color: colors.textMuted }}>Starting opens the normal set logger with these exact values. Completing it replaces this plan on the calendar.</AppText>
           <View style={styles.actions}>
             <Button label="Start workout" onPress={() => router.replace({ pathname: '/workouts/new', params: { planWorkoutId: detail.id } })} />
@@ -156,7 +156,7 @@ export default function WorkoutDetailScreen() {
       {storageWarning === '1' ? (
         <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
           <AppText style={{ color: colors.warning, fontWeight: '800' }}>Workout captured; cloud recovery is in progress</AppText>
-          <AppText style={{ color: colors.textMuted }}>Safari could not refresh its local snapshot after the commit. JIEN retained the form draft and queued account sync—keep this tab open until the sync indicator clears.</AppText>
+          <AppText style={{ color: colors.textMuted }}>Safari could not refresh its local snapshot after the save. The form draft remains available and account sync is queued. Keep this tab open until the sync indicator clears.</AppText>
         </Card>
       ) : null}
       <Card style={styles.summary}>
@@ -207,8 +207,8 @@ export default function WorkoutDetailScreen() {
       {detail.notes ? <><SectionHeading title="Notes" /><Card><AppText>{detail.notes}</AppText></Card></> : null}
       <Card style={[styles.nextSession, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.flex}>
-          <AppText style={styles.progressName}>Ready for the next session?</AppText>
-          <AppText style={{ color: colors.textMuted }}>Start from these exact set values. JIEN will show the smallest suggested change under the relevant set without altering the template.</AppText>
+          <AppText style={styles.progressName}>Repeat this workout</AppText>
+          <AppText style={{ color: colors.textMuted }}>Start with these set values. Optional progression suggestions appear under the relevant set without changing the template.</AppText>
         </View>
         <View style={styles.actions}>
           <Button label="Edit this workout" onPress={() => router.replace({ pathname: '/workouts/new', params: { editWorkoutId: detail.id } })} variant="secondary" />

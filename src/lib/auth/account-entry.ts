@@ -10,7 +10,7 @@ export type AccountEntryDecision =
   | { kind: 'welcome'; notice: string | null; noticeTone: 'neutral' | 'warning' }
   | { kind: 'account_conflict'; message: string; mayWriteToCloud: false };
 
-const ACCOUNT_CONFLICT_MESSAGE = 'This device belongs to a different JIEN account. Sign in with the original account to restore it. JIEN has not merged or uploaded either person\'s records.';
+const ACCOUNT_CONFLICT_MESSAGE = 'This device belongs to a different JIEN account. Sign in with the original account to restore it. No records were merged or uploaded.';
 
 /** Resolve routing only after account sync has had a chance to restore a profile. */
 export function resolveAccountEntry(
@@ -30,7 +30,7 @@ export function resolveAccountEntry(
   if (sync.state === 'offline') {
     return {
       kind: 'welcome',
-      notice: 'JIEN could not check your cloud profile while offline. Reconnect to restore, or continue locally.',
+      notice: 'The cloud profile could not be checked while offline. Reconnect to restore it, or continue locally.',
       noticeTone: 'warning',
     };
   }
@@ -38,7 +38,7 @@ export function resolveAccountEntry(
   if (sync.state === 'partial' || sync.state === 'action_required') {
     return {
       kind: 'welcome',
-      notice: `JIEN could not finish checking your cloud profile. ${sync.error ?? 'Please try again.'}`,
+      notice: `The cloud profile check did not finish. ${sync.error ?? 'Please try again.'}`,
       noticeTone: 'warning',
     };
   }

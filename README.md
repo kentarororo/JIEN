@@ -21,7 +21,9 @@ and restored from a Supabase backend with row-level security.
 - calm guided onboarding for goals, body baseline, equipment, joint considerations, diet, and AI consent
 
 The approved interface hierarchy and moodboard consensus are recorded in
-[docs/product-visual-direction.md](docs/product-visual-direction.md).
+[docs/product-visual-direction.md](docs/product-visual-direction.md). Interface grammar,
+error structure, and AI-copy constraints are recorded in
+[docs/product-voice.md](docs/product-voice.md).
 
 ## Local setup
 

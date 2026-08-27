@@ -23,7 +23,7 @@ test('Today is week-first while preserving the month and day workspace', () => {
 
 test('Today leads with the reusable Warm Utility hero and factual daily signals', () => {
   assert.match(today, /<HeroPanel/);
-  assert.match(today, /accessibilityLabel="Today at a glance"/);
+  assert.match(today, /accessibilityLabel="Today summary"/);
   assert.match(today, /todayActivity\?\.workoutCount/);
   assert.match(today, /summary\.nutrition\.meals\.length/);
   assert.match(today, /todayActivity\?\.sleepLogCount/);

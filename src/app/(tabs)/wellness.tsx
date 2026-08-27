@@ -266,7 +266,7 @@ export default function WellnessScreen() {
         <AppText style={{ color: colors.textMuted }}>Daily changes are expected. One reading never changes your macro targets.</AppText>
       </Card>
 
-      <SectionHeading title="JIEN guidance" detail="Optional and cached for offline reading" />
+      <SectionHeading title="AI guidance" detail="Optional and cached for offline reading" />
       <Button
         label={showGuidance ? 'Hide guidance' : 'Open guidance'}
         icon={showGuidance ? 'chevron-up-outline' : 'sparkles-outline'}
@@ -282,7 +282,7 @@ export default function WellnessScreen() {
           ) : !data.profile.medicalDisclaimerAcknowledgedAt ? (
             <Card style={[styles.disclaimer, { backgroundColor: colors.warningSoft, borderColor: colors.warning }]}>
               <AppText style={styles.cardTitle}>Health guidance, not medical care</AppText>
-              <AppText>JIEN cannot diagnose, treat, or replace a qualified clinician. Do not use it for emergencies.</AppText>
+              <AppText>AI guidance cannot diagnose, treat, or replace a qualified clinician. Do not use it for emergencies.</AppText>
               <Button label="I understand" onPress={() => void acknowledge()} busy={busy === 'disclaimer'} variant="secondary" />
             </Card>
           ) : !data.account.configured ? (

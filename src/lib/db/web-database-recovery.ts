@@ -7,7 +7,7 @@ export class WebDatabaseReloadRequiredError extends Error {
   readonly code = 'WEB_DATABASE_RELOAD_REQUIRED';
 
   constructor() {
-    super('The unsafe local database image was isolated. Reload JIEN to rebuild it in a clean engine.');
+    super('The unsafe local database image was isolated. Reload the page to rebuild it in a clean engine.');
     this.name = 'WebDatabaseReloadRequiredError';
   }
 }

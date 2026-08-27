@@ -95,8 +95,8 @@ function WebAccountPanel({ state, onRetry }: { state: Exclude<GateState, { kind:
         </Text>
         <Text style={[styles.body, { color: colors.textMuted }]}>
           {offline
-            ? 'Reconnect once so JIEN can verify the account for this browser.'
-            : 'The web tester keeps an account-scoped local database and syncs it securely after Google sign-in.'}
+            ? 'Reconnect to verify this browser’s account.'
+            : 'The web tester stores one account-scoped local database and syncs it after Google sign-in.'}
         </Text>
         {error ? <Text accessibilityRole="alert" style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
         {!loading && !offline ? (

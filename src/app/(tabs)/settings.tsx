@@ -63,7 +63,7 @@ export default function SettingsScreen() {
         !enabled
           ? 'Sync-attention reminders are off.'
           : outcome === 'scheduled'
-            ? 'JIEN will notify you once when saved changes need action.'
+            ? 'A notification appears once when saved changes require action.'
             : outcome === 'permission_denied'
               ? 'Notification permission was not granted.'
               : outcome === 'unsupported'
@@ -101,7 +101,7 @@ export default function SettingsScreen() {
           setMessage(`${result.pushed} uploaded · ${result.pulled} cloud row${result.pulled === 1 ? '' : 's'} checked.`);
           break;
         case 'signed_out':
-          setMessage('Your data is safe on this device. Sign in to enable cloud sync.');
+          setMessage('Local records remain on this device. Sign in to enable cloud sync.');
           break;
         case 'not_configured':
           setMessage('Add Supabase environment variables to enable cloud sync.');
@@ -113,7 +113,7 @@ export default function SettingsScreen() {
           setMessage(`Uploaded ${result.pushed}, then paused: ${result.error}`);
           break;
         case 'action_required':
-          setMessage(`${result.error} Your queued records remain safe on this device.`);
+          setMessage(`${result.error} Queued records remain on this device.`);
           break;
         case 'account_conflict':
           setMessage('This device belongs to a different JIEN account. Sign back in with the original account; records were not merged.');
@@ -144,7 +144,7 @@ export default function SettingsScreen() {
       <SectionHeading title="AI connection" detail="One secured Gemini connection" />
       <Card>
         <AppText style={styles.cardTitle}>Meal photos + contextual wellness</AppText>
-        <AppText style={{ color: theme.colors.textMuted }}>Connect a personal Gemini free-tier key through a guided setup. JIEN verifies it server-side and encrypts it in Supabase Vault.</AppText>
+        <AppText style={{ color: theme.colors.textMuted }}>Connect a personal Gemini free-tier key through guided setup. The key is verified server-side and encrypted in Supabase Vault.</AppText>
         <Button label="Set up Gemini" onPress={() => router.push('/settings/ai' as never)} variant="secondary" />
       </Card>
 
@@ -171,7 +171,7 @@ export default function SettingsScreen() {
 
       <SectionHeading title="Sync" detail="SQLite remains the source of truth" />
       <Card>
-        <View style={styles.row}><View style={styles.copy}><AppText style={styles.cardTitle}>{data?.account.user?.email ?? (data?.account.configured ? 'Not signed in' : 'Supabase not configured')}</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.account.user ? 'This device keeps your session and restores newer cloud records in the background.' : data?.account.configured ? 'Local logging stays fully available.' : 'Add the public URL and publishable key in your environment.'}</AppText></View></View>
+        <View style={styles.row}><View style={styles.copy}><AppText style={styles.cardTitle}>{data?.account.user?.email ?? (data?.account.configured ? 'Not signed in' : 'Supabase not configured')}</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.account.user ? 'Signed in on this device. Newer cloud records restore in the background.' : data?.account.configured ? 'Local logging remains available.' : 'Add the public URL and publishable key in your environment.'}</AppText></View></View>
         {data?.account.user ? <Button label="Sign out" onPress={() => void run('account', async () => { await signOut(); await reload(); })} busy={busy === 'account'} variant="quiet" /> : data?.account.configured ? <Button label="Sign in or create account" onPress={() => router.push('/settings/account')} variant="secondary" /> : null}
         <View style={styles.row}><View style={styles.copy}><AppText style={styles.cardTitle}>{data?.sync.pendingCount ?? 0} queued</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.sync.actionRequiredCount ? `${data.sync.actionRequiredCount} need attention. Sync now retries them after you sign in or update the app.` : data?.sync.failedCount ? `${data.sync.failedCount} waiting for an automatic retry` : 'Ready when a signed-in connection is available'}</AppText></View></View>
         <Button label="Sync now" onPress={() => void performSync()} busy={busy === 'sync'} variant="secondary" />
@@ -188,7 +188,7 @@ export default function SettingsScreen() {
       {message ? <Card style={{ backgroundColor: theme.colors.successSoft }}><AppText>{message}</AppText></Card> : null}
 
       <SectionHeading title="Health guidance" />
-      <Card><AppText style={styles.cardTitle}>Not medical advice</AppText><AppText style={{ color: theme.colors.textMuted }}>JIEN’s AI guidance supports reflection and planning; it does not diagnose, treat, or replace a qualified clinician.</AppText><Button label="Open wellness hub" onPress={() => router.push('/wellness' as never)} variant="secondary" /></Card>
+      <Card><AppText style={styles.cardTitle}>Not medical advice</AppText><AppText style={{ color: theme.colors.textMuted }}>AI guidance can support reflection and planning. It does not diagnose, treat, or replace a qualified clinician.</AppText><Button label="Open wellness hub" onPress={() => router.push('/wellness' as never)} variant="secondary" /></Card>
     </Screen>
   );
 }

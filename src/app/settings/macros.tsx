@@ -103,7 +103,7 @@ export default function MacroTargetScreen() {
   return (
     <Screen>
       <ScreenHeading eyebrow="Nutrition settings" title="Targets you control." />
-      <Card><AppText style={{ color: colors.textMuted }}>JIEN creates a rough starting estimate from your onboarding weight and goal. These values are editable, changes apply from today without rewriting past logs, and the estimate is not medical advice.</AppText></Card>
+      <Card><AppText style={{ color: colors.textMuted }}>Starting targets are estimated from your onboarding weight and goal. You can edit them at any time. Changes apply from today and do not rewrite past logs. The estimate is not medical advice.</AppText></Card>
       {error ? <Card style={{ backgroundColor: colors.dangerSoft, borderColor: colors.danger }}><AppText accessibilityRole="alert" style={{ color: colors.danger }}>{error}</AppText></Card> : null}
       <Field label="Daily calories" value={calories} onChangeText={(value) => { setCalories(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="2200" />
       <View style={styles.twoCol}><View style={styles.flex}><Field label="Protein (g)" value={protein} onChangeText={(value) => { setProtein(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="160" /></View><View style={styles.flex}><Field label="Carbs (g)" value={carbs} onChangeText={(value) => { setCarbs(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="240" /></View></View>
@@ -133,7 +133,7 @@ export default function MacroTargetScreen() {
             </>
           ) : null}
         </Card>
-      ) : <StatePanel title="Choose a valid trend" body="Enter a number from -1 to +1 before JIEN evaluates your logged history." />}
+      ) : <StatePanel title="Choose a valid trend" body="Enter a number from -1 to +1 to evaluate your logged history." />}
       <Button label="Save targets" onPress={() => void submit()} busy={saving} />
     </Screen>
   );
@@ -146,7 +146,7 @@ function adaptiveTitle(action: 'hold' | 'recommend_adjustment', confidence: stri
 
 function adaptiveCopy(evaluation: ReturnType<typeof evaluateAdaptiveNutritionTarget>): string {
   if (evaluation.confidence === 'insufficient') {
-    return 'JIEN waits for at least three qualifying weeks before suggesting a change. Missing days are treated as missing—not as zero intake.';
+    return 'A recommendation requires at least three qualifying weeks. Missing days are treated as missing, not zero intake.';
   }
   const trend = evaluation.trend.smoothedWeeklyWeightChangePercent;
   if (evaluation.recommendation.reason === 'weight_trend_unstable') return 'The smoothed and recent directions do not agree yet, so the current target stays in place.';

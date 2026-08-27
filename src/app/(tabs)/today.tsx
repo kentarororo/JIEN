@@ -93,9 +93,9 @@ export default function TodayScreen() {
       <HeroPanel
         eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}
         title="Today"
-        body="Log what happened. JIEN carries the pattern forward."
+        body="Training, meals and recovery."
       >
-        <View accessibilityLabel="Today at a glance" style={styles.heroStats}>
+        <View accessibilityLabel="Today summary" style={styles.heroStats}>
           <View style={[styles.heroStat, { backgroundColor: colors.surfaceRaised }]}>
             <AppText style={[styles.heroStatValue, { color: colors.accent }]}>{todayActivity?.workoutCount ?? 0}</AppText>
             <AppText style={styles.heroStatLabel}>Workouts</AppText>
@@ -118,7 +118,7 @@ export default function TodayScreen() {
         </View>
       </HeroPanel>
 
-      <SectionHeading title={monthExpanded ? 'Calendar' : 'Your week'} detail="Training, food and wellness at a glance" />
+      <SectionHeading title={monthExpanded ? 'Calendar' : 'Your week'} detail="Training, meals and wellness" />
       <Card style={[styles.calendarCard, compactRecords && styles.calendarCardCompact]}>
         <View style={styles.calendarHeader}>
           <Button label="‹" accessibilityLabel={monthExpanded ? 'Previous month' : 'Previous week'} onPress={() => changeCalendarPeriod(-1)} variant="quiet" />
@@ -197,7 +197,7 @@ export default function TodayScreen() {
               <AppText style={{ color: colors.textMuted }}>{selectedDayLoading
                 ? 'Loading this day’s records…'
                 : selectedInFuture
-                ? `${selectedPlans.length} planned workout${selectedPlans.length === 1 ? '' : 's'} · completed logs stay on today or earlier.`
+                ? `${selectedPlans.length} planned workout${selectedPlans.length === 1 ? '' : 's'} · completed logs are limited to today or earlier.`
                 : selectedActivity
                   ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${selectedActivity.sleepLogCount} sleep logs · ${Math.round(selectedActivity.caloriesKcal)} kcal`
                   : 'No activity logged'}</AppText>
@@ -268,7 +268,7 @@ export default function TodayScreen() {
           {!selectedDayLoading && !selectedPlans.length && !selectedWorkouts.length && !selectedMeals.length && !selectedBodyMeasurements.length && !selectedSleepLogs.length ? (
             <View style={[styles.emptySelectedDay, { borderColor: colors.border }]}>
               <AppText style={styles.value}>{selectedInFuture ? 'Nothing planned yet' : 'No logs on this day'}</AppText>
-              <AppText style={{ color: colors.textMuted }}>{selectedInFuture ? 'Plan a workout above and it will appear here.' : 'Use the workout or meal actions above to build the day’s history.'}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{selectedInFuture ? 'Plan a workout above and it will appear here.' : 'Use the workout or meal actions above to add records for this day.'}</AppText>
             </View>
           ) : null}
         </View>
@@ -338,7 +338,7 @@ export default function TodayScreen() {
         <Link href={{ pathname: '/workouts/[id]', params: { id: summary.latestWorkout.id } }} asChild>
           <Pressable><Card><AppText style={styles.sessionTitle}>{summary.latestWorkout.title}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(summary.latestWorkout.completedAt ?? summary.latestWorkout.performedOn)} · {summary.latestWorkout.setCount} sets · {Math.round(summary.latestWorkout.totalVolumeKg).toLocaleString()} kg·reps</AppText></Card></Pressable>
         </Link>
-      ) : <StatePanel title="Your first session starts here" body="Log the work you actually completed. JIEN will build progression guidance from it." actionLabel="Log workout" onAction={() => router.push('/workouts/new')} />}
+      ) : <StatePanel title="No workouts logged" body="Log a completed workout to start progression comparisons." actionLabel="Log workout" onAction={() => router.push('/workouts/new')} />}
     </Screen>
   );
 }

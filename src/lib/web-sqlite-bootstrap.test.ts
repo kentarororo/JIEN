@@ -26,7 +26,7 @@ test('classifies a startup timeout without discarding the underlying data', () =
   const result = describeWebSQLiteStartupFailure(new WebSQLiteStartupTimeoutError());
 
   assert.equal(result.code, 'SQLITE_INITIALIZATION_TIMEOUT');
-  assert.match(result.message, /without removing your data/i);
+  assert.match(result.message, /No local data was removed/i);
 });
 
 test('requests one clean page lifecycle after isolating an unsafe snapshot', () => {

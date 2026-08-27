@@ -52,7 +52,7 @@ test('AI connection errors distinguish a missing function from a rejected key', 
     requestId: 'request-404',
   }), {
     code: 'HTTP_404',
-    title: 'JIEN’s AI connector is not deployed',
+    title: 'AI connector not deployed',
     message: 'This build is missing the ai-settings Edge Function. Deploy the current Supabase functions, then try again.',
     requestId: 'request-404',
     retryable: false,
@@ -71,7 +71,7 @@ test('AI connection errors identify a missing secure-store migration', () => {
     retryable: true,
     requestId: 'request-db',
   });
-  assert.equal(issue.title, 'JIEN’s secure key store is not ready');
+  assert.equal(issue.title, 'Secure key store unavailable');
   assert.match(issue.message, /migration/i);
   assert.equal(issue.requestId, 'request-db');
 });

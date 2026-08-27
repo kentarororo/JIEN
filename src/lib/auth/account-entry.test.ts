@@ -56,7 +56,7 @@ test('account conflict is visible and never authorizes a cloud write', () => {
   assert.equal(decision.kind, 'account_conflict');
   if (decision.kind === 'account_conflict') {
     assert.equal(decision.mayWriteToCloud, false);
-    assert.match(decision.message, /has not merged or uploaded/i);
+    assert.match(decision.message, /No records were merged or uploaded/i);
   }
 });
 

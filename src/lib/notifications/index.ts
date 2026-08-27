@@ -244,7 +244,7 @@ export async function reconcileWorkoutPlanNotification(
   const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
       title: `${planned.title} is planned soon`,
-      body: 'Review your set targets and start the session when you are ready.',
+      body: 'Review the planned sets before starting the workout.',
       data: { href: `/workouts/${planned.id}`, type: 'workout_plan' },
     },
     trigger: {

@@ -29,7 +29,7 @@ export function describeWebSQLiteStartupFailure(cause: unknown): WebSQLiteStartu
   ) {
     return {
       code: 'LOCAL_DATABASE_RECOVERY_REQUIRED',
-      message: 'JIEN safely isolated an unreadable local snapshot and needs one clean restart to rebuild it from your account.',
+      message: 'An unreadable local snapshot was isolated. No local records were deleted. Restart once to rebuild it from your account.',
       detail,
       retryWithReload: true,
     };
@@ -38,7 +38,7 @@ export function describeWebSQLiteStartupFailure(cause: unknown): WebSQLiteStartu
   if (cause instanceof WebSQLiteStartupTimeoutError) {
     return {
       code: 'SQLITE_INITIALIZATION_TIMEOUT',
-      message: 'Local storage took too long to respond. JIEN can safely retry without removing your data.',
+      message: 'Local storage took too long to respond. No local data was removed. Retry without clearing storage.',
       detail,
       retryWithReload: true,
     };
@@ -52,7 +52,7 @@ export function describeWebSQLiteStartupFailure(cause: unknown): WebSQLiteStartu
   ) {
     return {
       code: 'LOCAL_STORAGE_BUSY',
-      message: 'JIEN could not finish handing local storage over from a previous page. Wait a moment and retry. Your data is safe.',
+      message: 'Another page still has local storage open. No local data was deleted. Wait a moment and retry.',
       detail,
       retryWithReload: true,
     };
@@ -83,7 +83,7 @@ export function describeWebSQLiteStartupFailure(cause: unknown): WebSQLiteStartu
 
   return {
     code: 'SQLITE_INITIALIZATION_FAILED',
-    message: 'JIEN could not open its local database. Your existing local data has not been removed.',
+    message: 'The local database could not be opened. Existing local data was not removed.',
     detail,
     retryWithReload: true,
   };

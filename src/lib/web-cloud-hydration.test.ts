@@ -4,7 +4,7 @@ import test from 'node:test';
 import { canOpenCachedWebDatabase, hydrationCopy } from './web-cloud-hydration.ts';
 
 test('cloud hydration reports an online requirement without exposing app screens', () => {
-  assert.match(hydrationCopy({ state: 'offline', pushed: 0, pulled: 0, profileRestored: false }).body, /internet connection/i);
+  assert.match(hydrationCopy({ state: 'offline', pushed: 0, pulled: 0, profileRestored: false }).body, /Connect to restore/i);
 });
 
 test('cloud hydration makes account conflicts actionable and non-merging', () => {

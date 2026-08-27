@@ -64,7 +64,7 @@ export function OAuthCallbackCompletion({ request }: { request: OAuthCallbackReq
           {error ? 'Sign-in needs attention' : 'Finishing sign-in'}
         </Text>
         <Text style={[styles.body, { color: colors.textMuted }]}>
-          {error ?? 'Securing your Google session before JIEN opens your local profile.'}
+          {error ?? 'Completing Google sign-in before opening your local profile.'}
         </Text>
         {error ? (
           <Pressable

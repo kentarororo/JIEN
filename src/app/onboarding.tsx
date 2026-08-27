@@ -160,10 +160,10 @@ export default function OnboardingScreen() {
     ['Set a starting body baseline', 'Height and weight anchor long-term trends. Body fat is optional and can be an estimate.'],
     ['What can you usually train with?', 'Choose everything that is realistically available.'],
     ['Anything your training should respect?', 'Optional. Note joints, injuries, or movements you currently avoid.'],
-    ['Which description fits how you eat?', 'This keeps food logging practical for your real routine.'],
+    ['Which description fits how you eat?', 'This choice adjusts food logging options for your routine.'],
     ['Which load unit feels natural?', 'You can still record either unit later.'],
-    ['May JIEN use context when you ask for AI guidance?', 'AI is optional. Manual tracking and progression work without it.'],
-    ['Does this foundation feel right?', 'Your answers stay on this device first and can be changed later.'],
+    ['May AI guidance use your recent context?', 'AI is optional. Manual tracking and progression work without it.'],
+    ['Review your profile', 'Answers are stored on this device first and can be changed later.'],
   ] as const;
 
   return (
@@ -208,7 +208,7 @@ export default function OnboardingScreen() {
           <>
             <Card>
               <AppText style={styles.consentTitle}>What “allow” means</AppText>
-              <AppText style={{ color: colors.textMuted }}>When you actively use an AI feature, JIEN may send the relevant profile and recent logs through its secured server to generate a response. It is not required for manual tracking, and you can turn it off later.</AppText>
+              <AppText style={{ color: colors.textMuted }}>When you actively use an AI feature, relevant profile fields and recent logs are sent through the secure server to generate a response. Manual tracking does not require AI, and you can turn access off later.</AppText>
               <AppText style={[styles.draft, { color: colors.warning }]}>CONSENT COPY — REVIEW BEFORE RELEASE</AppText>
             </Card>
             <ChoiceCard title="Keep AI context off" body="Continue with all offline tracking features." selected={aiConsent === false} onPress={() => setAiConsent(false)} />

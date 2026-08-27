@@ -101,7 +101,7 @@ async function loadValidLegacySnapshot(
     if (!(await databaseImageBelongsToOwner(source, ownerUserId))) return null;
     return savedImage;
   } catch (error) {
-    console.warn('JIEN kept an unreadable legacy web snapshot for recovery', error);
+    console.warn('Unreadable legacy web snapshot retained for recovery', error);
     return null;
   } finally {
     if (sourcePointer != null) await sqlite.close(sourcePointer).catch(() => undefined);
@@ -124,7 +124,7 @@ function openIndexedDbVfsStore(databaseName: string): Promise<IDBDatabase> {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('Durable web storage could not be opened.'));
-    request.onblocked = () => reject(new Error('Another JIEN tab is updating local storage. Close it, then retry.'));
+    request.onblocked = () => reject(new Error('Another tab is updating local storage. Close it, then retry.'));
   });
 }
 

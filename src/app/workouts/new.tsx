@@ -514,8 +514,8 @@ export default function NewWorkoutScreen() {
 
       {templateWorkoutId || planWorkoutId || editWorkoutId ? (
         <View style={[styles.templateBanner, { backgroundColor: colors.successSoft }]}>
-          <AppText style={styles.suggestionTitle}>{editWorkoutId ? 'Editing completed workout' : planWorkoutId ? 'Planned session started' : 'Next session prepared'}</AppText>
-          <AppText style={{ color: colors.textMuted }}>{editWorkoutId ? 'Changes update this calendar entry and its progression totals.' : 'Every load and rep starts exactly where this completed session left off. Green suggestions are optional and never overwrite your fields.'}</AppText>
+          <AppText style={styles.suggestionTitle}>{editWorkoutId ? 'Editing completed workout' : planWorkoutId ? 'Planned workout loaded' : 'Previous workout loaded'}</AppText>
+          <AppText style={{ color: colors.textMuted }}>{editWorkoutId ? 'Changes update this calendar entry and its progression totals.' : 'Set values were copied from the selected workout. Green suggestions are optional and do not change the fields.'}</AppText>
         </View>
       ) : null}
 
@@ -586,7 +586,7 @@ export default function NewWorkoutScreen() {
                       <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{muscleGroupLabel(exercise.primaryMuscleGroup)} · {exercise.equipment ?? 'bodyweight'}</AppText></View>
                       <AppText style={{ color: exercise.id === block.exerciseId ? colors.success : colors.accent, fontWeight: '700' }}>{exercise.id === block.exerciseId ? 'Selected' : 'Choose'}</AppText>
                     </Pressable>
-                  )) : <AppText style={[styles.noResult, { color: colors.textMuted }]}>No match. Add your own exercise below.</AppText>}
+                  )) : <AppText style={[styles.noResult, { color: colors.textMuted }]}>No match. Add a custom exercise below.</AppText>}
                 </ScrollView>
               ) : null}
             </View>
@@ -595,7 +595,7 @@ export default function NewWorkoutScreen() {
             {block.progression ? (
               <View style={[styles.suggestion, { backgroundColor: block.progression.action === 'hold' ? colors.warningSoft : colors.successSoft }]}>
                 <View style={styles.suggestionCopy}>
-                  <AppText style={[styles.suggestionTitle, { color: block.progression.action === 'hold' ? colors.warning : colors.success }]}>{block.progression.action === 'hold' ? 'Repeat before increasing' : 'Next small win'}</AppText>
+                  <AppText style={[styles.suggestionTitle, { color: block.progression.action === 'hold' ? colors.warning : colors.success }]}>{block.progression.action === 'hold' ? 'Repeat before increasing' : 'Progression suggestion'}</AppText>
                   <AppText style={styles.suggestionText}>{block.progression.reason}</AppText>
                 </View>
               </View>
@@ -655,8 +655,8 @@ export default function NewWorkoutScreen() {
             </View>
             <View style={[styles.completeSets, { borderTopColor: colors.border }]}>
               <View style={styles.completeSetsCopy}>
-                <AppText style={styles.suggestionTitle}>Done with this exercise?</AppText>
-                <AppText style={{ color: colors.textMuted }}>Check the completed sets against the latest exposure and prepare the smallest safe next step.</AppText>
+                <AppText style={styles.suggestionTitle}>Review completed sets</AppText>
+                <AppText style={{ color: colors.textMuted }}>Compare these sets with the previous session and calculate an optional progression.</AppText>
               </View>
               <Button
                 label={setsComplete ? 'Check again' : 'Complete sets'}
@@ -668,7 +668,7 @@ export default function NewWorkoutScreen() {
             {setsComplete && block.historyStatus === 'error' ? (
               <View accessibilityRole="alert" style={[styles.completionReview, { backgroundColor: colors.warningSoft, borderColor: colors.warning }]}>
                 <AppText style={[styles.suggestionTitle, { color: colors.warning }]}>Recent sets unavailable</AppText>
-                <AppText style={styles.suggestionText}>Your entered sets are safe. Retry the history check before using a progression suggestion.</AppText>
+                <AppText style={styles.suggestionText}>Your entries have not changed. Retry the history check before using a progression suggestion.</AppText>
                 <View style={styles.historyRetryAction}>
                   <Button label="Retry history" onPress={() => void updateProgression(block.key, block.exerciseId, null)} variant="secondary" />
                 </View>
@@ -731,7 +731,7 @@ export default function NewWorkoutScreen() {
 
       <Card>
         <View style={styles.customHeader}>
-          <View style={styles.flex}><AppText style={styles.exerciseName}>Your own exercise</AppText><AppText style={{ color: colors.textMuted }}>Can’t find the movement you use? Save it once and it stays in your list.</AppText></View>
+          <View style={styles.flex}><AppText style={styles.exerciseName}>Custom exercise</AppText><AppText style={{ color: colors.textMuted }}>Add an exercise to use in this and future workouts.</AppText></View>
           <Button label={customOpen ? 'Close' : 'Add custom'} onPress={() => setCustomOpen((value) => !value)} variant="quiet" />
         </View>
         {customOpen ? (
@@ -757,7 +757,7 @@ export default function NewWorkoutScreen() {
           <View style={styles.flex}>
             <AppText style={styles.suggestionTitle}>{draftSummary.needsAttentionCount
               ? `${draftSummary.needsAttentionCount} set row${draftSummary.needsAttentionCount === 1 ? '' : 's'} need attention`
-              : draftSummary.completedSetCount ? 'Ready when you are' : 'Complete your first set'}</AppText>
+              : draftSummary.completedSetCount ? 'Workout ready to save' : 'No completed sets'}</AppText>
             <AppText style={{ color: colors.textMuted }}>{draftSummary.needsAttentionCount
               ? 'Every started row needs a valid load and whole-number reps. RPE is optional from 1–10.'
               : `${draftSummary.blankSetCount} blank row${draftSummary.blankSetCount === 1 ? '' : 's'} will be ignored.`}</AppText>
@@ -868,7 +868,7 @@ function completionTitle(feedback: CompletedExerciseVolumeFeedback): string {
   if (feedback.status === 'baseline') return 'Baseline established';
   if (feedback.status === 'target_reached') return 'Guide reached';
   if (feedback.status === 'hold') return 'Hold here';
-  return 'Next step prepared';
+  return 'Progression available';
 }
 
 function formatVolumeChange(value: number | null): string {

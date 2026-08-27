@@ -20,8 +20,8 @@ export function JointProgressionChoicePanel({
       <AppText style={{ color: holding ? colors.warning : colors.text, fontWeight: '700' }}>Progression recommendation</AppText>
       <AppText style={{ color: colors.textMuted }}>
         {holding
-          ? 'JIEN recommends holding load and rep increases because a joint or injury note is active.'
-          : 'Normal progression suggestions are enabled for this session. Recorded sets still stay unchanged.'}
+          ? 'Hold load and rep increases while a joint or injury note is active.'
+          : 'Normal progression suggestions are enabled for this session. Recorded set values remain unchanged.'}
       </AppText>
       <View accessibilityRole="radiogroup" accessibilityLabel="Joint progression choice" style={{ gap: spacing.xs }}>
         <ChoiceCard

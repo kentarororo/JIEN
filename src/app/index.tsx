@@ -49,7 +49,7 @@ export default function IndexRoute() {
       <View style={styles.heading}>
         <AppText style={[styles.brand, { color: colors.accent }]}>JIEN</AppText>
         <AppText accessibilityRole="header" style={styles.title}>Welcome to your training record</AppText>
-        <AppText style={[styles.subtitle, { color: colors.textMuted }]}>Restore an existing profile first, or start a new local one. Logging stays available without an account.</AppText>
+        <AppText style={[styles.subtitle, { color: colors.textMuted }]}>Restore an existing profile, or start a new local profile. Local logging works without an account.</AppText>
       </View>
 
       {notice ? (
@@ -64,7 +64,7 @@ export default function IndexRoute() {
 
       <Card style={styles.authCard}>
         <AppText style={styles.sectionTitle}>Restore your profile</AppText>
-        <AppText style={{ color: colors.textMuted }}>Sign in with the account you used before. JIEN will check for your saved profile and history.</AppText>
+        <AppText style={{ color: colors.textMuted }}>Sign in with the account you used before to restore its saved profile and history.</AppText>
         <AccountAuthControls onAuthenticated={finishDecision} />
       </Card>
 

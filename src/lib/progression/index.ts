@@ -528,7 +528,7 @@ export function buildCompletedExerciseVolumeFeedback(input: {
     cueTiming: 'next_session',
     reason: plan.action === 'add_load'
       ? 'The rep ceiling is complete. Use the smallest load step at the bottom of the rep range next session.'
-      : 'One controlled rep next time is the smallest safe step toward the volume guide.',
+      : 'Add one controlled rep next time to move toward the volume guide.',
     cues: plan.cues,
   };
 }

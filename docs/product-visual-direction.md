@@ -56,3 +56,5 @@ additional colors, gradients, or decorative illustrations.
 - visible pressed, disabled, busy, and keyboard-focus states;
 - light and dark themes use semantic tokens only;
 - no local record, draft, sync, or completed-workout behavior changes for visual polish.
+
+All visible language also follows [the JIEN product voice](product-voice.md).

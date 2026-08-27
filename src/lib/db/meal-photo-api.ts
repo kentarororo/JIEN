@@ -104,7 +104,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       retryable: false,
       requestId,
       provider: null,
-      message: 'Review and allow contextual AI in your profile before sending this photo. The photo stays on this device until then.',
+      message: 'Review and allow contextual AI in your profile before sending this photo. The photo remains on this device until then.',
     };
   }
   if (code === 'PHOTO_AI_NOT_CONFIGURED') {
@@ -128,7 +128,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
     };
   }
   if (code === 'PROVIDER_REQUEST_INVALID') {
-    return { code, status: 'unavailable', retryable: false, requestId, provider: null, message: 'JIEN’s Gemini request needs an app update; your key was not exposed or removed.' };
+    return { code, status: 'unavailable', retryable: false, requestId, provider: null, message: 'This Gemini request requires an app update. Your key was not exposed or removed.' };
   }
   if (code === 'PROVIDER_MODEL_UNAVAILABLE') {
     return { code, status: 'not_configured', retryable: false, requestId, provider: null, message: 'This Gemini model is unavailable to the key’s Google project. Reconnect the key to run the current model check.' };

@@ -90,7 +90,7 @@ export default function FoodScreen() {
         ? 'A queued photo is ready to review.'
         : result.state === 'action_required'
           ? 'Photo analysis still needs account, consent, or server configuration attention.'
-          : 'The photo remains safely queued and will retry when the connection is ready.');
+          : 'The photo remains queued on this device and will retry when a connection is available.');
       await reload();
     } catch (cause) {
       setQueueMessage(cause instanceof Error ? cause.message : 'Queued photos could not be retried.');

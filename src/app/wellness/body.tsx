@@ -74,7 +74,7 @@ export default function BodyMeasurementsScreen() {
       <ScreenHeading eyebrow="Body trend" title="Log a useful signal." />
       <Card>
         <AppText style={{ color: colors.textMuted }}>
-          Weight can move day to day. JIEN keeps the raw entries and uses averages only when enough consistent data exists. No target changes happen automatically.
+          Weight can change from day to day. Raw entries remain unchanged, and averages appear only after enough consistent measurements. Targets never change automatically.
         </AppText>
       </Card>
 
@@ -118,7 +118,7 @@ export default function BodyMeasurementsScreen() {
             })}
           </View>
         </Card>
-      ) : <StatePanel title="No body measurements yet" body="Log a first weight when it is useful. JIEN will build the trend without judging a single reading." />}
+      ) : <StatePanel title="No body measurements yet" body="Add a weight entry to start a trend. Averages appear after enough measurements are available." />}
 
       {history.length ? (
         <>

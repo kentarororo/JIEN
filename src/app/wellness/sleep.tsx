@@ -138,7 +138,7 @@ export default function SleepScreen() {
           <AppText style={styles.cardTitle}>Recent signal</AppText>
           <AppText style={styles.metric}>{formatSleepDuration(recentAverage)}</AppText>
           <AppText style={{ color: colors.textMuted }}>{recentAverage == null ? 'Log a duration to begin a neutral baseline.' : `Average across ${recentWithDuration.length} recent logged night${recentWithDuration.length === 1 ? '' : 's'}.`}</AppText>
-          <AppText style={{ color: colors.textMuted }}>JIEN reports what you entered. It does not infer sleep stages or diagnose recovery.</AppText>
+          <AppText style={{ color: colors.textMuted }}>This view reports only your entries. It does not infer sleep stages or diagnose recovery.</AppText>
         </Card>
       </View>
 

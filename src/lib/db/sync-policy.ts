@@ -62,13 +62,13 @@ export function classifySyncFailure(cause: unknown): SyncFailureClassification {
   const code = typeof error.code === 'string' ? error.code.toUpperCase() : '';
 
   if (status === 408 || (status == null && /aborterror|timeout|timed out|etimedout/.test(text))) {
-    return classified('transient', 'timeout', 'Cloud sync timed out. JIEN will retry automatically.');
+    return classified('transient', 'timeout', 'Cloud sync timed out. Retrying automatically.');
   }
   if (status === 429 || (status == null && /rate.?limit|too many requests/.test(text))) {
-    return classified('transient', 'rate_limited', 'Cloud sync is temporarily rate-limited. JIEN will retry automatically.');
+    return classified('transient', 'rate_limited', 'Cloud sync is temporarily rate-limited. Retrying automatically.');
   }
   if ((status != null && status >= 500) || /^PGRST00[0-3]$/.test(code)) {
-    return classified('transient', 'server', 'The cloud service is temporarily unavailable. JIEN will retry automatically.');
+    return classified('transient', 'server', 'The cloud service is temporarily unavailable. Retrying automatically.');
   }
   if (
     status == null
@@ -77,7 +77,7 @@ export function classifySyncFailure(cause: unknown): SyncFailureClassification {
       || (error instanceof TypeError && /fetch|network/.test(text))
     )
   ) {
-    return classified('transient', 'network', 'Connection interrupted. JIEN will retry automatically.');
+    return classified('transient', 'network', 'Connection interrupted. Retrying automatically.');
   }
 
   if (
@@ -99,7 +99,7 @@ export function classifySyncFailure(cause: unknown): SyncFailureClassification {
     return classified('action_required', 'schema', 'Cloud sync needs an app or database update before it can continue.');
   }
   if (/not configured|missing .*supabase|invalid (?:url|configuration)|configuration/.test(text)) {
-    return classified('action_required', 'configuration', 'Cloud sync is not configured for this build. Local records remain safe.');
+    return classified('action_required', 'configuration', 'Cloud sync is not configured for this build. Local records remain on this device.');
   }
   if (
     error instanceof SyntaxError

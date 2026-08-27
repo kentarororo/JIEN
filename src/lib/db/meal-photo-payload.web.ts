@@ -69,7 +69,7 @@ function openPayloadDatabase(ownerUserId: string): Promise<IDBDatabase> {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('Meal photo storage could not be opened.'));
-    request.onblocked = () => reject(new Error('Another JIEN tab is updating meal-photo storage. Close it and retry.'));
+    request.onblocked = () => reject(new Error('Another tab is updating meal-photo storage. Close it and retry.'));
   });
 }
 

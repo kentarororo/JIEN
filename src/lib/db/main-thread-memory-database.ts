@@ -34,7 +34,7 @@ export class WebDatabaseDurabilityError extends Error {
   readonly cause: unknown;
 
   constructor(cause: unknown) {
-    super('This change committed in the open tab but could not be saved durably. Do not retry it; refresh JIEN to recover safely.');
+    super('This change committed in the open tab but could not be saved durably. Do not retry it; refresh the page to recover.');
     this.name = 'WebDatabaseDurabilityError';
     this.cause = cause;
   }

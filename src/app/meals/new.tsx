@@ -679,7 +679,7 @@ export default function NewMealScreen() {
         description: photoFlow.description,
       });
       dispatchPhoto({ type: 'dismissed' });
-      setToolMessage('Photo saved on this device. JIEN will analyze it when your signed-in connection is ready; the result will appear on Food.');
+      setToolMessage('Photo saved on this device. Analysis will resume when your signed-in connection is available; the result will appear on Food.');
     } catch (cause) {
       setToolMessage(cause instanceof Error ? cause.message : 'The photo could not be queued on this device.');
     } finally {
@@ -779,7 +779,7 @@ export default function NewMealScreen() {
   return (
     <Screen scrollViewRef={screenRef} contentContainerStyle={styles.screenContent}>
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
-      {draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Your unfinished meal was restored. It will stay here until you save it.</AppText></View> : null}
+      {draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Your unfinished meal was restored. The draft remains available until you save it.</AppText></View> : null}
       {templateLoaded && !draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Saved meal copied. Adjust any portion or macro, then save it as a new log.</AppText></View> : null}
       {templateError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{templateError}</AppText></View> : null}
       {draftWarning ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{draftWarning}</AppText></View> : null}
@@ -834,7 +834,7 @@ export default function NewMealScreen() {
           <View style={styles.results}>
             <View style={styles.resultHeading}>
               <AppText style={styles.resultHeadingTitle}>{query.trim() ? 'Matching foods' : 'Recent & common'}</AppText>
-              <AppText style={{ color: colors.textMuted }}>{query.trim() ? 'Tap a result to add it.' : 'Recent and starter foods stay one tap away.'}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{query.trim() ? 'Tap a result to add it.' : 'Recent and built-in foods appear here.'}</AppText>
             </View>
             {results.map((item) => (
               <Pressable key={item.id} accessibilityRole="button" onPress={() => void addCatalogFood(item)} style={({ pressed }) => pressed && styles.pressed}>
@@ -849,7 +849,7 @@ export default function NewMealScreen() {
         {noMatchQuery ? (
           <View accessibilityLiveRegion="polite" style={[styles.privateFoodPrompt, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
             <View style={styles.flex}>
-              <AppText style={styles.resultHeadingTitle}>Make “{noMatchQuery}” your own</AppText>
+              <AppText style={styles.resultHeadingTitle}>Create private food for “{noMatchQuery}”</AppText>
               <AppText style={{ color: colors.textMuted }}>Enter its serving and nutrition label once, then reuse it from local search.</AppText>
             </View>
             <Button label="Create private food" onPress={beginPrivateFood} variant="quiet" />
@@ -903,7 +903,7 @@ export default function NewMealScreen() {
                 <AppText style={styles.sectionTitle}>{photoFlow.phase === 'succeeded' ? 'Food items added' : 'Add context, then analyze'}</AppText>
                 <AppText style={{ color: colors.textMuted }}>
                   {photoFlow.phase === 'succeeded'
-                    ? 'Analysis is complete. The preview stays here until you open the editable items.'
+                    ? 'Analysis is complete. Open the preview to review the editable items.'
                     : `${photoFlow.selection?.sourceLabel} is ready. Nothing is uploaded until you choose Analyze photo.`}
                 </AppText>
               </View>
@@ -934,7 +934,7 @@ export default function NewMealScreen() {
             {photoFlow.phase === 'analyzing' ? (
               <View accessibilityLiveRegion="assertive" style={[styles.message, { backgroundColor: colors.accentSoft }]}>
                 <AppText style={{ fontWeight: '700' }}>Analyzing the visible food…</AppText>
-                <AppText style={{ color: colors.textMuted }}>The photo and your context stay here if the connection drops.</AppText>
+                <AppText style={{ color: colors.textMuted }}>The selected photo and description remain available if the connection drops.</AppText>
               </View>
             ) : null}
             {photoFlow.failure ? (
@@ -1017,7 +1017,7 @@ export default function NewMealScreen() {
       {formError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
 
       <View onLayout={(event) => { mealItemsYRef.current = event.nativeEvent.layout.y; }} style={styles.mealItemsSection}>
-      <SectionHeading title="Meal items" detail="Database and AI values stay editable" />
+      <SectionHeading title="Meal items" detail="Database and photo-analysis values remain editable" />
       {foods.map((food, index) => (
         <Card key={food.key}>
           <View style={styles.header}><View style={styles.flex}><AppText style={styles.foodTitle}>Food {index + 1}</AppText>{food.sourceLabel ? <AppText style={{ color: colors.textMuted }}>{food.sourceLabel}{food.confidence != null ? ` · ${Math.round(food.confidence * 100)}% confidence` : ''}</AppText> : null}</View>{foods.length > 1 ? <Button label="Remove" onPress={() => setFoods((current) => current.filter((item) => item.key !== food.key))} variant="quiet" /> : null}</View>
@@ -1063,7 +1063,7 @@ export default function NewMealScreen() {
           <View style={styles.flex}>
             <AppText style={styles.sectionTitle}>{draftSummary.needsAttentionCount
               ? `${draftSummary.needsAttentionCount} food row${draftSummary.needsAttentionCount === 1 ? '' : 's'} need attention`
-              : draftSummary.completedFoodCount ? 'Meal ready to save' : 'Add your first food'}</AppText>
+              : draftSummary.completedFoodCount ? 'Meal ready to save' : 'No foods added'}</AppText>
             <AppText style={{ color: colors.textMuted }}>{draftSummary.needsAttentionCount
               ? 'Every started row needs a food name, a positive portion, and non-negative calories and macros.'
               : `${draftSummary.blankFoodCount} untouched row${draftSummary.blankFoodCount === 1 ? '' : 's'} will be ignored.`}</AppText>
@@ -1197,7 +1197,7 @@ function sourceName(source: FoodCatalogItem['source']): string {
   if (source === 'open_food_facts') return 'Open Food Facts';
   if (source === 'fatsecret') return 'FatSecret Platform';
   if (source === 'ai_photo') return 'AI photo estimate';
-  return 'JIEN starter estimate';
+  return 'Starter estimate';
 }
 
 function isCompletedFood(food: DraftFood): boolean {
