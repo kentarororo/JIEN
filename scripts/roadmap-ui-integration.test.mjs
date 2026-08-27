@@ -11,6 +11,7 @@ const rootLayout = readFileSync(new URL('../src/app/_layout.tsx', import.meta.ur
 const workoutLogger = readFileSync(new URL('../src/app/workouts/new.tsx', import.meta.url), 'utf8');
 const mealLogger = readFileSync(new URL('../src/app/meals/new.tsx', import.meta.url), 'utf8');
 const privateFood = readFileSync(new URL('../src/lib/db/private-food.ts', import.meta.url), 'utf8');
+const ui = readFileSync(new URL('../src/components/ui.tsx', import.meta.url), 'utf8');
 
 test('Today is week-first while preserving the month and day workspace', () => {
   assert.match(today, /const \[monthExpanded, setMonthExpanded\] = useState\(false\)/);
@@ -18,6 +19,18 @@ test('Today is week-first while preserving the month and day workspace', () => {
   assert.match(today, /label=\{monthExpanded \? 'Show week' : 'Show month'\}/);
   assert.match(today, /<Button label="Open day"/);
   assert.match(today, /isRepeatedCalendarDayActivation/);
+});
+
+test('Today leads with the reusable Warm Utility hero and factual daily signals', () => {
+  assert.match(today, /<HeroPanel/);
+  assert.match(today, /accessibilityLabel="Today at a glance"/);
+  assert.match(today, /todayActivity\?\.workoutCount/);
+  assert.match(today, /summary\.nutrition\.meals\.length/);
+  assert.match(today, /todayActivity\?\.sleepLogCount/);
+  assert.match(today, /<ActionCard tone="accent" title="Log workout"/);
+  assert.match(ui, /export function HeroPanel/);
+  assert.match(ui, /tone\?: 'default' \| 'accent'/);
+  assert.doesNotMatch(today, /#[\da-fA-F]{6}/, 'screen colors must come from semantic theme tokens');
 });
 
 test('Training separates overview from searchable history without dropping either journey', () => {

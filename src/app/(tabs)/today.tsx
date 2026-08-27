@@ -3,7 +3,7 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
-import { ActionCard, AppText, Button, Card, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { ActionCard, AppText, Button, Card, HeroPanel, Pill, ProgressBar, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, calendarSelectionForDate, isRepeatedCalendarDayActivation, moveMonthSelection, type CalendarDayActivation } from '@/lib/calendar';
 import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate } from '@/lib/db';
@@ -52,6 +52,7 @@ export default function TodayScreen() {
   const calorieTarget = summary.nutrition.target?.caloriesKcal ?? 0;
   const proteinTarget = summary.nutrition.target?.proteinG ?? 0;
   const activityByDate = new Map(data.activity.map((day) => [day.date, day]));
+  const todayActivity = activityByDate.get(todayKey);
   const selectedActivity = activityByDate.get(selectedDate);
   const selectedWorkouts = data.selectedDate === selectedDate ? data.selectedWorkouts : [];
   const selectedPlans = data.selectedDate === selectedDate ? data.selectedPlans : [];
@@ -89,12 +90,33 @@ export default function TodayScreen() {
   };
   return (
     <Screen contentContainerStyle={compactRecords ? styles.screenCompact : undefined}>
-      <ScreenHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())} title="Today" />
-
-      <View style={styles.actions}>
-        <ActionCard title="Log workout" detail="Sets, reps and load" icon="barbell-outline" onPress={() => router.push('/workouts/new')} />
-        <ActionCard title="Add meal" detail="Calories and macros" icon="restaurant-outline" onPress={() => router.push('/meals/new')} />
-      </View>
+      <HeroPanel
+        eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}
+        title="Today"
+        body="Log what happened. JIEN carries the pattern forward."
+      >
+        <View accessibilityLabel="Today at a glance" style={styles.heroStats}>
+          <View style={[styles.heroStat, { backgroundColor: colors.surfaceRaised }]}>
+            <AppText style={[styles.heroStatValue, { color: colors.accent }]}>{todayActivity?.workoutCount ?? 0}</AppText>
+            <AppText style={styles.heroStatLabel}>Workouts</AppText>
+            <AppText style={[styles.heroStatDetail, { color: colors.textMuted }]}>completed</AppText>
+          </View>
+          <View style={[styles.heroStat, { backgroundColor: colors.surfaceRaised }]}>
+            <AppText style={[styles.heroStatValue, { color: colors.wood }]}>{summary.nutrition.meals.length}</AppText>
+            <AppText style={styles.heroStatLabel}>Meals</AppText>
+            <AppText style={[styles.heroStatDetail, { color: colors.textMuted }]}>logged</AppText>
+          </View>
+          <View style={[styles.heroStat, { backgroundColor: colors.surfaceRaised }]}>
+            <AppText style={[styles.heroStatValue, { color: colors.success }]}>{todayActivity?.sleepLogCount ?? 0}</AppText>
+            <AppText style={styles.heroStatLabel}>Sleep</AppText>
+            <AppText style={[styles.heroStatDetail, { color: colors.textMuted }]}>entries</AppText>
+          </View>
+        </View>
+        <View style={styles.actions}>
+          <ActionCard tone="accent" title="Log workout" detail="Sets, reps and load" icon="barbell-outline" onPress={() => router.push('/workouts/new')} />
+          <ActionCard title="Add meal" detail="Calories and macros" icon="restaurant-outline" onPress={() => router.push('/meals/new')} />
+        </View>
+      </HeroPanel>
 
       <SectionHeading title={monthExpanded ? 'Calendar' : 'Your week'} detail="Training, food and wellness at a glance" />
       <Card style={[styles.calendarCard, compactRecords && styles.calendarCardCompact]}>
@@ -256,9 +278,9 @@ export default function TodayScreen() {
       </Modal>
 
       <SectionHeading title="This week" detail="Completed training" />
-      <Card style={styles.metricCard}>
-        <View><AppText style={styles.metric}>{summary.workoutCountThisWeek}</AppText><AppText style={{ color: colors.textMuted }}>workouts</AppText></View>
-        <View><AppText style={styles.metric}>{Math.round(summary.weeklyVolumeKg).toLocaleString()}</AppText><AppText style={{ color: colors.textMuted }}>kg·reps work</AppText></View>
+      <Card style={[styles.metricCard, { backgroundColor: colors.surfaceMuted }]}>
+        <View style={styles.weekMetric}><AppText style={[styles.metric, { color: colors.accent }]}>{summary.workoutCountThisWeek}</AppText><AppText style={styles.weekMetricLabel}>Workouts</AppText><AppText style={{ color: colors.textMuted }}>completed</AppText></View>
+        <View style={styles.weekMetric}><AppText style={styles.metric}>{Math.round(summary.weeklyVolumeKg).toLocaleString()}</AppText><AppText style={styles.weekMetricLabel}>kg·reps</AppText><AppText style={{ color: colors.textMuted }}>total work</AppText></View>
       </Card>
 
       {summary.workoutProgress ? (
@@ -323,9 +345,16 @@ export default function TodayScreen() {
 
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  heroStats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  heroStat: { flexGrow: 1, flexBasis: 104, minWidth: 96, borderRadius: radii.control, padding: spacing.sm },
+  heroStatValue: { ...typography.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  heroStatLabel: { ...typography.label, fontWeight: '800' },
+  heroStatDetail: { ...typography.caption },
   sessionTitle: { ...typography.bodyLarge, fontWeight: '700' },
-  metricCard: { flexDirection: 'row', justifyContent: 'space-around' },
-  metric: { ...typography.title, fontWeight: '700' },
+  metricCard: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, padding: spacing.xs },
+  weekMetric: { flexGrow: 1, flexBasis: 180, minHeight: 112, justifyContent: 'center', borderRadius: radii.control, padding: spacing.md },
+  weekMetricLabel: { ...typography.label, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  metric: { ...typography.display, fontWeight: '700', fontVariant: ['tabular-nums'] },
   macroRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
   value: { fontWeight: '700' },
   flex: { flex: 1 },

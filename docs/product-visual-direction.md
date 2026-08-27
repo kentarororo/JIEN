@@ -31,6 +31,23 @@ the moodboard informs hierarchy, density, and pacing.
 - **Food and Wellness:** lead with the current day's state and a single logging action;
   historical detail and educational explanations stay available through disclosure.
 
+## Visual rollout
+
+The visual system should be proven in complete product slices, then reused rather than
+re-skinning every route independently:
+
+1. **Today:** establish the expressive daily canvas, factual signal tiles, primary-action
+   weighting, and week-first rhythm.
+2. **Training and workout logging:** carry the same hierarchy into the next-session cue,
+   active set entry, and progression review without reducing logging density.
+3. **Food and Wellness:** reuse the daily canvas and signal tiles for fuel, recovery, and
+   check-ins while keeping clinical or nutrition detail quiet until requested.
+4. **History and settings:** finish with calmer utility treatments; these screens should
+   feel related without competing visually with daily actions.
+
+The standout quality comes from composition, useful numbers, and deliberate contrast—not
+additional colors, gradients, or decorative illustrations.
+
 ## Acceptance bar
 
 - no horizontal overflow at 360, 390, 768, or 1280 CSS pixels;

@@ -58,6 +58,25 @@ export function ScreenHeading({ eyebrow, title, action }: { eyebrow?: string; ti
   );
 }
 
+export function HeroPanel({
+  eyebrow,
+  title,
+  body,
+  children,
+}: PropsWithChildren<{ eyebrow: string; title: string; body?: string }>) {
+  const { colors } = useJienTheme();
+  return (
+    <View style={[styles.heroPanel, { backgroundColor: colors.accentSoft, borderColor: colors.border }]}>
+      <View style={styles.heroCopy}>
+        <AppText style={[styles.heroEyebrow, { color: colors.accent }]}>{eyebrow}</AppText>
+        <AppText role="heading" aria-level={1} style={styles.heroTitle}>{title}</AppText>
+        {body ? <AppText style={[styles.heroBody, { color: colors.textMuted }]}>{body}</AppText> : null}
+      </View>
+      {children ? <View style={styles.heroContent}>{children}</View> : null}
+    </View>
+  );
+}
+
 export function SectionHeading({ title, detail }: { title: string; detail?: string }) {
   return (
     <View style={styles.sectionHeading}>
@@ -160,14 +179,20 @@ export function ActionCard({
   detail,
   icon,
   onPress,
+  tone = 'default',
 }: {
   title: string;
   detail: string;
   icon: IconName;
   onPress: () => void;
+  tone?: 'default' | 'accent';
 }) {
   const { colors } = useJienTheme();
   const [focused, setFocused] = useState(false);
+  const backgroundColor = tone === 'accent' ? colors.accent : colors.surface;
+  const foregroundColor = tone === 'accent' ? colors.textOnAccent : colors.text;
+  const secondaryColor = tone === 'accent' ? colors.textOnAccent : colors.textMuted;
+  const focusColor = tone === 'accent' ? colors.textOnAccent : colors.accent;
   return (
     <Pressable
       accessibilityRole="button"
@@ -177,19 +202,19 @@ export function ActionCard({
       onBlur={() => setFocused(false)}
       style={({ pressed }) => [
         styles.actionCard,
-        { backgroundColor: colors.surface, borderColor: focused ? colors.accent : colors.border },
+        { backgroundColor, borderColor: focused ? focusColor : tone === 'accent' ? colors.accent : colors.border },
         focused && styles.focusedControl,
         pressed && styles.pressed,
       ]}
     >
-      <View style={[styles.actionIcon, { backgroundColor: colors.accentSoft }]}>
+      <View style={[styles.actionIcon, { backgroundColor: tone === 'accent' ? colors.surfaceRaised : colors.accentSoft }]}>
         <Ionicons name={icon} size={22} color={colors.accent} />
       </View>
       <View style={styles.actionCopy}>
-        <AppText style={styles.actionTitle}>{title}</AppText>
-        <AppText style={[styles.actionDetail, { color: colors.textMuted }]}>{detail}</AppText>
+        <AppText style={[styles.actionTitle, { color: foregroundColor }]}>{title}</AppText>
+        <AppText style={[styles.actionDetail, { color: secondaryColor }]}>{detail}</AppText>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      <Ionicons name="chevron-forward" size={18} color={secondaryColor} />
     </Pressable>
   );
 }
@@ -293,6 +318,12 @@ const styles = StyleSheet.create({
   headingCopy: { flexGrow: 1, flexShrink: 1, flexBasis: 220, gap: spacing.xxs },
   eyebrow: { ...typography.label, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
   title: { ...typography.display, fontWeight: '700', letterSpacing: -0.7 },
+  heroPanel: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.sheet, padding: spacing.xl, gap: spacing.lg, overflow: 'hidden' },
+  heroCopy: { maxWidth: 680, gap: spacing.xxs },
+  heroEyebrow: { ...typography.label, fontWeight: '700', letterSpacing: 0.7, textTransform: 'uppercase' },
+  heroTitle: { ...typography.display, fontWeight: '700', letterSpacing: -0.9 },
+  heroBody: { ...typography.bodyLarge, maxWidth: 600 },
+  heroContent: { gap: spacing.md },
   sectionHeading: { gap: 2 },
   sectionTitle: { ...typography.section, fontWeight: '700' },
   muted: { ...typography.label, opacity: 0.7 },
