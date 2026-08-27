@@ -379,8 +379,9 @@ condition clears, and deep-link only through an explicit in-app route allowlist.
 `food_catalog_cache` is a SQLite-only read-through cache, not a Supabase-owned user
 table. It stores normalized food names, brands, portions, macros, optional barcodes,
 provider attribution, and source identifiers. Starter entries keep core food search
-useful offline; Open Food Facts and USDA FoodData Central results are cached only after
-retrieval. User-created `custom` rows are private, account-owned device shortcuts that
+useful offline. Migration 13 also seeds a small set of public-domain USDA regional
+records, retaining each FoodData Central identifier; other Open Food Facts and USDA
+results are cached only after retrieval. User-created `custom` rows are private, account-owned device shortcuts that
 can be updated in place and ranked by recent use. They are not a second meal record and
 do not enter the sync queue; any meal saved from one is still captured and synced as
 the normal editable meal-item snapshot. FatSecret search results are never bulk-written to this discovery cache;

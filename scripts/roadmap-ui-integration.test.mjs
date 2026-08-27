@@ -122,3 +122,21 @@ test('Meal no-match entry saves an editable private food through the SQLite cata
   assert.match(privateFood, /ON CONFLICT\(id\) DO UPDATE SET/);
   assert.match(privateFood, /last_used_at = excluded\.last_used_at/);
 });
+
+test('Meal search reports actual sources and keeps provider attribution concise', () => {
+  const catalog = readFileSync(new URL('../src/lib/db/food-catalog.ts', import.meta.url), 'utf8');
+  const openFoodFacts = readFileSync(new URL('../src/lib/db/open-food-facts.ts', import.meta.url), 'utf8');
+  const serverSearch = readFileSync(new URL('../supabase/functions/_shared/open-food-facts-search.ts', import.meta.url), 'utf8');
+  const edgeFunction = readFileSync(new URL('../supabase/functions/food-search/index.ts', import.meta.url), 'utf8');
+  assert.match(mealLogger, /onlineFoodSourceSummary\(items\)/);
+  assert.match(mealLogger, /Sources appear on each result/);
+  assert.doesNotMatch(mealLogger, /Licensed FatSecret Platform results/);
+  assert.match(catalog, /rankOpenFoodFactsProductsForSingapore\(response\.products/);
+  assert.match(serverSearch, /https:\/\/search\.openfoodfacts\.org\/search/);
+  assert.match(serverSearch, /method: 'POST'/);
+  assert.match(catalog, /acceptedSources: \['open_food_facts'\]/);
+  assert.match(edgeFunction, /acceptedSources\.includes\('open_food_facts'\)/);
+  assert.match(edgeFunction, /source: 'open_food_facts', promise: searchOpenFoodFactsFoods\(clean\)/);
+  assert.match(openFoodFacts, /countries_tags/);
+  assert.match(openFoodFacts, /normalized === 'singapore'/);
+});

@@ -4,6 +4,7 @@ import {
   resolveFatSecretConfiguration,
   searchFatSecretFoods,
 } from '../_shared/fatsecret-food.ts';
+import { searchOpenFoodFactsFoods } from '../_shared/open-food-facts-search.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,6 +52,16 @@ Deno.serve(async (request) => {
     const error = providerError(cause);
     console.warn(JSON.stringify({ requestId, provider: 'fatsecret', code: error.code }));
     searches.push({ source: 'fatsecret', promise: Promise.reject(error) });
+  }
+
+  const acceptedSources = Array.isArray(requestData.acceptedSources)
+    ? requestData.acceptedSources.filter((source) => typeof source === 'string')
+    : [];
+  // The first published food-search client understands only USDA and FatSecret.
+  // Opt in explicitly so a function-first rolling deploy cannot invalidate its
+  // entire response while the new web bundle is still propagating.
+  if (acceptedSources.includes('open_food_facts')) {
+    searches.push({ source: 'open_food_facts', promise: searchOpenFoodFactsFoods(clean) });
   }
 
   const usdaKey = Deno.env.get('USDA_FDC_API_KEY')?.trim();

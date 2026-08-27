@@ -348,7 +348,9 @@ export default function NewMealScreen() {
       const items = await searchFoodDatabase(cleanQuery);
       setResults(items);
       setNoMatchQuery(items.length ? null : cleanQuery);
-      setToolMessage(items.length ? `Found ${items.length} online food matches.` : 'No database matches found.');
+      setToolMessage(items.length
+        ? `Found ${items.length} online ${items.length === 1 ? 'match' : 'matches'} from ${onlineFoodSourceSummary(items)}.`
+        : 'No database matches found.');
       try {
         await cacheFoodCatalogItems(db, items);
       } catch {
@@ -855,7 +857,7 @@ export default function NewMealScreen() {
             <Button label="Create private food" onPress={beginPrivateFood} variant="quiet" />
           </View>
         ) : null}
-        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Online food data: USDA FoodData Central and Open Food Facts contributors (ODbL). Licensed FatSecret Platform results identify their source in the list. Without an account, search and barcode lookup fall back to Open Food Facts.</AppText>
+        <AppText style={[styles.attribution, { color: colors.textMuted }]}>Sources appear on each result. USDA FoodData Central is public domain; Open Food Facts data is © contributors, ODbL. Review the serving and nutrition before adding.</AppText>
       </Card>
 
       <Modal visible={cameraMode != null} animationType="slide" transparent onRequestClose={closeCamera}>
@@ -1198,6 +1200,12 @@ function sourceName(source: FoodCatalogItem['source']): string {
   if (source === 'fatsecret') return 'FatSecret Platform';
   if (source === 'ai_photo') return 'AI photo estimate';
   return 'Starter estimate';
+}
+
+function onlineFoodSourceSummary(items: FoodCatalogItem[]): string {
+  const sources = [...new Set(items.map((item) => sourceName(item.source)))];
+  if (sources.length <= 1) return sources[0] ?? 'the online database';
+  return `${sources.slice(0, -1).join(', ')} and ${sources.at(-1)}`;
 }
 
 function isCompletedFood(food: DraftFood): boolean {

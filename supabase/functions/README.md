@@ -119,11 +119,12 @@ Never place provider keys in Expo, GitHub Pages variables, browser storage, or G
 OAuth configuration. Deployment-owned keys use Supabase Function Secrets; tester-owned
 keys use the authenticated `ai-settings` proxy and encrypted Supabase Vault storage.
 
-Food search accepts the version 1 authenticated envelope and combines configured
-FatSecret and USDA results. FatSecret v5 uses the default serving (then 100 g), returns
-`food_id:serving_id` as normalized source provenance, and is inert unless the explicit
-licensing gate is true. USDA remains normalized to a 100 g portion. Barcode lookup
-uses Open Food Facts and returns its attribution.
+Food search accepts the version 1 authenticated envelope and combines Open Food Facts
+Search-a-licious with configured FatSecret and USDA results. Singapore-tagged Open Food
+Facts products are ranked before other matches. FatSecret v5 uses the default serving
+(then 100 g), returns `food_id:serving_id` as normalized source provenance, and is inert
+unless the explicit licensing gate is true. USDA remains normalized to a 100 g portion.
+Barcode lookup uses Open Food Facts and returns its attribution.
 
 `wellness-chat` verifies AI consent and the first-use medical disclaimer, reads the
 signed-in user's recent training, food, wellness, and conversation rows through RLS,

@@ -4,7 +4,7 @@ import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 
-export const LATEST_DATABASE_VERSION = 12;
+export const LATEST_DATABASE_VERSION = 13;
 
 const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -78,6 +78,18 @@ const STARTER_FOODS = [
   ['starter-broccoli', 'Broccoli, cooked', null, 100, 'g', 35, 2.4, 7.2, 0.4, 3.3],
   ['starter-milk', 'Milk, 2%', null, 250, 'ml', 125, 8.3, 12, 5, 0],
   ['starter-peanut-butter', 'Peanut butter', null, 32, 'g', 188, 8, 6.9, 16, 1.9],
+] as const;
+
+// Public-domain USDA FoodData Central records selected to make common Asian
+// ingredients and dishes available before the first network search. Portions
+// remain editable, and the original FDC id is retained for attribution.
+const REGIONAL_STARTER_FOODS = [
+  ['usda-2708356', 'Rice noodles, cooked', 100, 'g', 107, 1.78, 23.87, 0.2, 1, '2708356'],
+  ['usda-172467', 'Tempeh, cooked', 100, 'g', 195, 19.9, 7.62, 11.4, null, '172467'],
+  ['usda-2707436', 'Edamame, cooked', 100, 'g', 140, 11.54, 8.63, 7.58, 5, '2707436'],
+  ['usda-2706438', 'Chicken curry with rice', 100, 'g', 116, 4.96, 15.12, 4, 1, '2706438'],
+  ['usda-2708418', 'Congee', 100, 'g', 39, 0.8, 8.4, 0.08, 0.1, '2708418'],
+  ['usda-2708984', 'Congee, with egg', 100, 'g', 60, 3.12, 6.91, 2.06, 0.1, '2708984'],
 ] as const;
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
@@ -514,6 +526,22 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.runAsync(`UPDATE exercises SET primary_muscle_group = 'hip_flexors', secondary_muscle_groups = '["abs"]', updated_at = ?, client_updated_at = ? WHERE id = '10000000-0000-4000-8000-000000000041'`, [exerciseNow, exerciseNow]);
       await db.runAsync(`UPDATE exercises SET primary_muscle_group = 'brachialis', secondary_muscle_groups = '["biceps","forearms"]', updated_at = ?, client_updated_at = ? WHERE id = '10000000-0000-4000-8000-000000000037'`, [exerciseNow, exerciseNow]);
       await db.execAsync('PRAGMA user_version = 12;');
+    });
+  }
+
+  if (currentVersion < 13) {
+    const foodNow = new Date().toISOString();
+    await withExclusiveTransaction(db, async (db) => {
+      for (const food of REGIONAL_STARTER_FOODS) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO food_catalog_cache (
+            id, name, serving_quantity, serving_unit, calories_kcal,
+            protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'usda_fdc', ?, ?)`,
+          [...food, foodNow],
+        );
+      }
+      await db.execAsync('PRAGMA user_version = 13;');
     });
   }
 }

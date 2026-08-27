@@ -5,6 +5,7 @@ export const OPEN_FOOD_FACTS_FIELDS = [
   'product_name',
   'generic_name',
   'brands',
+  'countries_tags',
   'serving_quantity',
   'serving_quantity_unit',
   'serving_size',
@@ -15,7 +16,8 @@ export type OpenFoodFactsProduct = {
   code?: string;
   product_name?: string;
   generic_name?: string;
-  brands?: string;
+  brands?: string | string[];
+  countries_tags?: string[];
   serving_quantity?: number | string;
   serving_quantity_unit?: string;
   serving_size?: string;
@@ -24,6 +26,22 @@ export type OpenFoodFactsProduct = {
 
 export type OpenFoodFactsSearchResponse = { products?: OpenFoodFactsProduct[] };
 export type OpenFoodFactsProductResponse = { status?: number; product?: OpenFoodFactsProduct };
+
+export function rankOpenFoodFactsProductsForSingapore(
+  products: OpenFoodFactsProduct[],
+): OpenFoodFactsProduct[] {
+  return products
+    .map((product, index) => ({ product, index, singapore: isSingaporeProduct(product) }))
+    .sort((left, right) => Number(right.singapore) - Number(left.singapore) || left.index - right.index)
+    .map(({ product }) => product);
+}
+
+function isSingaporeProduct(product: OpenFoodFactsProduct): boolean {
+  return product.countries_tags?.some((tag) => {
+    const normalized = tag.trim().toLocaleLowerCase().replace(/^en:/, '');
+    return normalized === 'singapore';
+  }) ?? false;
+}
 
 export function mapOpenFoodFactsProduct(product: OpenFoodFactsProduct): FoodCatalogItem | null {
   const name = (product.product_name || product.generic_name || '').trim();
@@ -54,7 +72,9 @@ export function mapOpenFoodFactsProduct(product: OpenFoodFactsProduct): FoodCata
   return {
     id: `off-${code}`,
     name,
-    brand: product.brands?.trim() || null,
+    brand: Array.isArray(product.brands)
+      ? product.brands.map((brand) => brand.trim()).filter(Boolean).join(', ') || null
+      : product.brands?.trim() || null,
     servingQuantity: quantity,
     servingUnit: unit,
     caloriesKcal: calories ?? 0,

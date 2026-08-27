@@ -2,7 +2,7 @@ import type { FoodCatalogItem } from './types.ts';
 
 export type FoodSearchData = {
   items: FoodCatalogItem[];
-  sources: Array<'fatsecret' | 'usda_fdc'>;
+  sources: Array<'fatsecret' | 'usda_fdc' | 'open_food_facts'>;
 };
 
 export function parseFoodSearchData(value: unknown): FoodSearchData {
@@ -58,8 +58,8 @@ function parseFoodSearchItem(value: unknown): FoodCatalogItem {
   };
 }
 
-function isFoodSearchSource(value: unknown): value is 'fatsecret' | 'usda_fdc' {
-  return value === 'fatsecret' || value === 'usda_fdc';
+function isFoodSearchSource(value: unknown): value is 'fatsecret' | 'usda_fdc' | 'open_food_facts' {
+  return value === 'fatsecret' || value === 'usda_fdc' || value === 'open_food_facts';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

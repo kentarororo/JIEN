@@ -17,6 +17,12 @@ a network service.
 - [Open Food Facts](https://openfoodfacts.github.io/documentation/docs/Product-Opener/api/)
   supplies global community-contributed search and barcode matches. Its values can be
   incomplete, so JIEN displays the source and keeps every portion and macro editable.
+  The `food-search` Edge Function uses Open Food Facts' Search-a-licious POST API,
+  considers up to 24 relevance-ranked matches, and stably moves products tagged for
+  Singapore ahead of other results without hiding global matches. The existing direct
+  lookup remains a best-effort no-account fallback, and barcode lookup stays direct.
+  Clients opt into the normalized `open_food_facts` response source explicitly so an
+  Edge Function deploy remains compatible with older web bundles during rollout.
 - [FatSecret Platform](https://platform.fatsecret.com/platform-api) supplies localized
   branded and generic search through the authenticated `food-search` Edge Function
   only when server credentials and explicit durable-snapshot licensing are both
@@ -39,6 +45,20 @@ FatSecret, USDA, and Open Food Facts enrichment are best-effort. FatSecret and U
 run behind the signed-in server boundary while Open Food Facts remains the no-account
 fallback. Search results remain usable if the local cache write fails, and barcode
 digits remain visible if no product matches.
+
+## Singapore and regional coverage
+
+JIEN includes a small offline set of public-domain FoodData Central records for rice
+noodles, tempeh, edamame, chicken curry with rice, and congee. These records retain
+their USDA identifiers and remain editable. They improve first-run regional search
+without presenting a generic record as a precise hawker-stall portion.
+
+The Health Promotion Board's Singapore Food Insights Database is the preferred
+authoritative source for prepared Singapore dishes, but it is not copied into JIEN.
+HPB's published website terms restrict reproduction and commercial use without prior
+written permission. Direct SG FoodID ingestion therefore remains blocked on a written
+data licence. Meal-photo estimates and private foods cover local dishes in the meantime;
+both preserve the user's editable serving and nutrition values.
 
 When an online name search returns no match—or the provider is temporarily
 unavailable—the meal logger offers to carry that name into an editable blank row.

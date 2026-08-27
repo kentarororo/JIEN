@@ -10,6 +10,7 @@ import {
 import {
   mapOpenFoodFactsProduct,
   OPEN_FOOD_FACTS_FIELDS,
+  rankOpenFoodFactsProductsForSingapore,
   type OpenFoodFactsProductResponse,
   type OpenFoodFactsSearchResponse,
 } from './open-food-facts';
@@ -138,14 +139,14 @@ export async function searchFoodDatabase(query: string): Promise<FoodCatalogItem
     search_simple: '1',
     action: 'process',
     json: '1',
-    page_size: '12',
+    page_size: '24',
     sort_by: 'unique_scans_n',
     fields: OPEN_FOOD_FACTS_FIELDS,
   });
   const [openFoodFacts, providerSearch] = await Promise.allSettled([
     fetchOpenFoodFacts<OpenFoodFactsSearchResponse>(
       `https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`,
-    ).then((response) => (response.products ?? [])
+    ).then((response) => rankOpenFoodFactsProductsForSingapore(response.products ?? [])
       .map(mapOpenFoodFactsProduct)
       .filter((item): item is FoodCatalogItem => item != null)),
     invokeOptionalFoodSearch(clean),
@@ -166,7 +167,7 @@ async function invokeOptionalFoodSearch(query: string): Promise<FoodCatalogItem[
   try {
     const response = await invokeEdgeFunctionEnvelope<unknown>(
       'food-search',
-      { query },
+      { query, acceptedSources: ['open_food_facts'] },
       8_000,
     );
     return parseFoodSearchData(response.data).items;

@@ -62,10 +62,28 @@ test('main-thread database persists committed work and isolates delayed transact
     const exercises = await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM exercises');
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
-    assert.equal(version?.user_version, 12);
+    assert.equal(version?.user_version, 13);
     assert.ok((exercises?.count ?? 0) >= 50);
     assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
+    assert.deepEqual(
+      await database.getFirstAsync(
+        `SELECT name, source, source_ref AS sourceRef, calories_kcal AS caloriesKcal
+         FROM food_catalog_cache WHERE id = 'usda-2708418'`,
+      ),
+      { name: 'Congee', source: 'usda_fdc', sourceRef: '2708418', caloriesKcal: 39 },
+    );
+    await database.runAsync(`DELETE FROM food_catalog_cache WHERE id = 'usda-2708418'`);
+    await database.execAsync('PRAGMA user_version = 12;');
+    await migrateDatabase(database);
+    assert.equal(
+      (await database.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM food_catalog_cache
+         WHERE id = 'usda-2708418' AND source = 'usda_fdc' AND source_ref = '2708418'`,
+      ))?.count,
+      1,
+      'the v13 upgrade should add regional starter foods to an existing database',
+    );
     assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'arms', secondaryMuscleGroups: [] }), true);
     assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'biceps', secondaryMuscleGroups: ['forearms'] }), false);
 
