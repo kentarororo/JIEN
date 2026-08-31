@@ -268,6 +268,7 @@ export function Field({
       {label ? <AppText style={styles.fieldLabel}>{label}</AppText> : null}
       <TextInput
         {...props}
+        accessibilityLabel={props.accessibilityLabel ?? label}
         placeholderTextColor={colors.textMuted}
         selectionColor={colors.accent}
         style={[styles.input, { color: colors.text, backgroundColor: colors.surfaceRaised, borderColor: colors.border }, props.style]}

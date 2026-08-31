@@ -10,6 +10,7 @@ const tabLayout = readFileSync(new URL('../src/app/(tabs)/_layout.tsx', import.m
 const rootLayout = readFileSync(new URL('../src/app/_layout.tsx', import.meta.url), 'utf8');
 const workoutLogger = readFileSync(new URL('../src/app/workouts/new.tsx', import.meta.url), 'utf8');
 const mealLogger = readFileSync(new URL('../src/app/meals/new.tsx', import.meta.url), 'utf8');
+const settings = readFileSync(new URL('../src/app/(tabs)/settings.tsx', import.meta.url), 'utf8');
 const privateFood = readFileSync(new URL('../src/lib/db/private-food.ts', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/components/ui.tsx', import.meta.url), 'utf8');
 
@@ -69,6 +70,20 @@ test('Navigation exposes one tab bar and keeps core targets at least 44 points',
   assert.match(today, /screenCompact: \{ paddingHorizontal: spacing\.md \}/);
   assert.match(today, /calendarCardCompact: \{ paddingHorizontal: 0 \}/);
   assert.match(rootLayout, /headerBack: \{ width: 44, height: 44/);
+});
+
+test('Settings separates general preferences, reminders, and local data controls', () => {
+  assert.match(settings, /useState<'general' \| 'reminders' \| 'data'>\('general'\)/);
+  assert.match(settings, /accessibilityRole="tablist"/);
+  assert.match(settings, /label="General"[\s\S]*label="Reminders"[\s\S]*label="Data"/);
+  assert.match(settings, /settingsView === 'general'[\s\S]*Profile[\s\S]*Appearance[\s\S]*AI connection/);
+  assert.match(settings, /settingsView === 'reminders'[\s\S]*Possible missing meal[\s\S]*Planned workout approaching[\s\S]*Sync needs attention/);
+  assert.match(settings, /settingsView === 'data'[\s\S]*Account and sync[\s\S]*SQLite remains the on-device source of truth[\s\S]*Export/);
+  assert.doesNotMatch(settings, /#[\da-fA-F]{6}/, 'settings colors must come from semantic theme tokens');
+});
+
+test('Shared fields expose their visible labels to assistive technology', () => {
+  assert.match(ui, /accessibilityLabel=\{props\.accessibilityLabel \?\? label\}/);
 });
 
 test('Workout logging keeps guidance available without delaying set entry', () => {

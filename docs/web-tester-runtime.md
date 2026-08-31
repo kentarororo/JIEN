@@ -45,3 +45,25 @@ No recovery path clears OPFS, IndexedDB, Supabase authentication, or user record
 - `pnpm run web:build` exports the Expo Router app, validates the wa-sqlite Asyncify WASM, copies it to a stable `/assets/jien-sqlite/` URL, and content-hashes the patched entry bundle.
 - Google and Supabase OAuth callback configuration remains in `docs/google-oauth.md`.
 - This architecture does not change native persistence, the Supabase schema, RLS, secrets, or provider settings.
+
+## Isolated browser QA
+
+`pnpm e2e:web` builds the production Expo web bundle with a reserved fake Supabase
+origin, serves it locally with the same isolation headers as Vercel, and runs the
+Playwright suite in Microsoft Edge. The test context contains a fake session, mocks
+only that fake origin, and opens a fresh account-scoped IndexedDB database. It never
+opens, clears, or writes the production origin's OPFS, IndexedDB, authentication, or
+user records.
+
+The browser suite currently verifies:
+
+- signed-out startup at 360, 390, 768, and 1280 CSS pixels, including dark mode and
+  reduced motion;
+- programmatic form labels and absence of horizontal overflow;
+- onboarding followed by a completed workout and manually entered meal;
+- workout history, Settings utility views, reload persistence, and visual baselines;
+- BroadcastChannel/Web Lock handoff from an existing page to a newer tab.
+
+Run `pnpm e2e:web:update` only after intentionally reviewing a visual change. It
+regenerates the committed Windows/Edge screenshot baselines. Production smoke tests
+remain read-only unless a dedicated QA account and explicit mutation scope are used.

@@ -48,6 +48,15 @@ re-skinning every route independently:
 The standout quality comes from composition, useful numbers, and deliberate contrast—not
 additional colors, gradients, or decorative illustrations.
 
+### Alpha 2.1 quality gate
+
+History and Settings complete the current visual rollout. Settings groups general
+preferences, reminders, and account/data controls without removing any capability;
+training history retains search, muscle filters, and direct record access. The slice is
+accepted only after the isolated browser loop in [browser-qa.md](browser-qa.md) passes,
+including real IndexedDB persistence, newer-tab handoff, supported widths, light/dark
+visual baselines, and programmatic form labels.
+
 ## Acceptance bar
 
 - no horizontal overflow at 360, 390, 768, or 1280 CSS pixels;

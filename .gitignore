@@ -7,6 +7,8 @@ dist/
 web-build/
 .verification-dist/
 .verification-*/
+.playwright-results/
+playwright-report/
 expo-env.d.ts
 
 # native build outputs

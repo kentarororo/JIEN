@@ -9,6 +9,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "web:build": "node scripts/build-web.mjs",
+    "e2e:build": "node scripts/build-e2e-web.mjs",
+    "e2e:serve": "node scripts/serve-e2e-web.mjs",
+    "e2e:web": "pnpm e2e:build && playwright test",
+    "e2e:web:update": "pnpm e2e:build && playwright test --update-snapshots",
     "pages:build": "expo export --platform web && node scripts/finalize-pages-host-build.mjs",
     "typecheck": "tsc --noEmit",
     "pretest": "node --experimental-strip-types --test src/lib/db/web-database-recovery.test.ts supabase/functions/_shared/fatsecret-food.test.ts supabase/functions/_shared/open-food-facts-search.test.ts && node --test scripts/roadmap-ui-integration.test.mjs scripts/food-wellness-ui.test.mjs scripts/ui-copy-quality.test.mjs",
@@ -47,6 +51,7 @@
     "wa-sqlite": "1.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
     "@types/react": "~19.2.2",
     "fake-indexeddb": "6.2.5",
