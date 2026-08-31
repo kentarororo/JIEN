@@ -8,10 +8,12 @@ import {
 } from 'react';
 
 import { getAccountState } from '@/lib/auth';
+import { withWebSQLiteStartupTimeout } from '@/lib/web-sqlite-bootstrap';
 
 import { openWebIndexedDbDatabase } from './web-indexeddb-database';
 
 const DatabaseContext = createContext<SQLiteDatabase | null>(null);
+const WEB_SQLITE_STARTUP_TIMEOUT_MS = 30_000;
 
 export function SQLiteProvider({
   children,
@@ -28,21 +30,28 @@ export function SQLiteProvider({
   useEffect(() => {
     let active = true;
     let opened: SQLiteDatabase | null = null;
-    void getAccountState()
+    const opening = getAccountState()
       .then((account) => {
         if (!account.configured || !account.user) {
           throw new Error('Sign in before opening durable web storage.');
         }
         return openWebIndexedDbDatabase(account.user.id);
-      })
-      .then(async (next) => {
-        opened = next;
-        await onInit?.(next);
+      });
+    const startup = opening.then(async (next) => {
+      opened = next;
+      await onInit?.(next);
+      return next;
+    });
+    void withWebSQLiteStartupTimeout(startup, WEB_SQLITE_STARTUP_TIMEOUT_MS)
+      .then((next) => {
         if (active) setDatabase(next);
         else next.closeSync();
       })
       .catch((cause) => {
         opened?.closeSync();
+        if (!opened) {
+          void opening.then((lateDatabase) => lateDatabase.closeSync()).catch(() => undefined);
+        }
         opened = null;
         if (active) setError(cause instanceof Error ? cause : new Error(String(cause)));
       });

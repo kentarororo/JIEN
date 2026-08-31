@@ -5,14 +5,15 @@ The supported web tester is the Vercel deployment. Native and web expose the sam
 | Runtime | SQLite database | Storage driver |
 | --- | --- | --- |
 | iOS / Android | persistent native `jien.db` | Expo SQLite |
-| Vercel web tester | persistent, account-scoped `jien.db` | wa-sqlite Asyncify on the main thread with `IDBBatchAtomicVFS` in IndexedDB |
+| Vercel web tester on Chromium / Android | persistent, account-scoped `jien.db` | wa-sqlite Asyncify on the main thread with `IDBBatchAtomicVFS` in IndexedDB |
+| Vercel web tester on Safari / iOS WebKit | persistent, account-scoped `jien.db` | wa-sqlite Asyncify with `MemoryVFS` and atomic IndexedDB snapshots |
 | GitHub Pages | none | publishes a host-requirements screen; functional web testing remains Vercel-only |
 
 The Pages finalizer replaces every exported HTML route with that static handoff and
 removes all application scripts from those documents, so a direct deep link cannot
 mount authentication, SQLite, or another local-data consumer.
 
-The web runtime does not mount Expo SQLite's web worker, use `AccessHandlePoolVFS`, call `createSyncAccessHandle`, or require `SharedArrayBuffer`. Its main-thread Asyncify WASM and IndexedDB VFS run when `crossOriginIsolated` is false, including mobile browsers that do not implement COEP `credentialless`. Expo's OPFS driver can leave an access handle owned by an abandoned or singleton worker, which makes a later page fail with `NoModificationAllowedError` before application-level recovery can close it. Native still uses the supported Expo SQLite implementation.
+The web runtime does not mount Expo SQLite's web worker, use `AccessHandlePoolVFS`, call `createSyncAccessHandle`, or require `SharedArrayBuffer`. Its main-thread Asyncify WASM runs when `crossOriginIsolated` is false, including mobile browsers that do not implement COEP `credentialless`. Chromium uses the page-based IndexedDB VFS. Safari and every iOS browser use the snapshot-backed MemoryVFS because WebKit can stall after the sample page-based VFS acquires its SQLite reserved lock. Expo's OPFS driver can leave an access handle owned by an abandoned or singleton worker, which makes a later page fail with `NoModificationAllowedError` before application-level recovery can close it. Native still uses the supported Expo SQLite implementation.
 
 ## Startup order
 
@@ -20,11 +21,13 @@ The web runtime does not mount Expo SQLite's web worker, use `AccessHandlePoolVF
 2. Vercel may enable cross-origin isolation as defense in depth, but application startup does not depend on it. GitHub Pages remains an intentionally unsupported tester through its separate build finalizer.
 3. JIEN installs worker tracking, opens the same-origin ownership `BroadcastChannel`, and announces the new page.
 4. An older page that receives a newer ownership request starts deterministic teardown. The requester waits for the origin Web Lock `jien:sqlite:jien.db` and a short handoff-settle interval.
-5. Only the lock owner mounts `SQLiteProvider`. The web provider obtains the authenticated user ID and opens `jien-web-sqlite-v2:<user-id>` with strict IndexedDB durability. The database filename inside that account-scoped VFS is `jien.db`.
-6. If the v2 database is empty, JIEN checks the older account-scoped `jien-web-sqlite-v1:<user-id>` snapshot store. A valid, integrity-checked snapshot belonging to the same account is copied page-by-page into the v2 VFS. The old snapshot is retained. OPFS is never cleared or modified by this migration.
+5. Only the lock owner mounts `SQLiteProvider`. The web provider obtains the authenticated user ID and selects its storage implementation. Chromium opens `jien-web-sqlite-v2:<user-id>` with strict IndexedDB durability. Safari/WebKit opens the account-scoped `jien-web-sqlite-v1:<user-id>` snapshot store and restores `jien.db` into MemoryVFS.
+6. Chromium checks the snapshot store when its v2 database is empty. Safari checks the page store when its snapshot store is empty and reconstructs a valid SQLite image from the committed page versions. Imports copy bytes and retain both sources. Every restored image is checked for a SQLite header, supported schema, integrity, foreign keys, and the authenticated owner. OPFS is never cleared or modified.
 7. Normal migrations run, then Supabase hydration completes before application database consumers render. Local transactions remain authoritative and continue to enqueue background sync work.
 
-The IndexedDB VFS uses Web Locks for SQLite file locking as well as the outer page-ownership lease. It commits batch-atomic page versions with strict IndexedDB durability, so refresh persistence does not require serializing the complete database after every write.
+The Chromium IndexedDB VFS uses Web Locks for SQLite file locking as well as the outer page-ownership lease. It commits batch-atomic page versions with strict IndexedDB durability. Safari's MemoryVFS is protected by the same outer lease and writes immutable, account-scoped snapshot generations after committed local transactions. Snapshot persistence is paused during initial cloud hydration and resumes with one complete image, preventing partially hydrated state from becoming authoritative.
+
+Provider startup has a bounded timeout. A browser engine or storage implementation that stops responding is closed when it eventually resolves and surfaces `SQLITE_INITIALIZATION_TIMEOUT`; it does not leave users on an unlabelled blank page and does not clear any storage.
 
 ## Ownership and teardown
 
@@ -36,7 +39,7 @@ Every document uses the same shutdown path for `pagehide`, retry, provider start
 
 A page restored from the back-forward cache reloads rather than reusing a closed engine. A displaced tab shows `LOCAL_STORAGE_HANDED_OFF`; choosing **Use this tab** requests ownership again.
 
-No recovery path clears OPFS, IndexedDB, Supabase authentication, or user records. Existing Expo OPFS files remain untouched, legacy IndexedDB snapshots remain available, and signed-in accounts can rebuild missing local rows from Supabase hydration.
+No recovery path clears OPFS, IndexedDB, Supabase authentication, or user records. Existing Expo OPFS files remain untouched, both IndexedDB formats remain available, and signed-in accounts can rebuild missing local rows from Supabase hydration.
 
 ## Deployment expectations
 
@@ -50,7 +53,8 @@ No recovery path clears OPFS, IndexedDB, Supabase authentication, or user record
 
 `pnpm e2e:web` builds the production Expo web bundle with a reserved fake Supabase
 origin, serves it locally with the same isolation headers as Vercel, and runs the
-Playwright suite in Microsoft Edge. The test context contains a fake session, mocks
+Playwright suite in Microsoft Edge desktop, Pixel 7 Chromium emulation, and iPhone
+WebKit emulation. The test context contains a fake session, mocks
 only that fake origin, and opens a fresh account-scoped IndexedDB database. It never
 opens, clears, or writes the production origin's OPFS, IndexedDB, authentication, or
 user records.
@@ -60,9 +64,15 @@ The browser suite currently verifies:
 - signed-out startup at 360, 390, 768, and 1280 CSS pixels, including dark mode and
   reduced motion;
 - programmatic form labels and absence of horizontal overflow;
-- onboarding followed by a completed workout and manually entered meal;
-- workout history, Settings utility views, reload persistence, and visual baselines;
-- BroadcastChannel/Web Lock handoff from an existing page to a newer tab.
+- touch-sized controls on Android Chrome and iOS WebKit without horizontal overflow;
+- onboarding followed by a completed workout and manually entered meal in all three engines;
+- workout history, Settings utility views, reload persistence, and Edge visual baselines;
+- BroadcastChannel/Web Lock handoff from an existing page to a newer tab in all three engines.
+
+These projects validate the deployed browser architecture. Native Android builds still
+use Expo SQLite and require an Android SDK/device run; native iOS builds require macOS,
+Xcode, and a simulator or device. Browser emulation is not presented as native-build
+certification.
 
 Run `pnpm e2e:web:update` only after intentionally reviewing a visual change. It
 regenerates the committed Windows/Edge screenshot baselines. Production smoke tests

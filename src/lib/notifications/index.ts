@@ -24,6 +24,7 @@ const WORKOUT_PLAN_SCHEDULE_KEY = 'scheduled_workout_plan_key';
 const SYNC_ATTENTION_SCHEDULE_KEY = 'scheduled_sync_attention_key';
 
 export function configureNotificationHandling(): void {
+  if (Platform.OS === 'web') return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldPlaySound: false,

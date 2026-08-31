@@ -19,6 +19,7 @@ import { migrateDatabase } from './migrate.ts';
 import { WebDatabaseSnapshotStore } from './web-database-snapshot.ts';
 import {
   openWebIndexedDbDatabase,
+  resolveWebDatabaseStorageMode,
   webIndexedDbDatabaseName,
 } from './web-indexeddb-database.ts';
 
@@ -107,6 +108,31 @@ test('the web runtime commits to account-scoped IndexedDB and reopens without OP
     assert.deepEqual(await reopened.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.equal(webIndexedDbDatabaseName(OWNER), `jien-web-sqlite-v2:${OWNER}`);
     await reopened.closeAsync();
+
+    const webkit = await openWebIndexedDbDatabase(OWNER, {
+      wasmBinary,
+      storageMode: 'snapshot',
+    });
+    assert.deepEqual(
+      await webkit.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['indexeddb_integration']),
+      { value: 'committed' },
+    );
+    await (webkit as unknown as { resumePersistenceAsync: () => Promise<void> }).resumePersistenceAsync();
+    await webkit.runAsync(
+      'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+      ['webkit_snapshot', 'committed'],
+    );
+    await webkit.closeAsync();
+
+    const webkitReopened = await openWebIndexedDbDatabase(OWNER, {
+      wasmBinary,
+      storageMode: 'snapshot',
+    });
+    assert.deepEqual(
+      await webkitReopened.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['webkit_snapshot']),
+      { value: 'committed' },
+    );
+    await webkitReopened.closeAsync();
   } finally {
     Object.defineProperty(globalThis, 'SharedArrayBuffer', {
       configurable: true,
@@ -114,6 +140,24 @@ test('the web runtime commits to account-scoped IndexedDB and reopens without OP
     });
     Reflect.deleteProperty(globalThis, 'crossOriginIsolated');
   }
+});
+
+test('selects the snapshot store for Safari and every iOS browser engine', () => {
+  assert.equal(resolveWebDatabaseStorageMode(
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1',
+    5,
+  ), 'snapshot');
+  assert.equal(resolveWebDatabaseStorageMode(
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/140.0 Mobile/15E148 Safari/604.1',
+    5,
+  ), 'snapshot');
+  assert.equal(resolveWebDatabaseStorageMode(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
+  ), 'snapshot');
+  assert.equal(resolveWebDatabaseStorageMode(
+    'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
+    5,
+  ), 'indexeddb-vfs');
 });
 
 test('a valid account-owned legacy snapshot is imported without deleting its bytes', async () => {

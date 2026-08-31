@@ -1,5 +1,5 @@
 import * as Network from 'expo-network';
-import * as Notifications from 'expo-notifications';
+import type { Notification, NotificationResponse } from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useRef } from 'react';
@@ -64,7 +64,7 @@ export function AppRuntime() {
 
   useEffect(() => {
     if (Platform.OS === 'web') return undefined;
-    const recordDelivery = (notification: Notifications.Notification) => {
+    const recordDelivery = (notification: Notification) => {
       const identifier = notification.request.identifier;
       if (recordedNotificationIds.current.has(identifier)) return;
       const type = getDeliveredNotificationType(notification.request.content.data);
@@ -73,7 +73,7 @@ export function AppRuntime() {
       void markNotificationDelivered(db, type, new Date(notification.date).toISOString())
         .catch(() => recordedNotificationIds.current.delete(identifier));
     };
-    const openResponse = (response: Notifications.NotificationResponse) => {
+    const openResponse = (response: NotificationResponse) => {
       recordDelivery(response.notification);
       const identifier = response.notification.request.identifier;
       if (handledNotificationIds.current.has(identifier)) return;
@@ -82,24 +82,33 @@ export function AppRuntime() {
       handledNotificationIds.current.add(identifier);
       router.push(href);
     };
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) openResponse(response);
-    });
-    const recordPresentedNotifications = () => {
-      void Notifications.getPresentedNotificationsAsync()
-        .then((notifications) => notifications.forEach(recordDelivery))
-        .catch(() => undefined);
-    };
-    recordPresentedNotifications();
-    const appStateSubscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') recordPresentedNotifications();
-    });
-    const receivedSubscription = Notifications.addNotificationReceivedListener(recordDelivery);
-    const responseSubscription = Notifications.addNotificationResponseReceivedListener(openResponse);
+    let disposed = false;
+    let removeListeners = () => undefined;
+    void import('expo-notifications').then((Notifications) => {
+      if (disposed) return;
+      void Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (response) openResponse(response);
+      });
+      const recordPresentedNotifications = () => {
+        void Notifications.getPresentedNotificationsAsync()
+          .then((notifications) => notifications.forEach(recordDelivery))
+          .catch(() => undefined);
+      };
+      recordPresentedNotifications();
+      const appStateSubscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') recordPresentedNotifications();
+      });
+      const receivedSubscription = Notifications.addNotificationReceivedListener(recordDelivery);
+      const responseSubscription = Notifications.addNotificationResponseReceivedListener(openResponse);
+      removeListeners = () => {
+        appStateSubscription.remove();
+        receivedSubscription.remove();
+        responseSubscription.remove();
+      };
+    }).catch(() => undefined);
     return () => {
-      appStateSubscription.remove();
-      receivedSubscription.remove();
-      responseSubscription.remove();
+      disposed = true;
+      removeListeners();
     };
   }, [db, router]);
 

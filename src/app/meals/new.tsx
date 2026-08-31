@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { CameraView, type BarcodeScanningResult } from 'expo-camera';
 import { File as ExpoFile } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -39,6 +39,7 @@ import {
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate, toLocalDateKey } from '@/lib/time';
 import { MAX_WEB_MEAL_PHOTO_BASE64_LENGTH, resolveMealPhotoPickerResult } from '@/lib/media/image-picker';
+import { useJienCameraPermissions } from '@/lib/media/camera-permission';
 import {
   applyPhotoAnalysisDrafts,
   initialMealPhotoFlowState,
@@ -85,7 +86,7 @@ export default function NewMealScreen() {
   const templateMealLoadRef = useRef<string | null>(null);
   const barcodeLockRef = useRef(false);
   const pendingPickerResultRef = useRef<ReturnType<typeof ImagePicker.getPendingResultAsync> | null>(null);
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [cameraPermission, requestCameraPermission] = useJienCameraPermissions();
   const now = new Date();
   const inferred: MealType = now.getHours() < 11 ? 'breakfast' : now.getHours() < 15 ? 'lunch' : now.getHours() < 19 ? 'dinner' : 'snack';
   const initialMealTypeRef = useRef(inferred);

@@ -38,12 +38,8 @@ export function qaSession() {
   };
 }
 
-export async function prepareIsolatedJienContext(context: BrowserContext) {
+export async function prepareIsolatedJienContext(context: BrowserContext, page: Page) {
   const session = qaSession();
-  await context.addInitScript(({ key, value }) => {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  }, { key: AUTH_STORAGE_KEY, value: session });
-
   await context.route(`${SUPABASE_ORIGIN}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -62,6 +58,11 @@ export async function prepareIsolatedJienContext(context: BrowserContext) {
     }
     await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'E2E route not mocked' }) });
   });
+
+  await page.goto('/');
+  await page.evaluate(({ key, value }) => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, { key: AUTH_STORAGE_KEY, value: session });
 }
 
 export async function fixJienClock(page: Page, offsetMs = 0) {
@@ -70,7 +71,27 @@ export async function fixJienClock(page: Page, offsetMs = 0) {
 
 export async function completeOnboarding(page: Page) {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'What are you working toward?' })).toBeVisible();
+  try {
+    await expect(page.getByRole('heading', { name: 'What are you working toward?' })).toBeVisible();
+  } catch (error) {
+    const startupState = await page.evaluate(async () => ({
+      bodyText: document.body.innerText.slice(0, 500),
+      broadcastChannel: typeof BroadcastChannel,
+      crossOriginIsolated: globalThis.crossOriginIsolated,
+      databases: typeof indexedDB.databases === 'function' ? await indexedDB.databases() : 'unsupported',
+      indexedDb: typeof indexedDB,
+      innerHtml: document.body.innerHTML.slice(0, 1_000),
+      innerHtmlLength: document.body.innerHTML.length,
+      locks: typeof navigator.locks?.query === 'function' ? await navigator.locks.query() : 'unsupported',
+      readyState: document.readyState,
+      resources: performance.getEntriesByType('resource').slice(-10).map((entry) => entry.name),
+      url: location.href,
+      webLocks: typeof navigator.locks,
+      webAssembly: typeof WebAssembly,
+    }));
+    console.error(`Onboarding startup state: ${JSON.stringify(startupState)}`);
+    throw error;
+  }
   await page.getByRole('radio', { name: /Change my body composition/ }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('radio', { name: /Consistent/ }).click();

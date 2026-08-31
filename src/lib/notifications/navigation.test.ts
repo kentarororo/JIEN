@@ -33,6 +33,7 @@ test('the app runtime opens only validated notification destinations', () => {
   assert.match(notifications, /href: '\/meals\/new'/);
   assert.match(notifications, /href: '\/settings'/);
   assert.match(notifications, /href: `\/workouts\/\$\{planned\.id\}`/);
+  assert.match(notifications, /configureNotificationHandling[\s\S]*?Platform\.OS === 'web'/);
 });
 
 test('meal, workout, plan, and sync outcomes all signal notification reconciliation', () => {

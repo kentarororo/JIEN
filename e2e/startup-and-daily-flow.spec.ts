@@ -7,7 +7,8 @@ import {
   prepareIsolatedJienContext,
 } from './helpers';
 
-test('signed-out startup remains usable at every supported width and theme', async ({ page }) => {
+test('signed-out startup remains usable at every supported width and theme', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'edge-desktop', 'The desktop project owns the full responsive-width matrix.');
   await fixJienClock(page);
   for (const width of [360, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: width < 700 ? 844 : 900 });
@@ -19,9 +20,38 @@ test('signed-out startup remains usable at every supported width and theme', asy
   }
 });
 
-test('isolated daily loop persists records and hands SQLite to a newer tab', async ({ context, page }) => {
-  await prepareIsolatedJienContext(context);
+test('mobile startup exposes touch-sized account controls without overflow', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'edge-desktop', 'Mobile engines own the touch startup check.');
   await fixJienClock(page);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Your training record, on every device' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  const undersizedTargets = await page.locator('[role="button"], [role="tab"]').evaluateAll((targets) => targets
+    .filter((target) => {
+      const rect = target.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44);
+    })
+    .map((target) => target.getAttribute('aria-label') ?? target.textContent?.trim() ?? 'unnamed'));
+  expect(undersizedTargets).toEqual([]);
+});
+
+test('isolated daily loop persists records and hands SQLite to a newer tab', async ({ context, page }, testInfo) => {
+  const capturesVisualBaselines = testInfo.project.name === 'edge-desktop';
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => {
+    pageErrors.push(`${error.name}: ${error.message}`);
+    console.error(`[${testInfo.project.name}] page error: ${error.name}: ${error.message}`);
+  });
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') console.error(`[${testInfo.project.name}] console ${message.type()}: ${message.text()}`);
+  });
+  page.on('requestfailed', (request) => console.error(`[${testInfo.project.name}] request failed: ${request.url()} — ${request.failure()?.errorText}`));
+  page.on('response', (response) => {
+    if (response.status() >= 400) console.error(`[${testInfo.project.name}] response ${response.status()}: ${response.url()}`);
+  });
+  await prepareIsolatedJienContext(context, page);
+  if (testInfo.project.name !== 'ios-webkit') await fixJienClock(page);
   await completeOnboarding(page);
 
   await page.getByRole('button', { name: /Log workout/ }).first().click();
@@ -53,13 +83,17 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await page.getByRole('button', { name: /History/ }).click();
   await expect(page.getByRole('link', { name: /Open Browser QA strength from/ })).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(page).toHaveScreenshot('training-history-390.png', { animations: 'disabled' });
+  if (capturesVisualBaselines) {
+    await expect(page).toHaveScreenshot('training-history-390.png', { animations: 'disabled' });
+  }
 
   await page.getByRole('tab', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(page).toHaveScreenshot('settings-general-390.png', { animations: 'disabled' });
+  if (capturesVisualBaselines) {
+    await expect(page).toHaveScreenshot('settings-general-390.png', { animations: 'disabled' });
+  }
 
   await page.getByRole('button', { name: 'Reminders', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Contextual reminders', exact: true })).toBeVisible();
@@ -69,11 +103,14 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await expect(page.getByRole('heading', { name: 'Export', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.getByRole('button', { name: 'General', exact: true }).click();
   await expectNoHorizontalOverflow(page);
-  await expect(page).toHaveScreenshot('settings-general-dark-1280.png', { animations: 'disabled' });
+  if (capturesVisualBaselines) {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+    await expectNoHorizontalOverflow(page);
+    await expect(page).toHaveScreenshot('settings-general-dark-1280.png', { animations: 'disabled' });
+  }
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
@@ -82,9 +119,10 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await expect(page.getByRole('link', { name: /Open Browser QA strength from/ })).toBeVisible();
 
   const newerPage = await context.newPage();
-  await fixJienClock(newerPage, 1_000);
+  if (testInfo.project.name !== 'ios-webkit') await fixJienClock(newerPage, 1_000);
   await newerPage.goto('/today');
   await expect(newerPage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(page.getByText('Startup code: LOCAL_STORAGE_HANDED_OFF')).toBeVisible();
   await newerPage.close();
+  expect(pageErrors).toEqual([]);
 });
