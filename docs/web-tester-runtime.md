@@ -29,6 +29,26 @@ The Chromium IndexedDB VFS uses Web Locks for SQLite file locking as well as the
 
 Provider startup has a bounded timeout. A browser engine or storage implementation that stops responding is closed when it eventually resolves and surfaces `SQLITE_INITIALIZATION_TIMEOUT`; it does not leave users on an unlabelled blank page and does not clear any storage.
 
+## Safari storage growth
+
+Safari snapshots contain the SQLite file only. Meal-photo payloads remain in their
+separate account-scoped store, so image growth does not multiply the database image.
+The snapshot store keeps the active and previous valid generations for recovery and
+deletes only an obsolete third generation after the replacement commits atomically.
+
+On first snapshot-store use, JIEN makes a best-effort Storage API persistence request.
+Before every new generation it uses `StorageManager.estimate()` when available and
+requires room for the complete next image plus a safety margin. If there is not enough
+room, the write fails as `QuotaExceededError`, the open-tab transaction reports a
+durability failure, and existing generations remain untouched. JIEN never attempts to
+solve storage pressure by silently deleting workouts, meals, snapshots, or sync rows.
+
+The browser storage selector is an explicit implementation boundary. A future tested
+WebKit incremental or chunked driver can replace snapshot mode without changing the
+repository API, SQLite schema, Supabase sync contract, or account-scoped database
+names. Move Safari to that driver only after real-device recovery, handoff, and
+interrupted-write tests pass; do not switch based on feature detection alone.
+
 ## Ownership and teardown
 
 Every document uses the same shutdown path for `pagehide`, retry, provider startup failure, unmount, and handoff to a newer tab:

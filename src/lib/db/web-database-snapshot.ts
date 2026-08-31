@@ -2,6 +2,50 @@ const SNAPSHOT_FORMAT_VERSION = 1;
 const ACTIVE_KEY = 'active';
 const QUARANTINED_STATE_KEY = 'quarantined-active-state';
 const STORE_NAME = 'sqlite_snapshots';
+const SNAPSHOT_WRITE_MARGIN_BYTES = 1024 * 1024;
+
+type WebStorageManager = {
+  estimate?: () => Promise<{ quota?: number; usage?: number }>;
+  persist?: () => Promise<boolean>;
+  persisted?: () => Promise<boolean>;
+};
+
+let persistenceRequestStarted = false;
+
+export async function requestPersistentWebStorage(
+  storage: WebStorageManager | undefined = globalThis.navigator?.storage,
+): Promise<boolean | null> {
+  if (!storage?.persisted || !storage.persist) return null;
+  try {
+    if (await storage.persisted()) return true;
+    return await storage.persist();
+  } catch {
+    return null;
+  }
+}
+
+export async function assertSnapshotStorageHeadroom(
+  snapshotByteLength: number,
+  storage: WebStorageManager | undefined = globalThis.navigator?.storage,
+): Promise<void> {
+  if (!storage?.estimate) return;
+  let estimate: { quota?: number; usage?: number };
+  try {
+    estimate = await storage.estimate();
+  } catch {
+    return;
+  }
+  const quota = estimate.quota;
+  const usage = estimate.usage;
+  if (!Number.isFinite(quota) || !Number.isFinite(usage)) return;
+  const available = Math.max(0, Number(quota) - Number(usage));
+  if (available < snapshotByteLength + SNAPSHOT_WRITE_MARGIN_BYTES) {
+    throw new DOMException(
+      'Not enough browser storage is available for the next durable SQLite snapshot. Existing local data was preserved.',
+      'QuotaExceededError',
+    );
+  }
+}
 
 export type WebDatabaseSnapshot = {
   key: string;
@@ -123,6 +167,10 @@ export class WebDatabaseSnapshotStore {
       request.onerror = () => reject(request.error ?? new Error('Durable web storage could not be opened.'));
       request.onblocked = () => reject(new Error('Another tab is updating local storage. Close it, then retry.'));
     });
+    if (!persistenceRequestStarted) {
+      persistenceRequestStarted = true;
+      void requestPersistentWebStorage();
+    }
     return new WebDatabaseSnapshotStore(database, ownerUserId);
   }
 
@@ -247,7 +295,7 @@ export class WebDatabaseSnapshotStore {
   private writeNextGeneration(bytes: ArrayBuffer): Promise<void> {
     const expected = this.currentIdentity();
     let nextState: WebDatabaseSnapshotState | null = null;
-    return this.runReadWriteTransaction((store, transaction) => {
+    return assertSnapshotStorageHeadroom(bytes.byteLength).then(() => this.runReadWriteTransaction((store, transaction) => {
       const request = store.get(ACTIVE_KEY);
       request.onsuccess = () => {
         try {
@@ -289,7 +337,7 @@ export class WebDatabaseSnapshotStore {
         }
       };
       request.onerror = () => transaction.abort();
-    }).then(() => {
+    })).then(() => {
       this.rememberState(nextState);
       this._needsCloudRebuild = false;
     }, (cause) => {

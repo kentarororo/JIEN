@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertSnapshotStorageHeadroom,
   parseWebDatabaseSnapshot,
   parseWebDatabaseSnapshotState,
   hasSQLiteFileHeader,
+  requestPersistentWebStorage,
   webDatabaseStorageName,
   type WebDatabaseSnapshot,
   type WebDatabaseSnapshotState,
@@ -76,4 +78,34 @@ test('SQLite images must have the canonical file header before deserialization',
   assert.equal(hasSQLiteFileHeader(new TextEncoder().encode('SQLite format 3\0payload')), true);
   assert.equal(hasSQLiteFileHeader(new TextEncoder().encode('<html>not sqlite</html>')), false);
   assert.equal(hasSQLiteFileHeader(new Uint8Array()), false);
+});
+
+test('requests persistent browser storage only when the origin is still best effort', async () => {
+  let requests = 0;
+  assert.equal(await requestPersistentWebStorage({
+    persisted: async () => true,
+    persist: async () => { requests += 1; return true; },
+  }), true);
+  assert.equal(requests, 0);
+
+  assert.equal(await requestPersistentWebStorage({
+    persisted: async () => false,
+    persist: async () => { requests += 1; return true; },
+  }), true);
+  assert.equal(requests, 1);
+  assert.equal(await requestPersistentWebStorage(undefined), null);
+});
+
+test('checks atomic snapshot headroom without deleting an older generation', async () => {
+  await assertSnapshotStorageHeadroom(2 * 1024 * 1024, {
+    estimate: async () => ({ usage: 5 * 1024 * 1024, quota: 12 * 1024 * 1024 }),
+  });
+  await assert.rejects(
+    assertSnapshotStorageHeadroom(2 * 1024 * 1024, {
+      estimate: async () => ({ usage: 10 * 1024 * 1024, quota: 12 * 1024 * 1024 }),
+    }),
+    (cause: unknown) => cause instanceof DOMException
+      && cause.name === 'QuotaExceededError'
+      && /Existing local data was preserved/i.test(cause.message),
+  );
 });
