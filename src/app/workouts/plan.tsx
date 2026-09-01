@@ -12,6 +12,7 @@ import {
   getWorkoutDetail,
   listExercises,
   listRecentWorkouts,
+  listVolumeHistory,
   savePlannedWorkout,
   type Exercise,
   type LoadUnit,
@@ -24,7 +25,15 @@ import {
   hasStoredJointConsideration,
   rebuildPlannedWorkoutProgression,
 } from '@/lib/planning/workout-plan';
-import { ROUTINE_STARTERS, resolveRoutineStarter, type RoutineStarter } from '@/lib/planning/routine-starters';
+import {
+  ROUTINE_STARTERS,
+  rankRoutineStarters,
+  repeatedMovementPatterns,
+  resolveRoutineStarter,
+  summarizePlannedMuscleCredits,
+  type RoutineStarter,
+} from '@/lib/planning/routine-starters';
+import { buildMuscleGroupAdvisory, muscleGroupLabel, type MuscleGroupAdvisory } from '@/lib/progression';
 import { formatShortDate, localTimestampForDateAndTime, toLocalDateKey } from '@/lib/time';
 import { exerciseEquipmentLabel, filterExerciseCatalog } from '@/lib/training/exercise-catalog';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -44,15 +53,18 @@ function futureDateKey(offset: number): string {
 export default function PlanWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const params = useLocalSearchParams<{ date?: string; planWorkoutId?: string }>();
+  const params = useLocalSearchParams<{ date?: string; planWorkoutId?: string; source?: string }>();
   const { width } = useWindowDimensions();
   const compact = width < 640;
   const { colors } = useJienTheme();
   const planIdRef = useRef(params.planWorkoutId ?? Crypto.randomUUID());
   const submitLockRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const exerciseBrowserYRef = useRef(0);
   const [catalog, setCatalog] = useState<Exercise[] | null>(null);
   const [preferredUnit, setPreferredUnit] = useState<LoadUnit>('kg');
   const [availableEquipment, setAvailableEquipment] = useState<string[]>([]);
+  const [advisory, setAdvisory] = useState<MuscleGroupAdvisory | null>(null);
   const [hasJointConsideration, setHasJointConsideration] = useState(false);
   const [jointProgressionChoice, setJointProgressionChoice] = useState<JointProgressionChoice>('hold');
   const [latestWorkout, setLatestWorkout] = useState<WorkoutDetail | null>(null);
@@ -64,6 +76,8 @@ export default function PlanWorkoutScreen() {
   const [catalogLimit, setCatalogLimit] = useState(24);
   const [showScheduleEditor, setShowScheduleEditor] = useState(Boolean(params.planWorkoutId));
   const [planned, setPlanned] = useState<PlannedWorkoutExercise[]>([]);
+  const [replacementIndex, setReplacementIndex] = useState<number | null>(null);
+  const [draftReason, setDraftReason] = useState<string | null>(null);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [busyExerciseId, setBusyExerciseId] = useState<string | null>(null);
@@ -72,17 +86,19 @@ export default function PlanWorkoutScreen() {
   const load = useCallback(async () => {
     setLoadingError(null);
     try {
-      const [exercises, profile, recent, existingPlan] = await Promise.all([
+      const [exercises, profile, recent, existingPlan, volumeSets] = await Promise.all([
         listExercises(db),
         getUserProfile(db),
         listRecentWorkouts(db, 1),
         params.planWorkoutId ? getWorkoutDetail(db, params.planWorkoutId) : Promise.resolve(null),
+        listVolumeHistory(db),
       ]);
       const shouldHoldProgression = hasStoredJointConsideration(profile?.injuryFlags);
       const savedJointChoice = existingPlan?.plan?.jointProgressionChoice ?? 'hold';
       setCatalog(exercises);
       setPreferredUnit(profile?.preferredLoadUnit ?? 'kg');
       setAvailableEquipment(profile?.availableEquipment ?? []);
+      setAdvisory(buildMuscleGroupAdvisory(volumeSets));
       setHasJointConsideration(shouldHoldProgression);
       setJointProgressionChoice(savedJointChoice);
       setLatestWorkout(recent[0] ? await getWorkoutDetail(db, recent[0].id) : null);
@@ -116,7 +132,8 @@ export default function PlanWorkoutScreen() {
   };
 
   const addExercise = async (exercise: Exercise) => {
-    if (planned.some((item) => item.exerciseId === exercise.id)) return;
+    const replacing = replacementIndex;
+    if (planned.some((item, index) => item.exerciseId === exercise.id && index !== replacing)) return;
     setBusyExerciseId(exercise.id);
     setFormError(null);
     try {
@@ -127,7 +144,11 @@ export default function PlanWorkoutScreen() {
         preferredLoadUnit: preferredUnit,
         jointFlag: jointProgressionHold,
       });
-      setPlanned((current) => [...current, next]);
+      setPlanned((current) => replacing != null && current[replacing]
+        ? current.map((item, index) => index === replacing ? next : item)
+        : [...current, next]);
+      setReplacementIndex(null);
+      setDraftReason(null);
       setQuery('');
       setBrowseAll(false);
       setCatalogLimit(24);
@@ -156,6 +177,8 @@ export default function PlanWorkoutScreen() {
       }));
       setTitle(latestWorkout.title);
       setPlanned(next.filter((item): item is PlannedWorkoutExercise => item != null));
+      setReplacementIndex(null);
+      setDraftReason(null);
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'Could not prepare the last session.');
     } finally {
@@ -181,6 +204,8 @@ export default function PlanWorkoutScreen() {
       })));
       setTitle(starter.sessionTitle);
       setPlanned(next);
+      setReplacementIndex(null);
+      setDraftReason(routineRecommendations.find((item) => item.starter.id === starter.id)?.reason ?? null);
       setQuery('');
       setBrowseAll(false);
       setCatalogLimit(24);
@@ -189,6 +214,27 @@ export default function PlanWorkoutScreen() {
     } finally {
       setBusyExerciseId(null);
     }
+  };
+
+  const moveExercise = (index: number, offset: -1 | 1) => {
+    setPlanned((current) => {
+      const target = index + offset;
+      if (!current[index] || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
+  };
+
+  const beginSwap = (index: number) => {
+    const exercise = planned[index];
+    if (!exercise) return;
+    setReplacementIndex(index);
+    setQuery(muscleGroupLabel(exercise.primaryMuscleGroup));
+    setBrowseAll(true);
+    setCatalogLimit(24);
+    setFormError(null);
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, exerciseBrowserYRef.current - spacing.md), animated: true }));
   };
 
   const save = async () => {
@@ -220,13 +266,42 @@ export default function PlanWorkoutScreen() {
     return filterExerciseCatalog(catalog, { query });
   }, [browseAll, catalog, query]);
   const visibleResults = results.slice(0, catalogLimit);
+  const routineRecommendations = useMemo(() => rankRoutineStarters({
+    catalog: catalog ?? [],
+    availableEquipment,
+    focus: advisory?.status === 'focus' ? advisory.focus : [],
+  }), [advisory, availableEquipment, catalog]);
+  const recommendedByStarter = useMemo(() => new Map(
+    routineRecommendations.map((item) => [item.starter.id, item]),
+  ), [routineRecommendations]);
+  const orderedRoutineStarters = useMemo(() => [
+    ...routineRecommendations.map((item) => item.starter),
+    ...ROUTINE_STARTERS.filter((starter) => !recommendedByStarter.has(starter.id)),
+  ], [recommendedByStarter, routineRecommendations]);
+  const advisoryRecommendation = params.source === 'advisory' ? routineRecommendations[0] ?? null : null;
+  const draftMuscleCredits = useMemo(() => summarizePlannedMuscleCredits(
+    planned.map((exercise) => ({ exerciseId: exercise.exerciseId, setCount: exercise.sets.length })),
+    catalog ?? [],
+  ), [catalog, planned]);
+  const repeatedPatterns = useMemo(() => repeatedMovementPatterns(
+    planned.map((exercise) => exercise.exerciseId),
+    catalog ?? [],
+  ), [catalog, planned]);
 
   if (!catalog && !loadingError) return <Screen><StatePanel title="Preparing your plan" body="Reading exercises and recent completed sessions from this device." loading /></Screen>;
   if (loadingError) return <Screen><StatePanel title="Planning is unavailable" body={loadingError} actionLabel="Try again" onAction={() => void load()} /></Screen>;
 
   const common = catalog?.slice(0, COMMON_EXERCISE_COUNT) ?? [];
   return (
-    <Screen contentContainerStyle={styles.screenContent}>
+    <Screen scrollViewRef={scrollRef} contentContainerStyle={styles.screenContent}>
+      {!planned.length && advisoryRecommendation ? (
+        <Card style={{ backgroundColor: colors.accentSoft, borderColor: colors.accent }}>
+          <AppText style={[styles.kicker, { color: colors.accent }]}>CURRENT MUSCLE FOCUS</AppText>
+          <AppText style={styles.cardTitle}>{advisoryRecommendation.starter.label} matches the current gaps</AppText>
+          <AppText style={{ color: colors.textMuted }}>{advisoryRecommendation.reason}</AppText>
+          <Button label={`Use ${advisoryRecommendation.starter.label} draft`} onPress={() => void useRoutineStarter(advisoryRecommendation.starter)} busy={busyExerciseId === `routine:${advisoryRecommendation.starter.id}`} variant="secondary" />
+        </Card>
+      ) : null}
       {latestWorkout ? (
         <Card style={{ backgroundColor: colors.surfaceMuted }}>
           <View style={styles.rowWrap}>
@@ -285,7 +360,17 @@ export default function PlanWorkoutScreen() {
       {planned.length ? (
         <Card>
           <AppText style={styles.cardTitle}>Targets use your last completed sets</AppText>
+          {draftReason ? <AppText style={{ color: colors.accent }}>{draftReason}</AppText> : null}
           <AppText style={{ color: colors.textMuted }}>Optional progression cues never overwrite the loads and reps you logged.</AppText>
+        </Card>
+      ) : null}
+
+      {draftMuscleCredits.length ? (
+        <Card>
+          <AppText style={styles.cardTitle}>Draft muscle coverage</AppText>
+          <View style={styles.pills}>{draftMuscleCredits.map((item) => <Pill key={item.muscleGroup} label={`${item.label} · ${formatSetCredits(item.setCredits)}`} />)}</View>
+          <AppText style={{ color: colors.textMuted }}>Planned working sets count 1.0 for the primary target and 0.5 for each distinct assisting target. This describes planned exposure, not measured activation.</AppText>
+          {repeatedPatterns.length ? <View style={[styles.notice, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>Repeated movement patterns: {repeatedPatterns.map((item) => `${movementPatternLabel(item.movementPattern)} × ${item.count}`).join(', ')}. Keep them when the different angles are intentional, or swap an exercise.</AppText></View> : null}
         </Card>
       ) : null}
 
@@ -295,10 +380,10 @@ export default function PlanWorkoutScreen() {
           <AppText style={styles.cardTitle}>Start from a routine</AppText>
           <AppText style={{ color: colors.textMuted }}>Exercise choices use the equipment in your profile. Previous loads appear only when they exist.</AppText>
           <View style={styles.starterActions}>
-            {ROUTINE_STARTERS.map((starter) => (
+            {orderedRoutineStarters.map((starter) => (
               <Button
                 key={starter.id}
-                label={starter.label}
+                label={`${starter.label}${recommendedByStarter.has(starter.id) ? ' · focus match' : ''}`}
                 accessibilityLabel={`Use ${starter.label} routine starter`}
                 onPress={() => void useRoutineStarter(starter)}
                 busy={busyExerciseId === `routine:${starter.id}`}
@@ -309,8 +394,19 @@ export default function PlanWorkoutScreen() {
           </View>
         </Card>
       ) : null}
-      <Card>
+      <Card onLayout={(event) => { exerciseBrowserYRef.current = event.nativeEvent.layout.y; }}>
         <AppText style={styles.label}>Quick add</AppText>
+        {replacementIndex != null && planned[replacementIndex] ? (
+          <View style={[styles.notice, { backgroundColor: colors.warningSoft }]}>
+            <View style={styles.rowWrap}>
+              <View style={styles.flex}>
+                <AppText style={{ color: colors.warning, fontWeight: '700' }}>Replacing {planned[replacementIndex].exerciseName}</AppText>
+                <AppText style={{ color: colors.textMuted }}>Choose another exercise below. Existing logged workouts will not change.</AppText>
+              </View>
+              <Button label="Cancel swap" onPress={() => { setReplacementIndex(null); setQuery(''); setBrowseAll(false); }} variant="quiet" />
+            </View>
+          </View>
+        ) : null}
         <View style={styles.pills}>{common.map((exercise) => (
           <Pill
             key={exercise.id}
@@ -352,13 +448,18 @@ export default function PlanWorkoutScreen() {
       <View style={styles.planList}>
         {planned.map((exercise, index) => (
           <Card key={exercise.exerciseId}>
-            <View style={styles.row}>
+            <View style={styles.rowWrap}>
               <View style={styles.flex}>
                 <AppText style={styles.kicker}>EXERCISE {index + 1}</AppText>
                 <AppText style={styles.exerciseName}>{exercise.exerciseName}</AppText>
                 <AppText style={{ color: colors.textMuted }}>{exercise.primaryMuscleGroup.replaceAll('_', ' ')} · target {exercise.targetRepMin}–{exercise.targetRepMax}</AppText>
               </View>
-              <Button label="Remove" onPress={() => setPlanned((current) => current.filter((item) => item.exerciseId !== exercise.exerciseId))} variant="quiet" />
+              <View style={styles.exerciseActions}>
+                <Button label="Up" accessibilityLabel={`Move ${exercise.exerciseName} earlier`} onPress={() => moveExercise(index, -1)} disabled={index === 0} variant="quiet" />
+                <Button label="Down" accessibilityLabel={`Move ${exercise.exerciseName} later`} onPress={() => moveExercise(index, 1)} disabled={index === planned.length - 1} variant="quiet" />
+                <Button label="Swap" accessibilityLabel={`Swap ${exercise.exerciseName}`} onPress={() => beginSwap(index)} variant="quiet" />
+                <Button label="Remove" onPress={() => { setPlanned((current) => current.filter((item) => item.exerciseId !== exercise.exerciseId)); setDraftReason(null); setReplacementIndex(null); }} variant="quiet" />
+              </View>
             </View>
             <View style={styles.targetList}>
               {exercise.sets.map((set, setIndex) => {
@@ -401,6 +502,7 @@ const styles = StyleSheet.create({
   label: { ...typography.label, fontWeight: '700' },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   starterActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  exerciseActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: spacing.xs },
   searchRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.sm },
   results: { maxHeight: 300, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control },
   result: { minHeight: 58, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
@@ -414,6 +516,7 @@ const styles = StyleSheet.create({
   targetValue: { fontWeight: '700', fontVariant: ['tabular-nums'] },
   cue: { ...typography.caption, fontWeight: '700' },
   reason: { padding: spacing.sm, borderRadius: radii.control },
+  notice: { padding: spacing.sm, borderRadius: radii.control, gap: spacing.xs },
   error: { padding: spacing.md, borderRadius: radii.control },
   pressed: { opacity: 0.72 },
   disabled: { opacity: 0.45 },
@@ -437,4 +540,13 @@ function formatPlanTime(value: string): string {
   if (!match) return value || 'Choose a time';
   const date = new Date(2000, 0, 1, Number(match[1]), Number(match[2]));
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date);
+}
+
+function formatSetCredits(value: number): string {
+  const amount = Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return `${amount} set credit${value === 1 ? '' : 's'}`;
+}
+
+function movementPatternLabel(value: string): string {
+  return value.replaceAll('_', ' ').replace(/^./, (character) => character.toLocaleUpperCase());
 }

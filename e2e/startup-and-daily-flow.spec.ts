@@ -48,6 +48,13 @@ test('routine starters adapt to saved equipment without inventing targets', asyn
   await expect(page.getByText('Machine Chest Press', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Machine Hip Thrust', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Choose load · 8–12 reps').first()).toBeVisible();
+  await expect(page.getByText('Draft muscle coverage')).toBeVisible();
+  await page.getByRole('button', { name: 'Move Machine Chest Press later' }).click();
+  await page.getByRole('button', { name: 'Swap Machine Hip Thrust' }).click();
+  await expect(page.getByText('Replacing Machine Hip Thrust')).toBeVisible();
+  await page.getByPlaceholder('Search exercise, muscle, or equipment').fill('Seated Leg Curl');
+  await page.getByRole('button', { name: /^Seated Leg Curl .*Add$/ }).click();
+  await expect(page.getByText('Seated Leg Curl', { exact: true }).last()).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
 

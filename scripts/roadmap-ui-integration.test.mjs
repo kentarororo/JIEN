@@ -46,6 +46,8 @@ test('Training separates overview from searchable history without dropping eithe
   assert.match(training, /Exercise targets/);
   assert.match(training, /NEXT WORKOUT/);
   assert.match(training, /buildMuscleGroupAdvisory/);
+  assert.match(training, /source: 'advisory'/);
+  assert.match(training, /Plan from this focus/);
   assert.match(training, /Muscle guidance uses set credits, not cross-exercise weight totals/);
   assert.match(today, /TRAINING FOCUS/);
   assert.match(today, /summary\.trainingAdvisory/);
@@ -92,8 +94,18 @@ test('Workout planning keeps repeat, scheduling, catalog, and save in one progre
   assert.match(workoutPlan, /Start from a routine/);
   assert.match(workoutPlan, /resolveRoutineStarter\(starter, catalog, availableEquipment\)/);
   assert.match(workoutPlan, /getLastExerciseSessionSets\(db, exercise\.id\)/);
+  assert.match(workoutPlan, /listVolumeHistory/);
+  assert.match(workoutPlan, /rankRoutineStarters/);
+  assert.match(workoutPlan, /CURRENT MUSCLE FOCUS/);
+  assert.match(workoutPlan, /Draft muscle coverage/);
+  assert.match(workoutPlan, /Replacing \{planned\[replacementIndex\]\.exerciseName\}/);
+  assert.match(workoutPlan, /moveExercise\(index, -1\)/);
+  assert.match(workoutPlan, /moveExercise\(index, 1\)/);
+  assert.match(workoutPlan, /Repeated movement patterns/);
   assert.match(routineStarters, /'push' \| 'pull' \| 'legs' \| 'upper' \| 'lower' \| 'full_body'/);
   assert.match(routineStarters, /exerciseEquipmentFamily/);
+  assert.match(routineStarters, /trainedWithin48Hours/);
+  assert.match(routineStarters, /summarizePlannedMuscleCredits/);
   assert.match(workoutPlan, /savePlannedWorkout/);
   assert.match(workoutPlan, /router\.replace/);
   assert.doesNotMatch(workoutPlan, /<ScreenHeading/, 'the native modal header is the sole level-one heading');

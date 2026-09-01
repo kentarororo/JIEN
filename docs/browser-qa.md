@@ -39,6 +39,7 @@ read-only observations unless a dedicated QA account is available.
 4. Run the full Node suite, typecheck, and `pnpm web:build`.
 5. After deployment, run a read-only startup and navigation smoke test on Vercel.
 
-The browser flow covers onboarding, one completed workout, set review, a manual meal,
-history, Settings, reload persistence, newer-tab SQLite handoff, mobile overflow and
-touch-target checks, and unhandled page errors across the supported browser projects.
+The browser flow covers onboarding, equipment-aware routine drafts, one completed
+workout, set review, a manual meal, history, Settings, reload persistence, newer-tab
+SQLite handoff, mobile overflow and touch-target checks, and unhandled page errors
+across the supported browser projects.

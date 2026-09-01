@@ -1,13 +1,32 @@
 import type { Exercise } from '../db/types.ts';
+import {
+  muscleGroupFamilyKey,
+  muscleGroupFamilyLabel,
+  type MuscleGroupCoverage,
+} from '../progression/index.ts';
 import { exerciseEquipmentFamily, type ExerciseEquipmentFilter } from '../training/exercise-catalog.ts';
 
-type RoutineStarterId = 'push' | 'pull' | 'legs' | 'upper' | 'lower' | 'full_body';
+export type RoutineStarterId = 'push' | 'pull' | 'legs' | 'upper' | 'lower' | 'full_body';
 
 export type RoutineStarter = {
   id: RoutineStarterId;
   label: string;
   sessionTitle: string;
   slots: ReadonlyArray<ReadonlyArray<string>>;
+};
+
+export type PlannedMuscleCredit = {
+  muscleGroup: string;
+  label: string;
+  setCredits: number;
+};
+
+export type RoutineStarterRecommendation = {
+  starter: RoutineStarter;
+  score: number;
+  matchedFocus: MuscleGroupCoverage[];
+  exercises: Exercise[];
+  reason: string;
 };
 
 const exerciseId = (suffix: number) => `10000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`;
@@ -70,6 +89,106 @@ export function resolveRoutineStarter(
   }
 
   return selected;
+}
+
+export function rankRoutineStarters(input: {
+  catalog: Exercise[];
+  availableEquipment?: string[];
+  focus: MuscleGroupCoverage[];
+}): RoutineStarterRecommendation[] {
+  const readyFocus = input.focus.filter((item) => item.remainingSetCredits > 0 && !item.trainedWithin48Hours);
+  if (!readyFocus.length) return [];
+
+  return ROUTINE_STARTERS.map((starter, starterIndex) => {
+    const exercises = resolveRoutineStarter(starter, input.catalog, input.availableEquipment);
+    const draftCredits = summarizeExerciseMuscleCredits(exercises.map((exercise) => ({ exercise, setCount: 3 })));
+    const byMuscle = new Map(draftCredits.map((item) => [item.muscleGroup, item.setCredits]));
+    const matchedFocus = readyFocus.filter((item) => (byMuscle.get(muscleGroupFamilyKey(item.muscleGroup)) ?? 0) > 0);
+    const score = matchedFocus.reduce((total, item) => total + Math.min(
+      item.remainingSetCredits,
+      byMuscle.get(muscleGroupFamilyKey(item.muscleGroup)) ?? 0,
+    ), 0);
+    return {
+      starter,
+      score: roundCredit(score),
+      matchedFocus,
+      exercises,
+      reason: routineStarterReason(starter, matchedFocus),
+      starterIndex,
+    };
+  }).filter((item) => item.score > 0 && item.exercises.length >= 2)
+    .sort((left, right) => right.score - left.score
+      || right.matchedFocus.length - left.matchedFocus.length
+      || left.starterIndex - right.starterIndex)
+    .map(({ starterIndex: _starterIndex, ...item }) => item);
+}
+
+export function summarizePlannedMuscleCredits(
+  planned: Array<{ exerciseId: string; setCount: number }>,
+  catalog: Exercise[],
+): PlannedMuscleCredit[] {
+  const byId = new Map(catalog.map((exercise) => [exercise.id, exercise]));
+  return summarizeExerciseMuscleCredits(planned.flatMap((item) => {
+    const exercise = byId.get(item.exerciseId);
+    return exercise && item.setCount > 0 ? [{ exercise, setCount: item.setCount }] : [];
+  }));
+}
+
+export function repeatedMovementPatterns(
+  exerciseIds: string[],
+  catalog: Exercise[],
+): Array<{ movementPattern: string; count: number }> {
+  const selected = new Set(exerciseIds);
+  const counts = new Map<string, number>();
+  for (const exercise of catalog) {
+    if (!selected.has(exercise.id)) continue;
+    counts.set(exercise.movementPattern, (counts.get(exercise.movementPattern) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([movementPattern, count]) => ({ movementPattern, count }))
+    .sort((left, right) => right.count - left.count || left.movementPattern.localeCompare(right.movementPattern));
+}
+
+function summarizeExerciseMuscleCredits(
+  entries: Array<{ exercise: Exercise; setCount: number }>,
+): PlannedMuscleCredit[] {
+  const credits = new Map<string, number>();
+  for (const { exercise, setCount } of entries) {
+    const primary = muscleGroupFamilyKey(exercise.primaryMuscleGroup);
+    const secondary = [...new Set(exercise.secondaryMuscleGroups.map(muscleGroupFamilyKey))]
+      .filter((group) => group !== primary);
+    credits.set(primary, (credits.get(primary) ?? 0) + setCount);
+    for (const group of secondary) credits.set(group, (credits.get(group) ?? 0) + setCount * 0.5);
+  }
+  return [...credits.entries()]
+    .map(([muscleGroup, setCredits]) => ({
+      muscleGroup,
+      label: muscleGroupFamilyLabel(muscleGroup),
+      setCredits: roundCredit(setCredits),
+    }))
+    .sort((left, right) => right.setCredits - left.setCredits || left.label.localeCompare(right.label));
+}
+
+function routineStarterReason(starter: RoutineStarter, focus: MuscleGroupCoverage[]): string {
+  const visible = focus.slice(0, 3);
+  const names = formatList(visible.map((item) => item.label));
+  const gaps = formatList(visible.map((item) => `${formatCredit(item.remainingSetCredits)} ${item.label.toLocaleLowerCase()}`));
+  return `${starter.label} covers ${names}. Current coverage is below the usual week by ${gaps}. Exercise choices use the equipment saved in your profile.`;
+}
+
+function formatList(values: string[]): string {
+  if (values.length <= 1) return values[0] ?? 'the current focus';
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values[0]}, ${values[1]}, and ${values[2]}`;
+}
+
+function formatCredit(value: number): string {
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} set credit${value === 1 ? '' : 's'} for`;
+}
+
+function roundCredit(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 function normalizeEquipmentPreferences(values: string[]): Set<ExerciseEquipmentFilter> {

@@ -61,6 +61,13 @@ accepted only after the isolated browser loop in [browser-qa.md](browser-qa.md) 
 including real IndexedDB persistence, newer-tab handoff, supported widths, light/dark
 visual baselines, and programmatic form labels.
 
+### Alpha 2.2 advisory-to-plan gate
+
+The next-workout card opens an equipment-aware draft matched to current ready muscle
+gaps. The planner states why the routine matches, previews set-credit coverage, and
+keeps ordering, swaps, targets, and saving under explicit user control. The visual
+hierarchy must keep the current focus ahead of generic routine and catalogue options.
+
 ## Acceptance bar
 
 - no horizontal overflow at 360, 390, 768, or 1280 CSS pixels;

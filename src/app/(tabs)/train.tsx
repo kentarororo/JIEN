@@ -69,7 +69,7 @@ export default function TrainScreen() {
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
       {trainingView === 'overview' ? <>
-      {data ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push('/workouts/plan' as never)} onLog={() => router.push('/workouts/new')} /> : null}
+      {data ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'advisory' } } as never)} onLog={() => router.push('/workouts/new')} /> : null}
       {data?.planned.length ? <>
         <SectionHeading title="Upcoming" detail={`${data.planned.length} planned session${data.planned.length === 1 ? '' : 's'}`} />
         <View style={styles.list}>{data.planned.map((workout) => (
@@ -364,7 +364,7 @@ function MuscleAdvisoryCard({ advisory, onPlan, onLog }: { advisory: MuscleGroup
         ))}
       </View> : null}
       <View style={styles.trainingTools}>
-        <Button label="Plan next workout" onPress={onPlan} variant="secondary" />
+        <Button label={advisory.status === 'focus' ? 'Plan from this focus' : 'Plan next workout'} onPress={onPlan} variant="secondary" />
         <Button label="Log workout" onPress={onLog} variant="quiet" />
       </View>
       <AppText style={[styles.chartNote, { color: colors.textMuted }]}>Muscle guidance uses set credits, not cross-exercise weight totals. Primary targets count 1.0 and assisting targets 0.5.</AppText>

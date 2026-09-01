@@ -66,6 +66,15 @@ The 48-hour rule is a conservative prioritization heuristic, not a declaration t
 a muscle is or is not physiologically recovered. The interface tells the user to use
 current soreness, joint status, and recovery before repeating recent work.
 
+## Advisory-to-plan handoff
+
+When ready gaps exist, workout planning scores each lifting routine by the gap credits
+its equipment-compatible exercises would cover. Recently trained gaps are excluded.
+The highest match appears first with its exact rationale, but using it remains an
+explicit action. The resulting draft reads only same-exercise history for load and rep
+targets, previews its planned muscle credits, and remains editable and unsaved until
+the user confirms it.
+
 ## Recording integrity
 
 Every saved set snapshots its primary and assisting muscle targets. Editing an
