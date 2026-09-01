@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, Field, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getWorkoutProgressComparison, listRecentWorkouts, listUpcomingPlannedWorkouts, listVolumeHistory } from '@/lib/db';
-import { aggregateWeeklyVolume, buildMuscleGroupTrends, detectDeloadSignal, muscleGroupLabel, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
+import { aggregateWeeklyVolume, buildMuscleGroupAdvisory, buildMuscleGroupTrends, muscleGroupLabel, type MuscleGroupAdvisory, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { filterWorkoutHistory, groupWorkoutHistoryByMonth } from '@/lib/training/history';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -33,9 +33,9 @@ export default function TrainScreen() {
       workouts,
       planned,
       weeks,
+      advisory: buildMuscleGroupAdvisory(volumeSets),
       muscleTrends: buildMuscleGroupTrends(weeks),
       progress,
-      signal: detectDeloadSignal(weeks.map((week) => week.totalKg)),
     };
   }, [db]);
   const { data, error, loading, reload } = useScreenData(loader);
@@ -69,6 +69,7 @@ export default function TrainScreen() {
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
       {trainingView === 'overview' ? <>
+      {data ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push('/workouts/plan' as never)} onLog={() => router.push('/workouts/new')} /> : null}
       {data?.planned.length ? <>
         <SectionHeading title="Upcoming" detail={`${data.planned.length} planned session${data.planned.length === 1 ? '' : 's'}`} />
         <View style={styles.list}>{data.planned.map((workout) => (
@@ -82,7 +83,7 @@ export default function TrainScreen() {
       </> : null}
       {data?.progress ? (
         <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-          <AppText style={[styles.kicker, { color: colors.accent }]}>WORKOUT PROGRESS</AppText>
+          <AppText style={[styles.kicker, { color: colors.accent }]}>LATEST EXERCISE CHECK</AppText>
           {data.progress.overallChangePercent == null ? (
             <>
               <AppText style={styles.progressValue}>Baseline saved</AppText>
@@ -93,7 +94,7 @@ export default function TrainScreen() {
               <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}> 
                 {formatPercent(data.progress.overallChangePercent)}
               </AppText>
-              <AppText style={{ color: colors.textMuted }}>Compared with each exercise’s previous matching session · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} exercises up</AppText>
+              <AppText style={{ color: colors.textMuted }}>Load × reps versus each exercise’s previous matching session · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} repeated exercises up</AppText>
               <View style={styles.comparisonGrid}>
                 <View style={[styles.comparisonMetric, { backgroundColor: colors.surfaceRaised }]}> 
                   <AppText style={[styles.comparisonLabel, { color: colors.textMuted }]}>Previous matching work</AppText>
@@ -133,14 +134,13 @@ export default function TrainScreen() {
       ) : null}
       {data?.weeks.at(-1) ? (
         <Card>
-          <View style={styles.row}><View><AppText style={styles.title}>Weekly training work</AppText><AppText style={{ color: colors.textMuted }}>{formatWork(data.weeks.at(-1)!.totalKg)} this logged week</AppText></View></View>
+          <View style={styles.row}><View><AppText style={styles.title}>Load and rep detail</AppText><AppText style={{ color: colors.textMuted }}>{formatWork(data.weeks.at(-1)!.totalKg)} this logged week</AppText></View></View>
           <WeeklyWorkTrend weeks={data.weeks} />
-          {data.signal.kind !== 'none' ? <AppText style={{ color: colors.warning }}>{data.signal.message}</AppText> : null}
           <AppText style={[styles.chartNote, { color: colors.textMuted }]}>This is completed working-set load × reps, not a strength or muscle-growth score.</AppText>
         </Card>
       ) : null}
       {data?.muscleTrends.length ? <>
-        <SectionHeading title="Body-part workload" detail="Latest logged week versus the previous logged week" />
+        <SectionHeading title="Muscle-group coverage" detail="Completed working-set credits by muscle" />
         <Card>
           <View style={styles.muscleGrid}>
             {(showAllMuscles ? data.muscleTrends : data.muscleTrends.slice(0, 6)).map((trend) => (
@@ -148,7 +148,7 @@ export default function TrainScreen() {
             ))}
           </View>
           {data.muscleTrends.length > 6 ? <Button label={showAllMuscles ? 'Show main areas' : `Show all ${data.muscleTrends.length} areas`} onPress={() => setShowAllMuscles((value) => !value)} variant="quiet" /> : null}
-          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>One primary working set counts as 1.0; each tagged assisting muscle counts as 0.5. Work change is load × reps within that body part—not measured muscle growth.</AppText>
+          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>One primary working set counts as 1.0; each tagged assisting muscle counts as 0.5. Exercise angles stay in the log, while related regions are pooled only in the next-workout focus.</AppText>
           <Button label="Explain this month" onPress={() => router.push({ pathname: '/wellness', params: { trainingReview: '1' } } as never)} variant="secondary" />
         </Card>
       </> : null}
@@ -203,6 +203,10 @@ const styles = StyleSheet.create({
   title: { ...typography.bodyLarge, fontWeight: '700', flex: 1 },
   flex: { flex: 1 },
   progressCard: { padding: spacing.lg },
+  advisoryCard: { padding: spacing.lg, gap: spacing.sm },
+  advisoryTitle: { ...typography.title, fontWeight: '800', letterSpacing: -0.4 },
+  advisoryFocus: { gap: spacing.xxs },
+  advisoryRow: { minHeight: 56, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.xs },
   kicker: { ...typography.caption, fontWeight: '800', letterSpacing: 0.6 },
   progressValue: { ...typography.display, fontWeight: '800', letterSpacing: -0.7 },
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
@@ -268,14 +272,14 @@ function MuscleTrendCard({ trend, recentWeekCount }: { trend: MuscleGroupTrend; 
           <ProgressBar value={trend.currentSetEquivalents / maximumSets} color={tone} />
         </View>
       </View>
-      <AppText style={{ color: colors.textMuted }}>{trend.workChangePercent == null ? 'New work baseline' : `${formatPercent(trend.workChangePercent)} work versus prior logged week`}</AppText>
+      <AppText style={{ color: colors.textMuted }}>{trend.setChangePercent == null ? 'New set baseline' : `${formatPercent(trend.setChangePercent)} set credits versus prior logged week`}</AppText>
     </View>
   );
 }
 
 function muscleStatusLabel(trend: MuscleGroupTrend): string {
   if (trend.status === 'new') return 'New baseline';
-  if (trend.status === 'up') return 'More work';
+  if (trend.status === 'up') return 'More sets';
   if (trend.status === 'down') return 'Down 20%+';
   if (trend.status === 'inactive') return 'Not this week';
   if (trend.status === 'partial') return 'Week in progress';
@@ -328,4 +332,48 @@ function formatHistoryMonth(value: string): string {
   const [year, month] = value.split('-').map(Number);
   if (!year || !month) return value;
   return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+}
+
+function MuscleAdvisoryCard({ advisory, onPlan, onLog }: { advisory: MuscleGroupAdvisory; onPlan: () => void; onLog: () => void }) {
+  const { colors } = useJienTheme();
+  const headline = advisory.status === 'focus'
+    ? `Focus next on ${formatFocusNames(advisory.focus.map((item) => item.label))}`
+    : advisory.status === 'recovery'
+      ? 'Your largest coverage gaps were trained recently'
+      : advisory.status === 'covered'
+        ? 'Usual weekly muscle coverage reached'
+        : 'Complete another training week to establish your usual coverage';
+  const detail = advisory.status === 'focus'
+    ? `These muscles are furthest below your ${advisory.baselineWeekCount}-week set-credit average and were not trained in the last 48 hours.`
+    : advisory.status === 'recovery'
+      ? 'Use your current soreness, joint status, and recovery before repeating them. No load or set change is applied automatically.'
+      : advisory.status === 'covered'
+        ? `Every recently trained muscle is at or above its ${advisory.baselineWeekCount}-week set-credit average.`
+        : 'The guidance needs at least one completed calendar week. Exercise-specific load and rep suggestions remain available now.';
+  return (
+    <Card style={[styles.advisoryCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+      <AppText style={[styles.kicker, { color: colors.accent }]}>NEXT WORKOUT</AppText>
+      <AppText style={styles.advisoryTitle}>{headline}</AppText>
+      <AppText style={{ color: colors.textMuted }}>{detail}</AppText>
+      {advisory.focus.length ? <View style={styles.advisoryFocus}>
+        {advisory.focus.map((item) => (
+          <View key={item.muscleGroup} style={[styles.advisoryRow, { borderTopColor: colors.border }]}>
+            <View style={styles.flex}><AppText style={{ fontWeight: '700' }}>{item.label}</AppText><AppText style={{ color: colors.textMuted }}>{formatSetEquivalents(item.currentSetCredits)} this week · {formatSetEquivalents(item.baselineSetCredits)} usual</AppText></View>
+            <AppText style={{ color: item.trainedWithin48Hours ? colors.warning : colors.accent, fontWeight: '700' }}>{item.trainedWithin48Hours ? 'Trained recently' : `${formatSetEquivalents(item.remainingSetCredits)} sets behind`}</AppText>
+          </View>
+        ))}
+      </View> : null}
+      <View style={styles.trainingTools}>
+        <Button label="Plan next workout" onPress={onPlan} variant="secondary" />
+        <Button label="Log workout" onPress={onLog} variant="quiet" />
+      </View>
+      <AppText style={[styles.chartNote, { color: colors.textMuted }]}>Muscle guidance uses set credits, not cross-exercise weight totals. Primary targets count 1.0 and assisting targets 0.5.</AppText>
+    </Card>
+  );
+}
+
+function formatFocusNames(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? 'your usual muscle groups';
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels[0]}, ${labels[1]}, and ${labels[2]}`;
 }

@@ -1,3 +1,5 @@
+import type { MuscleGroupAdvisory } from '@/lib/progression';
+
 export type LoadUnit = 'kg' | 'lb';
 export type SetKind = 'working' | 'warmup' | 'drop' | 'failure';
 export type WorkoutStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
@@ -407,6 +409,7 @@ export type DashboardSummary = {
   weeklyVolumeKg: number;
   latestWorkout: WorkoutSummary | null;
   workoutProgress: WorkoutProgressComparison | null;
+  trainingAdvisory: MuscleGroupAdvisory;
   latestBodyMeasurement: BodyMeasurement | null;
   nutrition: DailyNutrition;
 };

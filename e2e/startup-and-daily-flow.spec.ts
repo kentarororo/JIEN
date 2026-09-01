@@ -64,6 +64,8 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
     await loads.nth(index).fill('20');
     await reps.nth(index).fill('10');
   }
+  await expect(page.getByText('This session’s muscle coverage')).toBeVisible();
+  await expect(page.getByText('Quadriceps · 3 set credits')).toBeVisible();
   await page.getByRole('button', { name: /Complete sets for Goblet Squat/ }).click();
   await page.getByRole('button', { name: 'Save completed workout' }).click();
   await expect(page.getByRole('heading', { name: 'Workout', exact: true })).toBeVisible();
@@ -80,6 +82,8 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
 
   await page.getByRole('tab', { name: 'Train' }).click();
+  await expect(page.getByText('NEXT WORKOUT', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Muscle guidance uses set credits/)).toBeVisible();
   await page.getByRole('button', { name: /History/ }).click();
   await expect(page.getByRole('link', { name: /Open Browser QA strength from/ })).toBeVisible();
   await expectNoHorizontalOverflow(page);

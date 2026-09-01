@@ -1,11 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { startOfIsoWeek, toLocalDateKey } from '@/lib/time';
-import { normalizeMuscleGroupKey } from '@/lib/progression';
+import { buildMuscleGroupAdvisory, normalizeMuscleGroupKey } from '@/lib/progression';
 
 import { getDailyNutrition } from './nutrition';
 import { getLatestBodyMeasurement } from './wellness';
-import { getWorkoutProgressComparison } from './workouts';
+import { getWorkoutProgressComparison, listVolumeHistory } from './workouts';
 import type { DashboardSummary, WorkoutStatus, WorkoutSummary } from './types';
 
 export async function getDashboardSummary(db: SQLiteDatabase): Promise<DashboardSummary> {
@@ -40,7 +40,7 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
     `SELECT w.id, w.title, w.performed_on, w.started_at, w.completed_at, w.status,
       COUNT(s.id) AS set_count, COUNT(DISTINCT s.exercise_id) AS exercise_count,
       GROUP_CONCAT(DISTINCT e.name) AS exercise_names,
-      GROUP_CONCAT(DISTINCT e.primary_muscle_group) AS muscle_groups,
+      GROUP_CONCAT(DISTINCT COALESCE(s.primary_muscle_group, e.primary_muscle_group)) AS muscle_groups,
       COALESCE(SUM(CASE WHEN s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
         ELSE s.load_value * s.reps END), 0) AS total_volume_kg
      FROM workouts w
@@ -68,11 +68,13 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
       }
     : null;
 
+  const volumeHistory = await listVolumeHistory(db);
   return {
     workoutCountThisWeek: workoutRow?.workout_count ?? 0,
     weeklyVolumeKg: workoutRow?.volume_kg ?? 0,
     latestWorkout,
     workoutProgress: await getWorkoutProgressComparison(db, latestWorkout?.id),
+    trainingAdvisory: buildMuscleGroupAdvisory(volumeHistory),
     latestBodyMeasurement: await getLatestBodyMeasurement(db),
     nutrition: await getDailyNutrition(db),
   };

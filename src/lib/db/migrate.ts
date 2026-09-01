@@ -4,19 +4,19 @@ import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 
-export const LATEST_DATABASE_VERSION = 13;
+export const LATEST_DATABASE_VERSION = 14;
 
-const DEFAULT_EXERCISES = [
+export const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000002', 'Lat Pulldown', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'cable', 8, 12, 2.5],
-  ['10000000-0000-4000-8000-000000000003', 'Seated Cable Row', 'horizontal_pull', 'upper_back', '["lats","biceps"]', 'cable', 8, 12, 2.5],
-  ['10000000-0000-4000-8000-000000000004', 'Machine Shoulder Press', 'vertical_push', 'shoulders', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000003', 'Seated Cable Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'cable', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000004', 'Machine Shoulder Press', 'vertical_push', 'front_delts', '["triceps","side_delts"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000005', 'Cable Lateral Raise', 'shoulder_abduction', 'side_delts', '[]', 'cable', 10, 15, 1.25],
-  ['10000000-0000-4000-8000-000000000006', 'Reverse Pec Deck', 'horizontal_abduction', 'rear_delts', '["upper_back"]', 'machine', 12, 20, 2.5],
-  ['10000000-0000-4000-8000-000000000007', 'Leg Press', 'knee_dominant', 'quads', '["glutes"]', 'machine', 8, 12, 5],
+  ['10000000-0000-4000-8000-000000000006', 'Reverse Pec Deck', 'horizontal_abduction', 'rear_delts', '["middle_traps","rhomboids"]', 'machine', 12, 20, 2.5],
+  ['10000000-0000-4000-8000-000000000007', 'Leg Press', 'knee_dominant', 'quads', '["glutes","adductors"]', 'machine', 8, 12, 5],
   ['10000000-0000-4000-8000-000000000008', 'Seated Leg Curl', 'knee_flexion', 'hamstrings', '[]', 'machine', 10, 15, 2.5],
   ['10000000-0000-4000-8000-000000000009', 'Cable Pull-through', 'hip_hinge', 'glutes', '["hamstrings"]', 'cable', 10, 15, 2.5],
-  ['10000000-0000-4000-8000-000000000010', 'Cable Crunch', 'spinal_flexion', 'core', '[]', 'cable', 12, 20, 2.5],
+  ['10000000-0000-4000-8000-000000000010', 'Cable Crunch', 'spinal_flexion', 'abs', '[]', 'cable', 12, 20, 2.5],
   ['10000000-0000-4000-8000-000000000011', 'Pallof Press', 'anti_rotation', 'core', '[]', 'cable', 10, 15, 1.25],
   ['10000000-0000-4000-8000-000000000012', 'Cable Curl', 'elbow_flexion', 'biceps', '[]', 'cable', 10, 15, 1.25],
   ['10000000-0000-4000-8000-000000000013', 'Rope Pressdown', 'elbow_extension', 'triceps', '[]', 'cable', 10, 15, 1.25],
@@ -26,42 +26,42 @@ const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000017', 'Incline Machine Chest Press', 'incline_push', 'upper_chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000018', 'Assisted Dip', 'vertical_push', 'triceps', '["chest"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000019', 'Neutral-grip Lat Pulldown', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'cable', 8, 12, 2.5],
-  ['10000000-0000-4000-8000-000000000020', 'Chest-supported Machine Row', 'horizontal_pull', 'upper_back', '["lats","biceps"]', 'machine', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000020', 'Chest-supported Machine Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000021', 'Single-arm Cable Row', 'horizontal_pull', 'lats', '["upper_back","biceps"]', 'cable', 8, 12, 1.25],
   ['10000000-0000-4000-8000-000000000022', 'Machine High Row', 'diagonal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000023', 'Straight-arm Pulldown', 'shoulder_extension', 'lats', '[]', 'cable', 10, 15, 1.25],
   ['10000000-0000-4000-8000-000000000024', 'Machine Lateral Raise', 'shoulder_abduction', 'side_delts', '[]', 'machine', 10, 15, 2.5],
-  ['10000000-0000-4000-8000-000000000025', 'Cable Rear-delt Fly', 'horizontal_abduction', 'rear_delts', '["upper_back"]', 'cable', 12, 20, 1.25],
-  ['10000000-0000-4000-8000-000000000026', 'Rope Face Pull', 'horizontal_abduction', 'rear_delts', '["upper_back","external_rotators"]', 'cable', 12, 20, 1.25],
+  ['10000000-0000-4000-8000-000000000025', 'Cable Rear-delt Fly', 'horizontal_abduction', 'rear_delts', '["middle_traps","rhomboids"]', 'cable', 12, 20, 1.25],
+  ['10000000-0000-4000-8000-000000000026', 'Rope Face Pull', 'horizontal_abduction', 'rear_delts', '["middle_traps","lower_traps","rotator_cuff"]', 'cable', 12, 20, 1.25],
   ['10000000-0000-4000-8000-000000000027', 'Leg Extension', 'knee_extension', 'quads', '[]', 'machine', 10, 15, 2.5],
   ['10000000-0000-4000-8000-000000000028', 'Lying Leg Curl', 'knee_flexion', 'hamstrings', '[]', 'machine', 10, 15, 2.5],
-  ['10000000-0000-4000-8000-000000000029', 'Hack Squat', 'knee_dominant', 'quads', '["glutes"]', 'machine', 8, 12, 5],
-  ['10000000-0000-4000-8000-000000000030', 'Smith Machine Squat', 'knee_dominant', 'quads', '["glutes"]', 'smith_machine', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000029', 'Hack Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'machine', 8, 12, 5],
+  ['10000000-0000-4000-8000-000000000030', 'Smith Machine Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'smith_machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000031', 'Machine Hip Thrust', 'hip_extension', 'glutes', '["hamstrings"]', 'machine', 8, 12, 5],
   ['10000000-0000-4000-8000-000000000032', 'Cable Glute Kickback', 'hip_extension', 'glutes', '[]', 'cable', 10, 15, 1.25],
-  ['10000000-0000-4000-8000-000000000033', 'Hip Abduction Machine', 'hip_abduction', 'glutes', '[]', 'machine', 12, 20, 2.5],
+  ['10000000-0000-4000-8000-000000000033', 'Hip Abduction Machine', 'hip_abduction', 'hip_abductors', '["glutes"]', 'machine', 12, 20, 2.5],
   ['10000000-0000-4000-8000-000000000034', 'Hip Adduction Machine', 'hip_adduction', 'adductors', '[]', 'machine', 12, 20, 2.5],
   ['10000000-0000-4000-8000-000000000035', 'Seated Calf Raise', 'plantar_flexion', 'calves', '[]', 'machine', 10, 15, 2.5],
   ['10000000-0000-4000-8000-000000000036', 'Machine Preacher Curl', 'elbow_flexion', 'biceps', '[]', 'machine', 10, 15, 2.5],
-  ['10000000-0000-4000-8000-000000000037', 'Rope Hammer Curl', 'elbow_flexion', 'biceps', '["forearms"]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000037', 'Rope Hammer Curl', 'elbow_flexion', 'brachialis', '["biceps","forearms"]', 'cable', 10, 15, 1.25],
   ['10000000-0000-4000-8000-000000000038', 'Overhead Cable Triceps Extension', 'elbow_extension', 'triceps', '[]', 'cable', 10, 15, 1.25],
   ['10000000-0000-4000-8000-000000000039', 'Machine Triceps Dip', 'elbow_extension', 'triceps', '["chest"]', 'machine', 8, 12, 2.5],
-  ['10000000-0000-4000-8000-000000000040', 'Ab Crunch Machine', 'spinal_flexion', 'core', '[]', 'machine', 12, 20, 2.5],
-  ['10000000-0000-4000-8000-000000000041', 'Hanging Knee Raise', 'hip_flexion', 'core', '[]', 'bodyweight', 12, 20, 1],
+  ['10000000-0000-4000-8000-000000000040', 'Ab Crunch Machine', 'spinal_flexion', 'abs', '[]', 'machine', 12, 20, 2.5],
+  ['10000000-0000-4000-8000-000000000041', 'Hanging Knee Raise', 'hip_flexion', 'hip_flexors', '["abs"]', 'bodyweight', 12, 20, 1],
   ['10000000-0000-4000-8000-000000000042', 'Back Extension', 'hip_hinge', 'lower_back', '["glutes","hamstrings"]', 'bodyweight', 10, 15, 2.5],
   ['10000000-0000-4000-8000-000000000043', 'Dumbbell Bench Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'dumbbell', 8, 12, 2],
   ['10000000-0000-4000-8000-000000000044', 'One-arm Dumbbell Row', 'horizontal_pull', 'lats', '["upper_back","biceps"]', 'dumbbell', 8, 12, 2],
-  ['10000000-0000-4000-8000-000000000045', 'Goblet Squat', 'knee_dominant', 'quads', '["glutes"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000045', 'Goblet Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'dumbbell', 8, 12, 2],
   ['10000000-0000-4000-8000-000000000046', 'Dumbbell Romanian Deadlift', 'hip_hinge', 'hamstrings', '["glutes","lower_back"]', 'dumbbell', 8, 12, 2],
-  ['10000000-0000-4000-8000-000000000047', 'Push-up', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'bodyweight', 8, 15, 1],
+  ['10000000-0000-4000-8000-000000000047', 'Push-up', 'horizontal_push', 'chest', '["triceps","front_delts","serratus_anterior"]', 'bodyweight', 8, 15, 1],
   ['10000000-0000-4000-8000-000000000048', 'Assisted Pull-up', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000049', 'Cable External Rotation', 'external_rotation', 'rotator_cuff', '["rear_delts"]', 'cable', 12, 20, 0.5],
-  ['10000000-0000-4000-8000-000000000050', 'Cable Wood Chop', 'rotation', 'core', '[]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000050', 'Cable Wood Chop', 'rotation', 'obliques', '["abs"]', 'cable', 10, 15, 1.25],
   ['10000000-0000-4000-8000-000000000051', 'Dumbbell Shrug', 'scapular_elevation', 'upper_traps', '["forearms"]', 'dumbbell', 8, 15, 2],
   ['10000000-0000-4000-8000-000000000052', 'Prone Y Raise', 'scapular_upward_rotation', 'lower_traps', '["rotator_cuff","rear_delts"]', 'dumbbell', 12, 20, 1],
   ['10000000-0000-4000-8000-000000000053', 'Chest-supported Rear Row', 'scapular_retraction', 'middle_traps', '["rhomboids","rear_delts"]', 'dumbbell', 10, 15, 2],
   ['10000000-0000-4000-8000-000000000054', 'Tibialis Raise', 'dorsiflexion', 'tibialis_anterior', '[]', 'bodyweight', 12, 25, 1],
-  ['10000000-0000-4000-8000-000000000055', 'Cable Serratus Punch', 'scapular_protraction', 'serratus_anterior', '["chest"]', 'cable', 12, 20, 1.25],
+  ['10000000-0000-4000-8000-000000000055', 'Cable Serratus Punch', 'scapular_protraction', 'serratus_anterior', '[]', 'cable', 12, 20, 1.25],
   ['10000000-0000-4000-8000-000000000056', 'Standing Cable Hip Flexion', 'hip_flexion', 'hip_flexors', '["abs"]', 'cable', 10, 15, 1.25],
 ] as const;
 
@@ -146,6 +146,8 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       load_value REAL NOT NULL,
       load_unit TEXT NOT NULL DEFAULT 'kg',
       rpe REAL,
+      primary_muscle_group TEXT,
+      secondary_muscle_groups TEXT,
       completed_at TEXT NOT NULL,
       notes TEXT,
       created_at TEXT NOT NULL,
@@ -542,6 +544,68 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         );
       }
       await db.execAsync('PRAGMA user_version = 13;');
+    });
+  }
+
+  if (currentVersion < 14) {
+    const exerciseNow = new Date().toISOString();
+    await addColumnIfMissing(db, 'workout_sets', 'primary_muscle_group', 'TEXT');
+    await addColumnIfMissing(db, 'workout_sets', 'secondary_muscle_groups', 'TEXT');
+    await withExclusiveTransaction(db, async (db) => {
+      await db.runAsync(`UPDATE workout_sets
+        SET primary_muscle_group = COALESCE(primary_muscle_group, (
+              SELECT primary_muscle_group FROM exercises WHERE exercises.id = workout_sets.exercise_id
+            )),
+            secondary_muscle_groups = COALESCE(secondary_muscle_groups, (
+              SELECT secondary_muscle_groups FROM exercises WHERE exercises.id = workout_sets.exercise_id
+            ))
+        WHERE primary_muscle_group IS NULL OR secondary_muscle_groups IS NULL`);
+      const pendingSetRows = await db.getAllAsync<{
+        queue_id: string;
+        payload_json: string;
+        primary_muscle_group: string | null;
+        secondary_muscle_groups: string | null;
+      }>(`SELECT queue.id AS queue_id, queue.payload_json,
+          workout_sets.primary_muscle_group, workout_sets.secondary_muscle_groups
+        FROM sync_queue AS queue
+        JOIN workout_sets ON workout_sets.id = queue.entity_id
+        WHERE queue.table_name = 'sets'`);
+      for (const row of pendingSetRows) {
+        try {
+          const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+          payload.primary_muscle_group = row.primary_muscle_group;
+          payload.secondary_muscle_groups = row.secondary_muscle_groups
+            ? JSON.parse(row.secondary_muscle_groups) as string[]
+            : [];
+          await db.runAsync('UPDATE sync_queue SET payload_json = ? WHERE id = ?', [JSON.stringify(payload), row.queue_id]);
+        } catch {
+          // Leave malformed legacy queue entries available for the existing sync inspector.
+        }
+      }
+      const revisions = [
+        ['10000000-0000-4000-8000-000000000003', 'upper_back', '["lats","biceps","rear_delts"]'],
+        ['10000000-0000-4000-8000-000000000004', 'front_delts', '["triceps","side_delts"]'],
+        ['10000000-0000-4000-8000-000000000006', 'rear_delts', '["middle_traps","rhomboids"]'],
+        ['10000000-0000-4000-8000-000000000007', 'quads', '["glutes","adductors"]'],
+        ['10000000-0000-4000-8000-000000000010', 'abs', '[]'],
+        ['10000000-0000-4000-8000-000000000020', 'upper_back', '["lats","biceps","rear_delts"]'],
+        ['10000000-0000-4000-8000-000000000025', 'rear_delts', '["middle_traps","rhomboids"]'],
+        ['10000000-0000-4000-8000-000000000029', 'quads', '["glutes","adductors"]'],
+        ['10000000-0000-4000-8000-000000000030', 'quads', '["glutes","adductors"]'],
+        ['10000000-0000-4000-8000-000000000040', 'abs', '[]'],
+        ['10000000-0000-4000-8000-000000000045', 'quads', '["glutes","adductors"]'],
+        ['10000000-0000-4000-8000-000000000047', 'chest', '["triceps","front_delts","serratus_anterior"]'],
+        ['10000000-0000-4000-8000-000000000050', 'obliques', '["abs"]'],
+        ['10000000-0000-4000-8000-000000000055', 'serratus_anterior', '[]'],
+      ] as const;
+      for (const [id, primary, secondary] of revisions) {
+        await db.runAsync(
+          `UPDATE exercises SET primary_muscle_group = ?, secondary_muscle_groups = ?,
+            updated_at = ?, client_updated_at = ? WHERE id = ?`,
+          [primary, secondary, exerciseNow, exerciseNow, id],
+        );
+      }
+      await db.execAsync('PRAGMA user_version = 14;');
     });
   }
 }

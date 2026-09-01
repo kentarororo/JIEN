@@ -12,6 +12,8 @@ const workoutLogger = readFileSync(new URL('../src/app/workouts/new.tsx', import
 const mealLogger = readFileSync(new URL('../src/app/meals/new.tsx', import.meta.url), 'utf8');
 const settings = readFileSync(new URL('../src/app/(tabs)/settings.tsx', import.meta.url), 'utf8');
 const privateFood = readFileSync(new URL('../src/lib/db/private-food.ts', import.meta.url), 'utf8');
+const progression = readFileSync(new URL('../src/lib/progression/index.ts', import.meta.url), 'utf8');
+const workoutRepository = readFileSync(new URL('../src/lib/db/workouts.ts', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/components/ui.tsx', import.meta.url), 'utf8');
 
 test('Today is week-first while preserving the month and day workspace', () => {
@@ -40,6 +42,28 @@ test('Training separates overview from searchable history without dropping eithe
   assert.match(training, /trainingView === 'history'/);
   assert.match(training, /Find a workout or exercise/);
   assert.match(training, /Exercise targets/);
+  assert.match(training, /NEXT WORKOUT/);
+  assert.match(training, /buildMuscleGroupAdvisory/);
+  assert.match(training, /Muscle guidance uses set credits, not cross-exercise weight totals/);
+  assert.match(today, /TRAINING FOCUS/);
+  assert.match(today, /summary\.trainingAdvisory/);
+});
+
+test('Muscle guidance uses personal set-credit coverage while exercise overload remains specific', () => {
+  assert.match(progression, /export function buildMuscleGroupAdvisory/);
+  assert.match(progression, /baselineWeeks\.reduce/);
+  assert.match(progression, /trainedWithin48Hours/);
+  assert.match(progression, /muscleGroupFamilyKey/);
+  assert.match(progression, /buildSetProgressionPlan/);
+  assert.match(workoutLogger, /This session’s muscle coverage/);
+  assert.match(workoutLogger, /summarizeDraftMuscleCredits/);
+});
+
+test('Recorded sets snapshot muscle targets so exercise edits do not rewrite history', () => {
+  assert.match(workoutRepository, /primary_muscle_group: normalizeMuscleGroupKey\(entry\.exercise\.primaryMuscleGroup\)/);
+  assert.match(workoutRepository, /secondary_muscle_groups: \[\.\.\.new Set\(entry\.exercise\.secondaryMuscleGroups/);
+  assert.match(workoutRepository, /COALESCE\(s\.primary_muscle_group, e\.primary_muscle_group\)/);
+  assert.match(workoutRepository, /COALESCE\(s\.secondary_muscle_groups, e\.secondary_muscle_groups\)/);
 });
 
 test('Exercise review is incremental, reason-coded, and keeps every target selectable', () => {

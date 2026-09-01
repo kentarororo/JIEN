@@ -25,6 +25,8 @@ import {
   buildSetProgressionPlan,
   MUSCLE_GROUP_OPTIONS,
   MUSCLE_GROUP_SECTIONS,
+  muscleGroupFamilyKey,
+  muscleGroupFamilyLabel,
   muscleGroupLabel,
   type CompletedExerciseVolumeFeedback,
   type ProgressionSet,
@@ -134,6 +136,7 @@ export default function NewWorkoutScreen() {
 
   const draftContext = useMemo(() => workoutDraftContext({ date, templateWorkoutId, planWorkoutId, editWorkoutId }), [date, editWorkoutId, planWorkoutId, templateWorkoutId]);
   const draftSummary = useMemo(() => summarizeWorkoutDraft(blocks), [blocks]);
+  const draftMuscleCredits = useMemo(() => summarizeDraftMuscleCredits(blocks, catalog ?? []), [blocks, catalog]);
 
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web') return;
@@ -521,6 +524,15 @@ export default function NewWorkoutScreen() {
 
       {hasJointConsideration ? <JointProgressionChoicePanel value={jointProgressionChoice} onChange={chooseJointProgression} /> : null}
 
+      {draftMuscleCredits.length ? (
+        <Card style={{ backgroundColor: colors.surfaceMuted }}>
+          <View><AppText style={styles.suggestionTitle}>This session’s muscle coverage</AppText><AppText style={{ color: colors.textMuted }}>Completed set rows count 1.0 for the primary target and 0.5 for each assisting target.</AppText></View>
+          <View style={styles.sessionMuscleGrid}>
+            {draftMuscleCredits.map((item) => <Pill key={item.muscleGroup} label={`${item.label} · ${formatSetCredits(item.setCredits)}`} />)}
+          </View>
+        </Card>
+      ) : null}
+
       <Button
         label={showRpeGuide ? 'Hide RPE guide' : 'RPE guide'}
         onPress={() => setShowRpeGuide((visible) => !visible)}
@@ -838,6 +850,7 @@ const styles = StyleSheet.create({
   draftSummaryMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   draftSummaryMetric: { flexGrow: 1, flexBasis: 160 },
   draftSummaryValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  sessionMuscleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   mobileSetList: { paddingHorizontal: spacing.md, gap: spacing.sm },
   mobileSetCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.sm, gap: spacing.sm },
   mobileSetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -852,6 +865,34 @@ const styles = StyleSheet.create({
 
 function formatDraftWork(value: number): string {
   return (Math.round(value * 10) / 10).toLocaleString();
+}
+
+function summarizeDraftMuscleCredits(blocks: DraftExercise[], catalog: Exercise[]) {
+  const credits = new Map<string, number>();
+  for (const block of blocks) {
+    const exercise = catalog.find((item) => item.id === block.exerciseId);
+    if (!exercise) continue;
+    const completedSetCount = block.sets.filter((set) => {
+      if (isRowEmpty(set)) return false;
+      const load = Number(set.load);
+      const reps = Number(set.reps);
+      return Number.isFinite(load) && load >= 0 && Number.isInteger(reps) && reps > 0;
+    }).length;
+    if (completedSetCount === 0) continue;
+    const primary = muscleGroupFamilyKey(exercise.primaryMuscleGroup);
+    const secondary = [...new Set(exercise.secondaryMuscleGroups.map(muscleGroupFamilyKey))]
+      .filter((group) => group !== primary);
+    credits.set(primary, (credits.get(primary) ?? 0) + completedSetCount);
+    for (const group of secondary) credits.set(group, (credits.get(group) ?? 0) + completedSetCount * 0.5);
+  }
+  return [...credits.entries()]
+    .map(([muscleGroup, setCredits]) => ({ muscleGroup, label: muscleGroupFamilyLabel(muscleGroup), setCredits }))
+    .sort((a, b) => b.setCredits - a.setCredits || a.label.localeCompare(b.label));
+}
+
+function formatSetCredits(value: number): string {
+  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return `${formatted} set credit${value === 1 ? '' : 's'}`;
 }
 
 function draftSetsForProgression(sets: DraftSet[], unit: LoadUnit): ProgressionSet[] {

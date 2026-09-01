@@ -26,8 +26,51 @@ test('summarizes four logged weeks by primary and secondary muscles without clai
   assert.equal(result.weeks.length, 4);
   assert.equal(result.weeks.at(-1)?.muscleGroups.find((group) => group.muscleGroup === 'chest')?.weightedSets, 3);
   assert.equal(result.weeks.at(-1)?.muscleGroups.find((group) => group.muscleGroup === 'triceps')?.weightedSets, 1.5);
-  assert.equal(result.latestVsPrevious.find((group) => group.muscleGroup === 'chest')?.status, 'up');
+  assert.equal(result.latestVsPrevious.find((group) => group.muscleGroup === 'chest')?.status, 'steady');
+  assert.equal(result.latestVsPrevious.find((group) => group.muscleGroup === 'chest')?.setChangePercent, 0);
   assert.equal(result.latestVsPrevious.find((group) => group.muscleGroup === 'chest')?.workChangePercent, 20);
+  assert.equal(result.advisory.status, 'focus');
+  assert.equal(result.advisory.baselineWeekCount, 4);
+  assert.deepEqual(result.advisory.focus.map((item) => item.muscleGroup), ['chest', 'front_delts', 'triceps']);
+  assert.equal(result.advisory.focus[0]?.remainingSetCredits, 3);
+});
+
+test('pools related exercise angles for advisory focus without double-crediting a set', () => {
+  const result = summarizeTrainingMuscleContext(
+    [
+      { id: 'prior', performed_on: '2026-08-10' },
+      { id: 'current', performed_on: '2026-08-17' },
+    ],
+    [
+      {
+        workout_id: 'prior', exercise_id: 'incline', reps: 10, load_value: 40, load_unit: 'kg', kind: 'working',
+        primary_muscle_group: 'upper_chest', secondary_muscle_groups: ['chest', 'front_delts'],
+      },
+      {
+        workout_id: 'current', exercise_id: 'flat', reps: 10, load_value: 40, load_unit: 'kg', kind: 'working',
+        primary_muscle_group: 'chest', secondary_muscle_groups: [],
+      },
+    ],
+    [],
+    new Date('2026-08-18T12:00:00.000Z'),
+  );
+  const chest = result.advisory.coverage.find((item) => item.muscleGroup === 'chest');
+  assert.equal(chest?.baselineSetCredits, 1);
+  assert.equal(chest?.currentSetCredits, 1);
+  assert.equal(chest?.remainingSetCredits, 0);
+});
+
+test('uses set-level muscle snapshots after an exercise target is edited', () => {
+  const result = summarizeTrainingMuscleContext(
+    [{ id: 'w1', performed_on: '2026-08-10' }],
+    [{
+      workout_id: 'w1', exercise_id: 'press', reps: 10, load_value: 40, load_unit: 'kg', kind: 'working',
+      primary_muscle_group: 'chest', secondary_muscle_groups: ['triceps'],
+    }],
+    [{ id: 'press', primary_muscle_group: 'front_delts', secondary_muscle_groups: ['triceps'] }],
+  );
+  assert.equal(result.weeks[0]?.muscleGroups.some((group) => group.muscleGroup === 'chest'), true);
+  assert.equal(result.weeks[0]?.muscleGroups.some((group) => group.muscleGroup === 'front_delts'), false);
 });
 
 test('marks an incomplete current week as partial instead of down', () => {

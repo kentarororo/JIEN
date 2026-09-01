@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   aggregateWeeklyVolume,
+  buildMuscleGroupAdvisory,
   buildCompletedExerciseVolumeFeedback,
   buildMuscleGroupTrends,
   buildSetProgressionPlan,
@@ -274,7 +275,8 @@ test('turns a month of logged workouts into readable body-part trends and a next
   assert.equal(chest?.currentSetEquivalents, 3);
   assert.equal(chest?.previousSetEquivalents, 3);
   assert.equal(chest?.workChangePercent, 20);
-  assert.equal(chest?.status, 'up');
+  assert.equal(chest?.status, 'steady', 'different reps do not inflate muscle-group set exposure');
+  assert.equal(chest?.setChangePercent, 0);
   assert.equal(triceps?.currentSetEquivalents, 1.5, 'secondary muscles receive half-set credit');
   assert.equal(core?.currentSetEquivalents, 1, 'zero-load bodyweight work still counts as a working set');
 
@@ -286,6 +288,54 @@ test('turns a month of logged workouts into readable body-part trends and a next
   });
   assert.equal(next.action, 'add_load');
   assert.deepEqual(next.cues.map((cue) => [cue.loadValue, cue.targetReps]), [[42.5, 8], [42.5, 8], [42.5, 8]]);
+});
+
+test('builds next-workout focus from a four-week muscle baseline instead of the latest exercise', () => {
+  const history = [
+    ...session('2026-07-27T10:00:00.000Z', 8),
+    ...session('2026-08-03T10:00:00.000Z', 10),
+    ...session('2026-08-10T10:00:00.000Z', 12),
+    ...session('2026-08-17T10:00:00.000Z', 9),
+    {
+      reps: 10, loadValue: 30, loadUnit: 'kg' as const, completedAt: '2026-08-24T10:00:00.000Z',
+      movementPattern: 'vertical_pull', primaryMuscleGroup: 'lats', secondaryMuscleGroups: ['biceps'],
+    },
+  ];
+  const advisory = buildMuscleGroupAdvisory(history, new Date('2026-08-27T12:00:00.000Z'));
+  assert.equal(advisory.status, 'focus');
+  assert.equal(advisory.baselineWeekCount, 4);
+  assert.equal(advisory.focus[0]?.muscleGroup, 'chest');
+  assert.equal(advisory.focus[0]?.baselineSetCredits, 3);
+  assert.equal(advisory.focus[0]?.currentSetCredits, 0);
+  assert.equal(advisory.focus.some((item) => item.muscleGroup === 'front_delts'), true);
+});
+
+test('pools exercise angles into muscle families and counts assisting work once', () => {
+  const advisory = buildMuscleGroupAdvisory([
+    {
+      reps: 10, loadValue: 40, loadUnit: 'kg', completedAt: '2026-08-17T10:00:00.000Z',
+      movementPattern: 'incline_push', primaryMuscleGroup: 'upper_chest', secondaryMuscleGroups: ['chest', 'triceps'],
+    },
+    {
+      reps: 12, loadValue: 20, loadUnit: 'kg', completedAt: '2026-08-24T10:00:00.000Z',
+      movementPattern: 'horizontal_push', primaryMuscleGroup: 'chest', secondaryMuscleGroups: ['triceps'],
+    },
+  ], new Date('2026-08-27T12:00:00.000Z'));
+  const chest = advisory.coverage.find((item) => item.muscleGroup === 'chest');
+  assert.equal(chest?.baselineSetCredits, 1, 'upper-chest and chest tags collapse without double credit');
+  assert.equal(chest?.currentSetCredits, 1);
+  assert.equal(advisory.status, 'covered');
+});
+
+test('does not suggest repeating a recent muscle gap as the next focus', () => {
+  const history = [
+    ...session('2026-08-10T10:00:00.000Z', 10),
+    ...session('2026-08-17T10:00:00.000Z', 10),
+    { ...session('2026-08-26T12:00:00.000Z', 10)[0]! },
+  ];
+  const advisory = buildMuscleGroupAdvisory(history, new Date('2026-08-27T12:00:00.000Z'));
+  assert.equal(advisory.status, 'recovery');
+  assert.equal(advisory.focus[0]?.trainedWithin48Hours, true);
 });
 
 test('does not call a partially logged current week a body-part decline', () => {

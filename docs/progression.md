@@ -17,12 +17,16 @@ arm, chest, leg, hip, lower-leg, trunk, serratus, and neck groups. General upper
 and core tags remain available for movements where a narrower attribution would be
 false precision.
 
-The Training screen compares the latest logged ISO week with the previous logged
-week and also shows coverage across the latest four logged weeks. `load × reps` is
-shown only as descriptive work within a body part. It is never labelled strength,
-hypertrophy, or muscle growth, and work from different exercises is not treated as
-an anatomy measurement. A 20% or larger weekly drop is an attention signal, while
-smaller changes remain descriptive.
+The Training and Today screens lead with a muscle-group advisory built from the
+user's average set credits across up to four completed ISO weeks. It compares the
+current week's coverage with that personal baseline and surfaces up to three gaps
+that were not trained in the last 48 hours. Related regions are pooled only for this
+coverage view; exact exercise and detailed target tags remain in history.
+
+`load × reps` remains descriptive exercise/session detail. It is never compared
+across different movements as a muscle score and is never labelled strength,
+hypertrophy, or muscle growth. Exercise-specific double progression still compares
+only matching exercise history. See [training-advisory-engine.md](training-advisory-engine.md).
 
 AI receives the same bounded four-week body-part summary alongside recent recovery,
 each logged nutrition day's macro totals, logged-day averages, and the current macro
@@ -40,7 +44,9 @@ for that session or saved plan when their current condition and clinician guidan
 allow it. This choice changes derived cues only; it never changes recorded sets or
 removes the profile consideration.
 
-The numeric engine remains deterministic and offline. A future structured mapping
+Every recorded set snapshots its muscle targets, so later exercise edits affect
+future logs without reclassifying past sessions. The numeric engine remains
+deterministic and offline. A future structured mapping
 may narrow a consideration to relevant movements, but it must remain explicit,
 user-visible, and covered by progression boundary tests before replacing this global
 hold.

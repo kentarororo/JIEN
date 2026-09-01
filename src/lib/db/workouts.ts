@@ -68,7 +68,7 @@ const WORKOUT_SUMMARY_SELECT = `
     COUNT(s.id) AS set_count,
     COUNT(DISTINCT s.exercise_id) AS exercise_count,
     GROUP_CONCAT(DISTINCT e.name) AS exercise_names,
-    GROUP_CONCAT(DISTINCT e.primary_muscle_group) AS muscle_groups,
+    GROUP_CONCAT(DISTINCT COALESCE(s.primary_muscle_group, e.primary_muscle_group)) AS muscle_groups,
     COALESCE(SUM(CASE
       WHEN s.kind = 'working' AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
       WHEN s.kind = 'working' THEN s.load_value * s.reps
@@ -180,8 +180,10 @@ export async function getWorkoutDetail(
     completed_at: string;
     sort_order: number;
   }>(
-    `SELECT s.id, s.exercise_id, e.name AS exercise_name, e.primary_muscle_group,
-      e.secondary_muscle_groups, e.target_rep_min, e.target_rep_max, e.load_increment,
+    `SELECT s.id, s.exercise_id, e.name AS exercise_name,
+      COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS primary_muscle_group,
+      COALESCE(s.secondary_muscle_groups, e.secondary_muscle_groups) AS secondary_muscle_groups,
+      e.target_rep_min, e.target_rep_max, e.load_increment,
       s.reps, s.load_value, s.load_unit, s.rpe, s.kind, s.completed_at, s.sort_order
      FROM workout_sets s
      JOIN exercises e ON e.id = s.exercise_id
@@ -353,6 +355,8 @@ export async function saveWorkout(
           load_value: set.loadValue,
           load_unit: set.loadUnit,
           rpe: set.rpe ?? null,
+          primary_muscle_group: normalizeMuscleGroupKey(entry.exercise.primaryMuscleGroup),
+          secondary_muscle_groups: [...new Set(entry.exercise.secondaryMuscleGroups.map(normalizeMuscleGroupKey))],
           completed_at: completedAt,
           notes: null,
           created_at: completedAt,
@@ -362,8 +366,9 @@ export async function saveWorkout(
         await db.runAsync(
           `INSERT INTO workout_sets (
             id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-            rpe, completed_at, created_at, updated_at, client_updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            rpe, primary_muscle_group, secondary_muscle_groups, completed_at,
+            created_at, updated_at, client_updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             setId,
             id,
@@ -374,6 +379,8 @@ export async function saveWorkout(
             set.loadValue,
             set.loadUnit,
             setPayload.rpe,
+            setPayload.primary_muscle_group,
+            JSON.stringify(setPayload.secondary_muscle_groups),
             completedAt,
             completedAt,
             completedAt,
@@ -420,10 +427,11 @@ export async function updateWorkout(
     const existingSets = await db.getAllAsync<{
       id: string; workout_id: string; exercise_id: string; sort_order: number; kind: SetKind;
       reps: number; load_value: number; load_unit: LoadUnit; rpe: number | null;
+      primary_muscle_group: string | null; secondary_muscle_groups: string | null;
       completed_at: string; notes: string | null; created_at: string;
     }>(
       `SELECT id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-        rpe, completed_at, notes, created_at FROM workout_sets
+        rpe, primary_muscle_group, secondary_muscle_groups, completed_at, notes, created_at FROM workout_sets
        WHERE workout_id = ? AND deleted_at IS NULL`,
       [workoutId],
     );
@@ -458,6 +466,13 @@ export async function updateWorkout(
         const current = set.id ? existingById.get(set.id) : null;
         const setId = current?.id ?? Crypto.randomUUID();
         retained.add(setId);
+        const keepsRecordedTarget = current?.exercise_id === entry.exercise.id;
+        const primaryMuscleGroup = keepsRecordedTarget && current.primary_muscle_group
+          ? normalizeMuscleGroupKey(current.primary_muscle_group)
+          : normalizeMuscleGroupKey(entry.exercise.primaryMuscleGroup);
+        const secondaryMuscleGroups = keepsRecordedTarget && current.secondary_muscle_groups != null
+          ? [...new Set((JSON.parse(current.secondary_muscle_groups) as string[]).map(normalizeMuscleGroupKey))]
+          : [...new Set(entry.exercise.secondaryMuscleGroups.map(normalizeMuscleGroupKey))];
         const payload = {
           id: setId,
           workout_id: workoutId,
@@ -468,6 +483,8 @@ export async function updateWorkout(
           load_value: set.loadValue,
           load_unit: set.loadUnit,
           rpe: set.rpe ?? null,
+          primary_muscle_group: primaryMuscleGroup,
+          secondary_muscle_groups: secondaryMuscleGroups,
           completed_at: completedAt,
           notes: current?.notes ?? null,
           created_at: current?.created_at ?? changedAt,
@@ -477,19 +494,23 @@ export async function updateWorkout(
         if (current) {
           await db.runAsync(
             `UPDATE workout_sets SET exercise_id = ?, sort_order = ?, kind = ?, reps = ?,
-              load_value = ?, load_unit = ?, rpe = ?, completed_at = ?, deleted_at = NULL,
+              load_value = ?, load_unit = ?, rpe = ?, primary_muscle_group = ?,
+              secondary_muscle_groups = ?, completed_at = ?, deleted_at = NULL,
               updated_at = ?, client_updated_at = ? WHERE id = ?`,
             [entry.exercise.id, sortOrder, payload.kind, set.reps, set.loadValue, set.loadUnit,
-              payload.rpe, completedAt, changedAt, changedAt, setId],
+              payload.rpe, payload.primary_muscle_group, JSON.stringify(payload.secondary_muscle_groups),
+              completedAt, changedAt, changedAt, setId],
           );
         } else {
           await db.runAsync(
             `INSERT INTO workout_sets (
               id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-              rpe, completed_at, created_at, updated_at, client_updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              rpe, primary_muscle_group, secondary_muscle_groups, completed_at,
+              created_at, updated_at, client_updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [setId, workoutId, entry.exercise.id, sortOrder, payload.kind, set.reps,
-              set.loadValue, set.loadUnit, payload.rpe, completedAt, changedAt, changedAt, changedAt],
+              set.loadValue, set.loadUnit, payload.rpe, payload.primary_muscle_group,
+              JSON.stringify(payload.secondary_muscle_groups), completedAt, changedAt, changedAt, changedAt],
           );
         }
         await enqueueUpsert(db, 'sets', setId, payload);
@@ -513,6 +534,10 @@ export async function updateWorkout(
         load_value: current.load_value,
         load_unit: current.load_unit,
         rpe: current.rpe,
+        primary_muscle_group: current.primary_muscle_group,
+        secondary_muscle_groups: current.secondary_muscle_groups
+          ? JSON.parse(current.secondary_muscle_groups) as string[]
+          : [],
         completed_at: current.completed_at,
         notes: current.notes,
         created_at: current.created_at,
@@ -598,6 +623,8 @@ export async function completePlannedWorkout(
           load_value: set.loadValue,
           load_unit: set.loadUnit,
           rpe: set.rpe ?? null,
+          primary_muscle_group: normalizeMuscleGroupKey(entry.exercise.primaryMuscleGroup),
+          secondary_muscle_groups: [...new Set(entry.exercise.secondaryMuscleGroups.map(normalizeMuscleGroupKey))],
           completed_at: completedAt,
           notes: null,
           created_at: completedAt,
@@ -607,12 +634,14 @@ export async function completePlannedWorkout(
         await db.runAsync(
           `INSERT INTO workout_sets (
             id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-            rpe, completed_at, created_at, updated_at, client_updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            rpe, primary_muscle_group, secondary_muscle_groups, completed_at,
+            created_at, updated_at, client_updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             setId, plannedWorkoutId, entry.exercise.id, sortOrder, setPayload.kind,
-            set.reps, set.loadValue, set.loadUnit, setPayload.rpe, completedAt,
-            completedAt, completedAt, completedAt,
+            set.reps, set.loadValue, set.loadUnit, setPayload.rpe,
+            setPayload.primary_muscle_group, JSON.stringify(setPayload.secondary_muscle_groups),
+            completedAt, completedAt, completedAt, completedAt,
           ],
         );
         await enqueueUpsert(db, 'sets', setId, setPayload);
@@ -688,12 +717,14 @@ export async function deleteWorkout(db: SQLiteDatabase, workoutId: string): Prom
     load_value: number;
     load_unit: LoadUnit;
     rpe: number | null;
+    primary_muscle_group: string | null;
+    secondary_muscle_groups: string | null;
     completed_at: string;
     notes: string | null;
     created_at: string;
   }>(
     `SELECT id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-      rpe, completed_at, notes, created_at
+      rpe, primary_muscle_group, secondary_muscle_groups, completed_at, notes, created_at
      FROM workout_sets WHERE workout_id = ? AND deleted_at IS NULL`,
     [workoutId],
   );
@@ -718,6 +749,9 @@ export async function deleteWorkout(db: SQLiteDatabase, workoutId: string): Prom
       );
       await enqueueUpsert(db, 'sets', set.id, {
         ...set,
+        secondary_muscle_groups: set.secondary_muscle_groups
+          ? JSON.parse(set.secondary_muscle_groups) as string[]
+          : [],
         client_updated_at: deletedAt,
         deleted_at: deletedAt,
       });
@@ -747,8 +781,10 @@ export async function getExerciseHistory(
     completed_at: string;
     sort_order: number;
   }>(
-    `SELECT s.id, s.exercise_id, e.name AS exercise_name, e.primary_muscle_group,
-      e.secondary_muscle_groups, e.target_rep_min, e.target_rep_max, e.load_increment,
+    `SELECT s.id, s.exercise_id, e.name AS exercise_name,
+      COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS primary_muscle_group,
+      COALESCE(s.secondary_muscle_groups, e.secondary_muscle_groups) AS secondary_muscle_groups,
+      e.target_rep_min, e.target_rep_max, e.load_increment,
       s.reps, s.load_value, s.load_unit, s.rpe, s.kind, s.completed_at, s.sort_order
      FROM workout_sets s
      JOIN exercises e ON e.id = s.exercise_id
@@ -972,7 +1008,7 @@ export async function listWorkoutExportRows(db: SQLiteDatabase): Promise<Workout
     volume_kg: number;
   }>(
     `SELECT w.id AS workout_id, w.performed_on, w.title AS workout_title,
-      e.name AS exercise, e.primary_muscle_group AS muscle_group,
+      e.name AS exercise, COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS muscle_group,
       s.sort_order + 1 AS set_number, s.kind, s.reps, s.load_value, s.load_unit, s.rpe,
       CASE WHEN s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
         ELSE s.load_value * s.reps END AS volume_kg
@@ -1013,7 +1049,9 @@ export async function listVolumeHistory(
     secondary_muscle_groups: string;
   }>(
     `SELECT s.reps, s.load_value, s.load_unit, s.kind, s.completed_at,
-      e.movement_pattern, e.primary_muscle_group, e.secondary_muscle_groups
+      e.movement_pattern,
+      COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS primary_muscle_group,
+      COALESCE(s.secondary_muscle_groups, e.secondary_muscle_groups) AS secondary_muscle_groups
      FROM workout_sets s
      JOIN workouts w ON w.id = s.workout_id
      JOIN exercises e ON e.id = s.exercise_id

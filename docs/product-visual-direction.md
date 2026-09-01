@@ -24,8 +24,9 @@ the moodboard informs hierarchy, density, and pacing.
 
 - **Today:** date, workout/meal actions, week strip, selected-day status, then summaries.
   The full calendar and itemized day workspace remain one action away.
-- **Training:** the next action and overview come first; searchable history is a peer view,
-  not the bottom of a long analytics feed.
+- **Training:** a natural-language next-workout focus leads. Muscle-group set coverage
+  is primary; exercise-specific load and rep comparisons remain lower-level detail.
+  Searchable history is a peer view, not the bottom of a long analytics feed.
 - **Exercise targets:** search and review remain fast; duplicate or invalid mappings show a
   reason; the editor reveals one muscle region at a time while preserving every option.
 - **Food and Wellness:** lead with the current day's state and a single logging action;

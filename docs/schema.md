@@ -8,7 +8,9 @@ provenance in `supabase/migrations/20260814000200_meal_edit_provenance.sql`.
 Calendar-backed workout plans are added by
 `supabase/migrations/20260815000100_planned_workouts.sql`. The expanded starter
 bodybuilding taxonomy is synchronized for existing accounts by
-`supabase/migrations/20260820000100_bodybuilding_muscle_taxonomy.sql`.
+`supabase/migrations/20260820000100_bodybuilding_muscle_taxonomy.sql`. Immutable
+set-level muscle target snapshots are added by
+`supabase/migrations/20260901000100_muscle_target_snapshots.sql`.
 
 ## Conventions
 
@@ -150,9 +152,15 @@ explicit progression rule.
 | `reps` | `smallint` | Positive completed reps |
 | `load_value`, `load_unit` | `numeric`, `load_unit` | Non-negative observed load and `kg`/`lb` |
 | `rpe` | `numeric(3,1)` | Optional value from 1 through 10 |
+| `primary_muscle_group` | `text` | Target snapshot captured when the set is recorded |
+| `secondary_muscle_groups` | `text[]` | Assisting-target snapshot captured when the set is recorded |
 | `completed_at` | `timestamptz` | Absolute completion time |
 | `notes` | `text` | Optional set notes |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
+
+Muscle analytics prefer the set snapshots and fall back to the current exercise row
+only for legacy or rolling-deployment rows where a snapshot is absent. Exercise
+target edits therefore change future logs without silently rewriting history.
 
 ### `meals`
 

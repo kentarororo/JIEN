@@ -18,6 +18,7 @@ import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
 import { savePrivateFood } from './private-food.ts';
+import { listVolumeHistory, saveWorkout, updateWorkout } from './workouts.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
@@ -62,10 +63,13 @@ test('main-thread database persists committed work and isolates delayed transact
     const exercises = await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM exercises');
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
-    assert.equal(version?.user_version, 13);
+    const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
+    assert.equal(version?.user_version, 14);
     assert.ok((exercises?.count ?? 0) >= 50);
     assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
+    assert.equal(setColumns.some((column) => column.name === 'primary_muscle_group'), true);
+    assert.equal(setColumns.some((column) => column.name === 'secondary_muscle_groups'), true);
     assert.deepEqual(
       await database.getFirstAsync(
         `SELECT name, source, source_ref AS sourceRef, calories_kcal AS caloriesKcal
@@ -183,6 +187,72 @@ test('main-thread database persists committed work and isolates delayed transact
       client_updated_at: JSON.parse(exerciseQueue!.payload_json).client_updated_at,
       deleted_at: null,
     });
+
+    const workoutTimestamp = new Date().toISOString();
+    await saveWorkout(database, {
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'Snapshot test',
+      startedAt: workoutTimestamp,
+      exercises: [{
+        exercise: {
+          id: '10000000-0000-4000-8000-000000000001',
+          name: 'Machine Chest Press',
+          movementPattern: 'horizontal_push',
+          primaryMuscleGroup: 'chest',
+          secondaryMuscleGroups: ['triceps', 'front_delts'],
+          equipment: 'machine',
+          targetRepMin: 8,
+          targetRepMax: 12,
+          loadIncrement: 2.5,
+          notes: null,
+          isArchived: false,
+        },
+        sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg', rpe: 8 }],
+      }],
+    });
+    await updateExerciseTargetsAtomically(database, '10000000-0000-4000-8000-000000000001', {
+      primaryMuscleGroup: 'front_delts',
+      secondaryMuscleGroups: ['triceps'],
+    }, { now: () => new Date().toISOString(), enqueue: async () => undefined });
+    const snapshotHistory = await listVolumeHistory(database, new Date(Date.now() - 86_400_000));
+    const snapshotSet = snapshotHistory.find((set) => set.movementPattern === 'horizontal_push');
+    assert.equal(snapshotSet?.primaryMuscleGroup, 'chest', 'exercise edits must not reclassify saved sets');
+    assert.deepEqual(snapshotSet?.secondaryMuscleGroups, ['triceps', 'front_delts']);
+    const savedSet = await database.getFirstAsync<{ id: string }>(
+      'SELECT id FROM workout_sets WHERE workout_id = ?',
+      ['33333333-3333-4333-8333-333333333333'],
+    );
+    await updateWorkout(database, '33333333-3333-4333-8333-333333333333', {
+      title: 'Snapshot test edited',
+      startedAt: workoutTimestamp,
+      exercises: [{
+        exercise: {
+          id: '10000000-0000-4000-8000-000000000001',
+          name: 'Machine Chest Press',
+          movementPattern: 'horizontal_push',
+          primaryMuscleGroup: 'front_delts',
+          secondaryMuscleGroups: ['triceps'],
+          equipment: 'machine',
+          targetRepMin: 8,
+          targetRepMax: 12,
+          loadIncrement: 2.5,
+          notes: null,
+          isArchived: false,
+        },
+        sets: [{ id: savedSet!.id, reps: 11, loadValue: 40, loadUnit: 'kg', rpe: 8 }],
+      }],
+    });
+    const editedHistory = await listVolumeHistory(database, new Date(Date.now() - 86_400_000));
+    const editedSet = editedHistory.find((set) => set.movementPattern === 'horizontal_push');
+    assert.equal(editedSet?.primaryMuscleGroup, 'chest', 'editing reps must retain the recorded target snapshot');
+    assert.deepEqual(editedSet?.secondaryMuscleGroups, ['triceps', 'front_delts']);
+    const queuedSet = await database.getFirstAsync<{ payload_json: string }>(
+      `SELECT payload_json FROM sync_queue WHERE table_name = 'sets' AND entity_id IN (
+        SELECT id FROM workout_sets WHERE workout_id = ?
+      )`,
+      ['33333333-3333-4333-8333-333333333333'],
+    );
+    assert.equal(JSON.parse(queuedSet?.payload_json ?? '{}').primary_muscle_group, 'chest');
 
     await database.runAsync(
       'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',

@@ -6,6 +6,8 @@ type SetContextRow = {
   load_value: number | string;
   load_unit: string;
   kind: string;
+  primary_muscle_group?: string | null;
+  secondary_muscle_groups?: unknown;
 };
 type ExerciseContextRow = {
   id: string;
@@ -27,11 +29,19 @@ export function summarizeTrainingMuscleContext(
     secondary: parseSecondaryGroups(exercise.secondary_muscle_groups),
   }]));
   const weekMap = new Map<string, { totalWorkingSets: number; totalWorkKg: number; groups: Map<string, MuscleTotals> }>();
+  const familyWeekCredits = new Map<string, Map<string, number>>();
+  const familyLastTrainedAt = new Map<string, string>();
 
   for (const set of sets) {
     if (set.kind !== 'working') continue;
     const performedOn = workoutDates.get(set.workout_id);
-    const tags = exerciseTags.get(set.exercise_id);
+    const exerciseTag = exerciseTags.get(set.exercise_id);
+    const tags = set.primary_muscle_group
+      ? {
+          primary: normalizeMuscleGroup(set.primary_muscle_group),
+          secondary: parseSecondaryGroups(set.secondary_muscle_groups),
+        }
+      : exerciseTag;
     if (!performedOn || !tags) continue;
     const reps = Number(set.reps);
     const load = Number(set.load_value);
@@ -46,6 +56,18 @@ export function summarizeTrainingMuscleContext(
       if (secondary !== tags.primary) addMuscleWork(week.groups, secondary, 0.5, workKg * 0.5);
     }
     weekMap.set(weekKey, week);
+
+    const familyCredits = familyWeekCredits.get(weekKey) ?? new Map<string, number>();
+    const primaryFamily = muscleGroupFamily(tags.primary);
+    const secondaryFamilies = [...new Set(tags.secondary.map(muscleGroupFamily))]
+      .filter((group) => group !== primaryFamily);
+    addCredit(familyCredits, primaryFamily, 1);
+    for (const group of secondaryFamilies) addCredit(familyCredits, group, 0.5);
+    familyWeekCredits.set(weekKey, familyCredits);
+    for (const group of [primaryFamily, ...secondaryFamilies]) {
+      const previous = familyLastTrainedAt.get(group);
+      if (!previous || performedOn > previous) familyLastTrainedAt.set(group, performedOn);
+    }
   }
 
   const weeks = [...weekMap.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-4).map(([week, totals]) => ({
@@ -66,29 +88,72 @@ export function summarizeTrainingMuscleContext(
   const latestVsPrevious = [...groups].map((muscleGroup) => {
     const current = latest?.muscleGroups.find((group) => group.muscleGroup === muscleGroup);
     const prior = previous?.muscleGroups.find((group) => group.muscleGroup === muscleGroup);
-    const changePercent = prior && prior.workKg > 0 && current
+    const setChangePercent = prior && prior.weightedSets > 0 && current
+      ? round(((current.weightedSets - prior.weightedSets) / prior.weightedSets) * 100)
+      : null;
+    const workChangePercent = prior && prior.workKg > 0 && current
       ? round(((current.workKg - prior.workKg) / prior.workKg) * 100)
       : null;
     return {
       muscleGroup,
       currentWeightedSets: current?.weightedSets ?? 0,
       previousWeightedSets: prior?.weightedSets ?? 0,
-      workChangePercent: changePercent,
+      setChangePercent,
+      workChangePercent,
       status: !current || current.weightedSets <= 0
         ? latestIsPartialWeek && (prior?.weightedSets ?? 0) > 0 ? 'partial' : 'inactive'
         : !prior || prior.weightedSets <= 0
           ? 'new'
-          : latestIsPartialWeek && (changePercent == null || changePercent < 2)
+          : latestIsPartialWeek && current.weightedSets < prior.weightedSets
             ? 'partial'
-          : changePercent != null && changePercent <= -20
+          : setChangePercent != null && setChangePercent <= -20
             ? 'down'
-            : changePercent != null && changePercent >= 2
+            : setChangePercent != null && setChangePercent >= 2
               ? 'up'
               : 'steady',
     };
   }).sort((a, b) => b.currentWeightedSets - a.currentWeightedSets || a.muscleGroup.localeCompare(b.muscleGroup));
 
-  return { weeks, latestIsPartialWeek, latestVsPrevious };
+  const currentWeek = isoWeekKey(asOf.toISOString().slice(0, 10));
+  const priorWeeks = previousIsoWeeks(asOf, 4);
+  const earliestWeek = familyWeekCredits.size ? [...familyWeekCredits.keys()].sort()[0] ?? null : null;
+  const baselineWeeks = earliestWeek == null ? [] : priorWeeks.filter((week) => week >= earliestWeek);
+  const advisoryGroups = new Set<string>();
+  for (const week of [currentWeek, ...baselineWeeks]) {
+    familyWeekCredits.get(week)?.forEach((_value, group) => advisoryGroups.add(group));
+  }
+  const coverage = [...advisoryGroups].map((muscleGroup) => {
+    const currentSetCredits = familyWeekCredits.get(currentWeek)?.get(muscleGroup) ?? 0;
+    const baselineSetCredits = baselineWeeks.length
+      ? baselineWeeks.reduce((sum, week) => sum + (familyWeekCredits.get(week)?.get(muscleGroup) ?? 0), 0) / baselineWeeks.length
+      : 0;
+    const lastTrainedAt = familyLastTrainedAt.get(muscleGroup) ?? null;
+    const lastMs = lastTrainedAt ? new Date(`${lastTrainedAt.slice(0, 10)}T12:00:00.000Z`).getTime() : Number.NaN;
+    return {
+      muscleGroup,
+      currentSetCredits: round(currentSetCredits),
+      baselineSetCredits: round(baselineSetCredits),
+      remainingSetCredits: round(Math.max(0, baselineSetCredits - currentSetCredits)),
+      lastTrainedAt,
+      trainedWithin48Hours: Number.isFinite(lastMs)
+        && asOf.getTime() >= lastMs
+        && asOf.getTime() - lastMs < 48 * 60 * 60 * 1_000,
+    };
+  }).filter((item) => item.baselineSetCredits > 0 || item.currentSetCredits > 0)
+    .sort((a, b) => b.remainingSetCredits - a.remainingSetCredits
+      || b.baselineSetCredits - a.baselineSetCredits
+      || a.muscleGroup.localeCompare(b.muscleGroup));
+  const gaps = coverage.filter((item) => item.remainingSetCredits >= 0.5);
+  const readyGaps = gaps.filter((item) => !item.trainedWithin48Hours);
+  const advisory = baselineWeeks.length === 0 || coverage.every((item) => item.baselineSetCredits === 0)
+    ? { status: 'baseline', currentWeek, baselineWeekCount: baselineWeeks.length, focus: [], coverage }
+    : readyGaps.length
+      ? { status: 'focus', currentWeek, baselineWeekCount: baselineWeeks.length, focus: readyGaps.slice(0, 3), coverage }
+      : gaps.length
+        ? { status: 'recovery', currentWeek, baselineWeekCount: baselineWeeks.length, focus: gaps.slice(0, 3), coverage }
+        : { status: 'covered', currentWeek, baselineWeekCount: baselineWeeks.length, focus: [], coverage };
+
+  return { weeks, latestIsPartialWeek, latestVsPrevious, advisory };
 }
 
 function addMuscleWork(groups: Map<string, MuscleTotals>, muscleGroup: string, weightedSets: number, workKg: number) {
@@ -96,6 +161,32 @@ function addMuscleWork(groups: Map<string, MuscleTotals>, muscleGroup: string, w
   current.weightedSets += weightedSets;
   current.workKg += workKg;
   groups.set(muscleGroup, current);
+}
+
+function addCredit(groups: Map<string, number>, muscleGroup: string, value: number) {
+  groups.set(muscleGroup, (groups.get(muscleGroup) ?? 0) + value);
+}
+
+function muscleGroupFamily(value: string): string {
+  const normalized = normalizeMuscleGroup(value);
+  if (normalized === 'upper_chest') return 'chest';
+  if (['middle_traps', 'lower_traps', 'rhomboids'].includes(normalized)) return 'upper_back';
+  if (['abs', 'obliques'].includes(normalized)) return 'core';
+  if (normalized === 'brachialis') return 'biceps';
+  return normalized;
+}
+
+function previousIsoWeeks(asOf: Date, count: number): string[] {
+  const cursor = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
+  const day = cursor.getUTCDay() || 7;
+  cursor.setUTCDate(cursor.getUTCDate() - day + 1);
+  const weeks: string[] = [];
+  for (let offset = count; offset >= 1; offset -= 1) {
+    const week = new Date(cursor);
+    week.setUTCDate(week.getUTCDate() - offset * 7);
+    weeks.push(isoWeekKey(week.toISOString()));
+  }
+  return weeks;
 }
 
 function parseSecondaryGroups(value: unknown): string[] {

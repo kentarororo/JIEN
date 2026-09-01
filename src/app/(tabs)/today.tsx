@@ -7,7 +7,7 @@ import { ActionCard, AppText, Button, Card, HeroPanel, Pill, ProgressBar, Screen
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, calendarSelectionForDate, isRepeatedCalendarDayActivation, moveMonthSelection, type CalendarDayActivation } from '@/lib/calendar';
 import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate } from '@/lib/db';
-import { muscleGroupLabel } from '@/lib/progression';
+import { muscleGroupLabel, type MuscleGroupAdvisory } from '@/lib/progression';
 import { formatShortDate, formatTime, shiftLocalDateKey, toLocalDateKey } from '@/lib/time';
 import { formatSleepDuration } from '@/lib/wellness/sleep-record';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -277,32 +277,25 @@ export default function TodayScreen() {
         </View>
       </Modal>
 
+      <SectionHeading title="Next workout" detail="Based on your recent muscle-group pattern" />
+      <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+        <AppText style={[styles.kicker, { color: colors.accent }]}>TRAINING FOCUS</AppText>
+        <AppText style={styles.progressMetric}>{trainingFocusHeadline(summary.trainingAdvisory)}</AppText>
+        <AppText style={{ color: colors.textMuted }}>{trainingFocusDetail(summary.trainingAdvisory)}</AppText>
+        {summary.trainingAdvisory.focus.length ? <View style={styles.focusPills}>
+          {summary.trainingAdvisory.focus.map((item) => <Pill key={item.muscleGroup} label={`${item.label} · ${formatSetCredit(item.remainingSetCredits)} behind`} />)}
+        </View> : null}
+        <View style={styles.actions}>
+          <Button label="Plan workout" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" />
+          <Button label="Training details" onPress={() => router.push('/train')} variant="quiet" />
+        </View>
+      </Card>
+
       <SectionHeading title="This week" detail="Completed training" />
       <Card style={[styles.metricCard, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.weekMetric}><AppText style={[styles.metric, { color: colors.accent }]}>{summary.workoutCountThisWeek}</AppText><AppText style={styles.weekMetricLabel}>Workouts</AppText><AppText style={{ color: colors.textMuted }}>completed</AppText></View>
-        <View style={styles.weekMetric}><AppText style={styles.metric}>{Math.round(summary.weeklyVolumeKg).toLocaleString()}</AppText><AppText style={styles.weekMetricLabel}>kg·reps</AppText><AppText style={{ color: colors.textMuted }}>total work</AppText></View>
+        <View style={styles.weekMetric}><AppText style={styles.metric}>{summary.trainingAdvisory.coverage.filter((item) => item.currentSetCredits > 0).length}</AppText><AppText style={styles.weekMetricLabel}>Muscle groups</AppText><AppText style={{ color: colors.textMuted }}>with set credits</AppText></View>
       </Card>
-
-      {summary.workoutProgress ? (
-        <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-          <View style={styles.macroRow}>
-            <View style={styles.flex}>
-              <AppText style={[styles.kicker, { color: colors.accent }]}>WORKOUT PROGRESS</AppText>
-              <AppText style={styles.progressMetric}>{summary.workoutProgress.overallChangePercent == null ? 'Baseline' : formatPercent(summary.workoutProgress.overallChangePercent)}</AppText>
-            </View>
-            <AppText style={{ color: colors.textMuted, textAlign: 'right' }}>{summary.workoutProgress.overallChangePercent == null ? 'comparison starts next session' : `${summary.workoutProgress.improvedExerciseCount}/${summary.workoutProgress.comparableExerciseCount} exercises up`}</AppText>
-          </View>
-          <AppText style={{ color: colors.textMuted }}>Compared with the previous session containing the same exercises.</AppText>
-          <View style={styles.exerciseProgressList}>
-            {summary.workoutProgress.exercises.slice(0, 4).map((exercise) => (
-              <View key={exercise.exerciseId} style={styles.macroRow}>
-                <AppText style={styles.flex}>{exercise.exerciseName}</AppText>
-                <AppText style={{ color: exercise.changePercent == null ? colors.textMuted : exercise.changePercent >= 0 ? colors.success : colors.warning, fontWeight: '800' }}>{exercise.changePercent == null ? 'baseline' : formatPercent(exercise.changePercent)}</AppText>
-              </View>
-            ))}
-          </View>
-        </Card>
-      ) : null}
 
       {summary.latestBodyMeasurement ? (
         <>
@@ -362,6 +355,7 @@ const styles = StyleSheet.create({
   progressCard: { padding: spacing.lg },
   progressMetric: { ...typography.title, fontWeight: '800' },
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
+  focusPills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   bodyCard: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: spacing.lg },
   calendarCard: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: spacing.sm },
   screenCompact: { paddingHorizontal: spacing.md },
@@ -408,9 +402,28 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.68 },
 });
 
-function formatPercent(value: number): string {
-  const rounded = Math.abs(value) < 10 ? value.toFixed(1) : Math.round(value).toString();
-  return `${value > 0 ? '+' : ''}${rounded}%`;
+function trainingFocusHeadline(advisory: MuscleGroupAdvisory): string {
+  if (advisory.status === 'focus') return `Focus on ${formatFocusNames(advisory.focus.map((item) => item.label))}`;
+  if (advisory.status === 'recovery') return 'Review recovery before repeating recent muscles';
+  if (advisory.status === 'covered') return 'Usual weekly muscle coverage reached';
+  return 'More history is needed for a muscle focus';
+}
+
+function trainingFocusDetail(advisory: MuscleGroupAdvisory): string {
+  if (advisory.status === 'focus') return `These are furthest below your ${advisory.baselineWeekCount}-week set-credit average and were not trained in the last 48 hours.`;
+  if (advisory.status === 'recovery') return 'The largest gaps were trained in the last 48 hours. Use soreness, joint status, and current recovery to choose the next session.';
+  if (advisory.status === 'covered') return `Recently trained muscles are at or above their ${advisory.baselineWeekCount}-week set-credit average.`;
+  return 'Complete workouts across another calendar week. Exercise-specific rep and load guidance remains available.';
+}
+
+function formatFocusNames(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? 'your usual muscle groups';
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels[0]}, ${labels[1]}, and ${labels[2]}`;
+}
+
+function formatSetCredit(value: number): string {
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} set${value === 1 ? '' : 's'}`;
 }
 
 function CalendarLegendItem({ color, label }: { color: string; label: string }) {
