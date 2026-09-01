@@ -24,7 +24,9 @@ import {
   hasStoredJointConsideration,
   rebuildPlannedWorkoutProgression,
 } from '@/lib/planning/workout-plan';
+import { ROUTINE_STARTERS, resolveRoutineStarter, type RoutineStarter } from '@/lib/planning/routine-starters';
 import { formatShortDate, localTimestampForDateAndTime, toLocalDateKey } from '@/lib/time';
+import { exerciseEquipmentLabel, filterExerciseCatalog } from '@/lib/training/exercise-catalog';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 const COMMON_EXERCISE_COUNT = 12;
@@ -50,6 +52,7 @@ export default function PlanWorkoutScreen() {
   const submitLockRef = useRef(false);
   const [catalog, setCatalog] = useState<Exercise[] | null>(null);
   const [preferredUnit, setPreferredUnit] = useState<LoadUnit>('kg');
+  const [availableEquipment, setAvailableEquipment] = useState<string[]>([]);
   const [hasJointConsideration, setHasJointConsideration] = useState(false);
   const [jointProgressionChoice, setJointProgressionChoice] = useState<JointProgressionChoice>('hold');
   const [latestWorkout, setLatestWorkout] = useState<WorkoutDetail | null>(null);
@@ -79,6 +82,7 @@ export default function PlanWorkoutScreen() {
       const savedJointChoice = existingPlan?.plan?.jointProgressionChoice ?? 'hold';
       setCatalog(exercises);
       setPreferredUnit(profile?.preferredLoadUnit ?? 'kg');
+      setAvailableEquipment(profile?.availableEquipment ?? []);
       setHasJointConsideration(shouldHoldProgression);
       setJointProgressionChoice(savedJointChoice);
       setLatestWorkout(recent[0] ? await getWorkoutDetail(db, recent[0].id) : null);
@@ -159,6 +163,34 @@ export default function PlanWorkoutScreen() {
     }
   };
 
+  const useRoutineStarter = async (starter: RoutineStarter) => {
+    if (!catalog || planned.length) return;
+    const busyId = `routine:${starter.id}`;
+    setBusyExerciseId(busyId);
+    setFormError(null);
+    try {
+      const exercises = resolveRoutineStarter(starter, catalog, availableEquipment);
+      if (exercises.length < 2) {
+        throw new Error('This routine needs more exercises for the equipment saved in your profile. Add exercises individually or update your equipment.');
+      }
+      const next = await Promise.all(exercises.map(async (exercise) => buildPlannedWorkoutExercise({
+        exercise,
+        history: await getLastExerciseSessionSets(db, exercise.id),
+        preferredLoadUnit: preferredUnit,
+        jointFlag: jointProgressionHold,
+      })));
+      setTitle(starter.sessionTitle);
+      setPlanned(next);
+      setQuery('');
+      setBrowseAll(false);
+      setCatalogLimit(24);
+    } catch (cause) {
+      setFormError(cause instanceof Error ? cause.message : 'Could not prepare that routine starter.');
+    } finally {
+      setBusyExerciseId(null);
+    }
+  };
+
   const save = async () => {
     if (submitLockRef.current) return;
     submitLockRef.current = true;
@@ -185,9 +217,7 @@ export default function PlanWorkoutScreen() {
 
   const results = useMemo(() => {
     if (!catalog || (!query.trim() && !browseAll)) return [];
-    const term = query.trim().toLocaleLowerCase();
-    return catalog.filter((exercise) => !term
-      || `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(term));
+    return filterExerciseCatalog(catalog, { query });
   }, [browseAll, catalog, query]);
   const visibleResults = results.slice(0, catalogLimit);
 
@@ -260,8 +290,27 @@ export default function PlanWorkoutScreen() {
       ) : null}
 
       <SectionHeading title="Exercises" detail={`${planned.length} selected`} />
+      {!planned.length ? (
+        <Card style={{ backgroundColor: colors.surfaceMuted }}>
+          <AppText style={styles.cardTitle}>Start from a routine</AppText>
+          <AppText style={{ color: colors.textMuted }}>Exercise choices use the equipment in your profile. Previous loads appear only when they exist.</AppText>
+          <View style={styles.starterActions}>
+            {ROUTINE_STARTERS.map((starter) => (
+              <Button
+                key={starter.id}
+                label={starter.label}
+                accessibilityLabel={`Use ${starter.label} routine starter`}
+                onPress={() => void useRoutineStarter(starter)}
+                busy={busyExerciseId === `routine:${starter.id}`}
+                disabled={busyExerciseId != null}
+                variant="secondary"
+              />
+            ))}
+          </View>
+        </Card>
+      ) : null}
       <Card>
-        <AppText style={styles.label}>Common exercises</AppText>
+        <AppText style={styles.label}>Quick add</AppText>
         <View style={styles.pills}>{common.map((exercise) => (
           <Pill
             key={exercise.id}
@@ -287,13 +336,13 @@ export default function PlanWorkoutScreen() {
                   onPress={() => void addExercise(exercise)}
                   style={({ pressed }) => [styles.result, { borderBottomColor: colors.border }, pressed && styles.pressed, selected && styles.disabled]}
                 >
-                  <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{exercise.primaryMuscleGroup.replaceAll('_', ' ')} · {exercise.equipment ?? 'bodyweight'}</AppText></View>
+                  <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{exercise.primaryMuscleGroup.replaceAll('_', ' ')} · {exerciseEquipmentLabel(exercise.equipment)}</AppText></View>
                   <AppText style={{ color: selected ? colors.success : colors.accent, fontWeight: '700' }}>{selected ? 'Added' : busyExerciseId === exercise.id ? 'Adding…' : 'Add'}</AppText>
                 </Pressable>
               );
             })}
             </ScrollView>
-            {visibleResults.length < results.length ? <Button label={`Show ${results.length - visibleResults.length} more`} onPress={() => setCatalogLimit(results.length)} variant="quiet" /> : null}
+            {visibleResults.length < results.length ? <Button label={`Show ${Math.min(24, results.length - visibleResults.length)} more`} onPress={() => setCatalogLimit((count) => count + 24)} variant="quiet" /> : null}
           </>
         ) : null}
       </Card>
@@ -351,6 +400,7 @@ const styles = StyleSheet.create({
   cardTitle: { ...typography.bodyLarge, fontWeight: '700' },
   label: { ...typography.label, fontWeight: '700' },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  starterActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   searchRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.sm },
   results: { maxHeight: 300, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control },
   result: { minHeight: 58, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },

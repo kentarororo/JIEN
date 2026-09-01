@@ -14,6 +14,8 @@ const settings = readFileSync(new URL('../src/app/(tabs)/settings.tsx', import.m
 const privateFood = readFileSync(new URL('../src/lib/db/private-food.ts', import.meta.url), 'utf8');
 const progression = readFileSync(new URL('../src/lib/progression/index.ts', import.meta.url), 'utf8');
 const workoutRepository = readFileSync(new URL('../src/lib/db/workouts.ts', import.meta.url), 'utf8');
+const exerciseCatalog = readFileSync(new URL('../src/lib/training/exercise-catalog.ts', import.meta.url), 'utf8');
+const routineStarters = readFileSync(new URL('../src/lib/planning/routine-starters.ts', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/components/ui.tsx', import.meta.url), 'utf8');
 
 test('Today is week-first while preserving the month and day workspace', () => {
@@ -73,6 +75,11 @@ test('Exercise review is incremental, reason-coded, and keeps every target selec
   assert.match(exercises, /exerciseTargetsNeedReview/);
   assert.match(exercises, /MUSCLE_GROUP_SECTIONS\.map[\s\S]*setActiveSection/);
   assert.match(exercises, /updateExerciseTargets/);
+  assert.match(exercises, /Muscle area/);
+  assert.match(exercises, /Equipment/);
+  assert.match(exercises, /filterExerciseCatalog/);
+  assert.match(exerciseCatalog, /terms\.every/);
+  assert.match(exerciseCatalog, /exerciseEquipmentFamily/);
 });
 
 test('Workout planning keeps repeat, scheduling, catalog, and save in one progressive journey', () => {
@@ -82,6 +89,11 @@ test('Workout planning keeps repeat, scheduling, catalog, and save in one progre
   assert.match(workoutPlan, /Quick date/);
   assert.match(workoutPlan, /Exact date/);
   assert.match(workoutPlan, /results\.slice\(0, catalogLimit\)/);
+  assert.match(workoutPlan, /Start from a routine/);
+  assert.match(workoutPlan, /resolveRoutineStarter\(starter, catalog, availableEquipment\)/);
+  assert.match(workoutPlan, /getLastExerciseSessionSets\(db, exercise\.id\)/);
+  assert.match(routineStarters, /'push' \| 'pull' \| 'legs' \| 'upper' \| 'lower' \| 'full_body'/);
+  assert.match(routineStarters, /exerciseEquipmentFamily/);
   assert.match(workoutPlan, /savePlannedWorkout/);
   assert.match(workoutPlan, /router\.replace/);
   assert.doesNotMatch(workoutPlan, /<ScreenHeading/, 'the native modal header is the sole level-one heading');

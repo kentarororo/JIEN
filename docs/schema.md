@@ -74,6 +74,8 @@ The user's exercise catalog. `movement_pattern`, primary/secondary muscle groups
 equipment, target rep range, and load increment supply deterministic double
 progression without encoding 1RM concepts. Built-in starter exercises are copied
 into each user's catalog, rather than exposed as global RLS exceptions.
+Local schema version 15 expands the reviewed starter catalogue from 56 to 132
+repetition-based gym exercises without replacing or deleting custom rows.
 
 The exercise editor offers a canonical body-part list and explicitly distinguishes
 one primary muscle from optional assisting muscles. The columns remain text/text[]

@@ -27,8 +27,11 @@ the moodboard informs hierarchy, density, and pacing.
 - **Training:** a natural-language next-workout focus leads. Muscle-group set coverage
   is primary; exercise-specific load and rep comparisons remain lower-level detail.
   Searchable history is a peer view, not the bottom of a long analytics feed.
-- **Exercise targets:** search and review remain fast; duplicate or invalid mappings show a
-  reason; the editor reveals one muscle region at a time while preserving every option.
+- **Exercise targets:** multi-term search plus muscle-area and equipment filters keep the
+  132-item catalogue fast; duplicate or invalid mappings show a reason; the editor reveals
+  one muscle region at a time while preserving every option.
+- **Workout planning:** six compact lifting-routine starters reduce setup time, adapt exercise
+  selection to saved equipment, and preserve history-derived targets as editable draft data.
 - **Food and Wellness:** lead with the current day's state and a single logging action;
   historical detail and educational explanations stay available through disclosure.
 

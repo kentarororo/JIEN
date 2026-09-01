@@ -74,11 +74,13 @@ Legacy rows are backfilled non-destructively from their current exercise mapping
 Cloud readers prefer the snapshot and fall back to the exercise row during the
 rolling deployment.
 
-The reviewed 56-exercise starter catalogue now avoids broad/specific double counting
-in rows and rear-delt movements, corrects shoulder press to front delts with side-delt
-assistance, attributes abdominal flexion to abs, rotation to obliques, adds adductor
-credit to squat/press patterns, and adds serratus credit to push-ups. Custom exercises
-remain editable through Exercise targets.
+The reviewed 132-exercise starter catalogue covers the common machine, cable,
+barbell, dumbbell, Smith-machine, bodyweight, and kettlebell movements used in
+general strength and hypertrophy routines. It avoids broad/specific double counting,
+uses specific shoulder and upper-back regions where attribution is useful, attributes
+abdominal flexion and rotation separately, and includes adductor, hip-abductor,
+serratus, brachialis, lower-back, and lower-leg work. Custom exercises remain
+editable through Exercise targets.
 
 ## Safety and limits
 
@@ -90,4 +92,3 @@ remain editable through Exercise targets.
 - Exercise-specific double progression remains the sole numeric source for load and
   rep suggestions.
 - AI may explain this deterministic output but cannot replace its numbers or state.
-

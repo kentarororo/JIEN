@@ -33,6 +33,7 @@ import {
   type SetProgressionCue,
   type SetProgressionPlan,
 } from '@/lib/progression';
+import { exerciseEquipmentLabel, filterExerciseCatalog } from '@/lib/training/exercise-catalog';
 import { hasStoredJointConsideration } from '@/lib/planning/workout-plan';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
@@ -559,9 +560,10 @@ export default function NewWorkoutScreen() {
         const selected = catalog?.find((exercise) => exercise.id === block.exerciseId);
         const query = exerciseQueries[block.key]?.trim().toLocaleLowerCase() ?? '';
         const browserOpen = exerciseBrowsers[block.key] ?? false;
-        const results = query || browserOpen
-          ? catalog?.filter((exercise) => !query || `${exercise.name} ${exercise.primaryMuscleGroup} ${exercise.secondaryMuscleGroups.join(' ')} ${exercise.equipment ?? ''}`.toLocaleLowerCase().includes(query)) ?? []
+        const matchingResults = query || browserOpen
+          ? filterExerciseCatalog(catalog ?? [], { query })
           : [];
+        const results = matchingResults.slice(0, 40);
         const loadFill = fillBlankWorkoutLoads(block.sets);
         const latestLoad = latestValidWorkoutLoad(block.sets);
         const setsComplete = completedBlockKeys.includes(block.key);
@@ -595,10 +597,11 @@ export default function NewWorkoutScreen() {
                 <ScrollView style={[styles.exerciseResultScroll, { borderColor: colors.border }]} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                   {results.length ? results.map((exercise) => (
                     <Pressable key={exercise.id} accessibilityRole="button" onPress={() => setExercise(block.key, exercise.id)} style={({ pressed }) => [styles.exerciseResult, { borderBottomColor: colors.border }, pressed && styles.pressed]}>
-                      <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{muscleGroupLabel(exercise.primaryMuscleGroup)} · {exercise.equipment ?? 'bodyweight'}</AppText></View>
+                      <View style={styles.flex}><AppText style={styles.resultName}>{exercise.name}</AppText><AppText style={{ color: colors.textMuted }}>{muscleGroupLabel(exercise.primaryMuscleGroup)} · {exerciseEquipmentLabel(exercise.equipment)}</AppText></View>
                       <AppText style={{ color: exercise.id === block.exerciseId ? colors.success : colors.accent, fontWeight: '700' }}>{exercise.id === block.exerciseId ? 'Selected' : 'Choose'}</AppText>
                     </Pressable>
                   )) : <AppText style={[styles.noResult, { color: colors.textMuted }]}>No match. Add a custom exercise below.</AppText>}
+                  {matchingResults.length > results.length ? <AppText style={[styles.noResult, { color: colors.textMuted }]}>Showing 40 of {matchingResults.length}. Search by name, muscle, or equipment to narrow the list.</AppText> : null}
                 </ScrollView>
               ) : null}
             </View>

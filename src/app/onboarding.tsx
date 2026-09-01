@@ -32,6 +32,7 @@ const EQUIPMENT = [
   ['cables', 'Cables'],
   ['dumbbells', 'Dumbbells'],
   ['barbells', 'Barbells'],
+  ['kettlebells', 'Kettlebells'],
   ['bodyweight', 'Bodyweight'],
 ] as const;
 const DIET = [

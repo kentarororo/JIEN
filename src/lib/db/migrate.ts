@@ -4,9 +4,9 @@ import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 
-export const LATEST_DATABASE_VERSION = 14;
+export const LATEST_DATABASE_VERSION = 15;
 
-export const DEFAULT_EXERCISES = [
+const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000002', 'Lat Pulldown', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'cable', 8, 12, 2.5],
   ['10000000-0000-4000-8000-000000000003', 'Seated Cable Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'cable', 8, 12, 2.5],
@@ -64,6 +64,87 @@ export const DEFAULT_EXERCISES = [
   ['10000000-0000-4000-8000-000000000055', 'Cable Serratus Punch', 'scapular_protraction', 'serratus_anterior', '[]', 'cable', 12, 20, 1.25],
   ['10000000-0000-4000-8000-000000000056', 'Standing Cable Hip Flexion', 'hip_flexion', 'hip_flexors', '["abs"]', 'cable', 10, 15, 1.25],
 ] as const;
+
+export const ADDITIONAL_EXERCISES = [
+  ['10000000-0000-4000-8000-000000000057', 'Barbell Back Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'barbell', 6, 10, 5],
+  ['10000000-0000-4000-8000-000000000058', 'Barbell Front Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'barbell', 6, 10, 5],
+  ['10000000-0000-4000-8000-000000000059', 'Barbell Bench Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'barbell', 6, 10, 2.5],
+  ['10000000-0000-4000-8000-000000000060', 'Incline Barbell Bench Press', 'incline_push', 'upper_chest', '["chest","triceps","front_delts"]', 'barbell', 6, 10, 2.5],
+  ['10000000-0000-4000-8000-000000000061', 'Close-grip Barbell Bench Press', 'horizontal_push', 'triceps', '["chest","front_delts"]', 'barbell', 6, 10, 2.5],
+  ['10000000-0000-4000-8000-000000000062', 'Barbell Overhead Press', 'vertical_push', 'front_delts', '["triceps","side_delts"]', 'barbell', 6, 10, 2.5],
+  ['10000000-0000-4000-8000-000000000063', 'Barbell Bent-over Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'barbell', 6, 10, 2.5],
+  ['10000000-0000-4000-8000-000000000064', 'Pendlay Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'barbell', 6, 10, 2.5],
+  ['10000000-0000-4000-8000-000000000065', 'Conventional Deadlift', 'hip_hinge', 'glutes', '["hamstrings","quads","lower_back"]', 'barbell', 5, 8, 5],
+  ['10000000-0000-4000-8000-000000000066', 'Sumo Deadlift', 'hip_hinge', 'glutes', '["quads","adductors","hamstrings"]', 'barbell', 5, 8, 5],
+  ['10000000-0000-4000-8000-000000000067', 'Barbell Romanian Deadlift', 'hip_hinge', 'hamstrings', '["glutes","lower_back"]', 'barbell', 6, 10, 5],
+  ['10000000-0000-4000-8000-000000000068', 'Barbell Hip Thrust', 'hip_extension', 'glutes', '["hamstrings"]', 'barbell', 8, 12, 5],
+  ['10000000-0000-4000-8000-000000000069', 'Barbell Good Morning', 'hip_hinge', 'hamstrings', '["glutes","lower_back"]', 'barbell', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000070', 'Barbell Biceps Curl', 'elbow_flexion', 'biceps', '["forearms"]', 'barbell', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000071', 'EZ-bar Biceps Curl', 'elbow_flexion', 'biceps', '["brachialis","forearms"]', 'barbell', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000072', 'EZ-bar Skull Crusher', 'elbow_extension', 'triceps', '[]', 'barbell', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000073', 'Barbell Upright Row', 'vertical_pull', 'side_delts', '["upper_traps","biceps"]', 'barbell', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000074', 'Barbell Shrug', 'scapular_elevation', 'upper_traps', '["forearms"]', 'barbell', 8, 15, 5],
+  ['10000000-0000-4000-8000-000000000075', 'T-bar Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'barbell', 8, 12, 5],
+  ['10000000-0000-4000-8000-000000000076', 'Landmine Press', 'diagonal_push', 'front_delts', '["triceps","upper_chest","serratus_anterior"]', 'barbell', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000077', 'Incline Dumbbell Bench Press', 'incline_push', 'upper_chest', '["chest","triceps","front_delts"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000078', 'Decline Dumbbell Bench Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000079', 'Dumbbell Shoulder Press', 'vertical_push', 'front_delts', '["triceps","side_delts"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000080', 'Arnold Press', 'vertical_push', 'front_delts', '["side_delts","triceps"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000081', 'Dumbbell Lateral Raise', 'shoulder_abduction', 'side_delts', '[]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000082', 'Dumbbell Front Raise', 'shoulder_flexion', 'front_delts', '[]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000083', 'Bent-over Dumbbell Reverse Fly', 'horizontal_abduction', 'rear_delts', '["middle_traps","rhomboids"]', 'dumbbell', 12, 20, 1],
+  ['10000000-0000-4000-8000-000000000084', 'Dumbbell Chest Fly', 'horizontal_adduction', 'chest', '[]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000085', 'Dumbbell Pullover', 'shoulder_extension', 'lats', '["chest","serratus_anterior"]', 'dumbbell', 10, 15, 2],
+  ['10000000-0000-4000-8000-000000000086', 'Dumbbell Biceps Curl', 'elbow_flexion', 'biceps', '["forearms"]', 'dumbbell', 8, 12, 1],
+  ['10000000-0000-4000-8000-000000000087', 'Incline Dumbbell Curl', 'elbow_flexion', 'biceps', '[]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000088', 'Concentration Curl', 'elbow_flexion', 'biceps', '[]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000089', 'Dumbbell Hammer Curl', 'elbow_flexion', 'brachialis', '["biceps","forearms"]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000090', 'Dumbbell Overhead Triceps Extension', 'elbow_extension', 'triceps', '[]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000091', 'Dumbbell Triceps Kickback', 'elbow_extension', 'triceps', '[]', 'dumbbell', 10, 15, 1],
+  ['10000000-0000-4000-8000-000000000092', 'Bulgarian Split Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000093', 'Dumbbell Walking Lunge', 'knee_dominant', 'quads', '["glutes","adductors"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000094', 'Dumbbell Reverse Lunge', 'knee_dominant', 'quads', '["glutes","adductors"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000095', 'Dumbbell Step-up', 'knee_dominant', 'quads', '["glutes","adductors"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000096', 'Dumbbell Sumo Squat', 'knee_dominant', 'glutes', '["quads","adductors"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000097', 'Single-leg Dumbbell Romanian Deadlift', 'hip_hinge', 'hamstrings', '["glutes","lower_back"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000098', 'Dumbbell Calf Raise', 'plantar_flexion', 'calves', '[]', 'dumbbell', 10, 15, 2],
+  ['10000000-0000-4000-8000-000000000099', 'Dumbbell Wrist Curl', 'wrist_flexion', 'forearms', '[]', 'dumbbell', 12, 20, 1],
+  ['10000000-0000-4000-8000-000000000100', 'Renegade Row', 'horizontal_pull', 'lats', '["upper_back","biceps","core"]', 'dumbbell', 8, 12, 2],
+  ['10000000-0000-4000-8000-000000000101', 'Cable Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'cable', 8, 12, 1.25],
+  ['10000000-0000-4000-8000-000000000102', 'Low-to-high Cable Fly', 'incline_adduction', 'upper_chest', '["chest","front_delts"]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000103', 'High-to-low Cable Fly', 'decline_adduction', 'chest', '[]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000104', 'Single-arm Lat Pulldown', 'vertical_pull', 'lats', '["biceps"]', 'cable', 8, 12, 1.25],
+  ['10000000-0000-4000-8000-000000000105', 'Wide-grip Seated Cable Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'cable', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000106', 'Cable Upright Row', 'vertical_pull', 'side_delts', '["upper_traps","biceps"]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000107', 'Cable Front Raise', 'shoulder_flexion', 'front_delts', '[]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000108', 'Bayesian Cable Curl', 'elbow_flexion', 'biceps', '[]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000109', 'Cable Hammer Curl', 'elbow_flexion', 'brachialis', '["biceps","forearms"]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000110', 'Single-arm Cable Pressdown', 'elbow_extension', 'triceps', '[]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000111', 'Cable Hip Abduction', 'hip_abduction', 'hip_abductors', '["glutes"]', 'cable', 12, 20, 1.25],
+  ['10000000-0000-4000-8000-000000000112', 'Cable Hip Adduction', 'hip_adduction', 'adductors', '[]', 'cable', 12, 20, 1.25],
+  ['10000000-0000-4000-8000-000000000113', 'Cable Leg Curl', 'knee_flexion', 'hamstrings', '[]', 'cable', 10, 15, 1.25],
+  ['10000000-0000-4000-8000-000000000114', 'Smith Machine Bench Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'smith_machine', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000115', 'Smith Machine Incline Press', 'incline_push', 'upper_chest', '["chest","triceps","front_delts"]', 'smith_machine', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000116', 'Smith Machine Shoulder Press', 'vertical_push', 'front_delts', '["triceps","side_delts"]', 'smith_machine', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000117', 'Smith Machine Romanian Deadlift', 'hip_hinge', 'hamstrings', '["glutes","lower_back"]', 'smith_machine', 8, 12, 5],
+  ['10000000-0000-4000-8000-000000000118', 'Smith Machine Hip Thrust', 'hip_extension', 'glutes', '["hamstrings"]', 'smith_machine', 8, 12, 5],
+  ['10000000-0000-4000-8000-000000000119', 'Smith Machine Split Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'smith_machine', 8, 12, 2.5],
+  ['10000000-0000-4000-8000-000000000120', 'Pendulum Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'machine', 8, 12, 5],
+  ['10000000-0000-4000-8000-000000000121', 'Pull-up', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'bodyweight', 6, 12, 1],
+  ['10000000-0000-4000-8000-000000000122', 'Chin-up', 'vertical_pull', 'lats', '["biceps","upper_back"]', 'bodyweight', 6, 12, 1],
+  ['10000000-0000-4000-8000-000000000123', 'Inverted Row', 'horizontal_pull', 'upper_back', '["lats","biceps","rear_delts"]', 'bodyweight', 8, 15, 1],
+  ['10000000-0000-4000-8000-000000000124', 'Parallel-bar Dip', 'vertical_push', 'triceps', '["chest","front_delts"]', 'bodyweight', 6, 12, 1],
+  ['10000000-0000-4000-8000-000000000125', 'Bodyweight Split Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'bodyweight', 10, 20, 1],
+  ['10000000-0000-4000-8000-000000000126', 'Bodyweight Walking Lunge', 'knee_dominant', 'quads', '["glutes","adductors"]', 'bodyweight', 10, 20, 1],
+  ['10000000-0000-4000-8000-000000000127', 'Ab Wheel Rollout', 'anti_extension', 'abs', '["serratus_anterior","lats"]', 'bodyweight', 8, 15, 1],
+  ['10000000-0000-4000-8000-000000000128', 'Lying Leg Raise', 'hip_flexion', 'abs', '["hip_flexors"]', 'bodyweight', 10, 20, 1],
+  ['10000000-0000-4000-8000-000000000129', 'Kettlebell Swing', 'hip_hinge', 'glutes', '["hamstrings","lower_back"]', 'kettlebell', 10, 20, 2],
+  ['10000000-0000-4000-8000-000000000130', 'Kettlebell Goblet Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'kettlebell', 8, 15, 2],
+  ['10000000-0000-4000-8000-000000000131', 'Nordic Hamstring Curl', 'knee_flexion', 'hamstrings', '[]', 'bodyweight', 5, 10, 1],
+  ['10000000-0000-4000-8000-000000000132', 'Belt Squat', 'knee_dominant', 'quads', '["glutes","adductors"]', 'machine', 8, 12, 5],
+] as const;
+
+export const DEFAULT_EXERCISES = [...CORE_EXERCISES, ...ADDITIONAL_EXERCISES] as const;
 
 const STARTER_FOODS = [
   ['starter-chicken-breast', 'Chicken breast, cooked', null, 100, 'g', 165, 31, 0, 3.6, 0],
@@ -606,6 +687,23 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         );
       }
       await db.execAsync('PRAGMA user_version = 14;');
+    });
+  }
+
+  if (currentVersion < 15) {
+    const exerciseNow = new Date().toISOString();
+    await withExclusiveTransaction(db, async (db) => {
+      for (const exercise of ADDITIONAL_EXERCISES) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO exercises (
+            id, name, movement_pattern, primary_muscle_group, secondary_muscle_groups,
+            equipment, target_rep_min, target_rep_max, load_increment,
+            created_at, updated_at, client_updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [...exercise, exerciseNow, exerciseNow, exerciseNow],
+        );
+      }
+      await db.execAsync('PRAGMA user_version = 15;');
     });
   }
 }

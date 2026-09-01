@@ -8,6 +8,7 @@ import { useScreenData } from '@/hooks/use-screen-data';
 import { exerciseTargetsNeedReview, isStarterExerciseId, listExercises, updateExerciseTargets } from '@/lib/db';
 import type { Exercise } from '@/lib/db/types';
 import { MUSCLE_GROUP_OPTIONS, MUSCLE_GROUP_SECTIONS, muscleGroupLabel, normalizeMuscleGroupKey } from '@/lib/progression';
+import { EXERCISE_EQUIPMENT_FILTERS, exerciseEquipmentLabel, filterExerciseCatalog, type ExerciseEquipmentFilter, type ExerciseMuscleSection } from '@/lib/training/exercise-catalog';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 type CatalogFilter = 'all' | 'review' | 'custom' | 'jien';
@@ -19,6 +20,8 @@ export default function ExerciseLibraryScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [query, setQuery] = useState('');
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
+  const [muscleSection, setMuscleSection] = useState<ExerciseMuscleSection | null>(null);
+  const [equipmentFilter, setEquipmentFilter] = useState<ExerciseEquipmentFilter | null>(null);
   const [catalogLimit, setCatalogLimit] = useState(24);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [primaryMuscle, setPrimaryMuscle] = useState('chest');
@@ -38,26 +41,19 @@ export default function ExerciseLibraryScreen() {
   const needsCatalogReview = useCallback((exercise: Exercise) => exerciseTargetsNeedReview(exercise)
     || (exerciseNameCounts.get(normalizedExerciseName(exercise.name)) ?? 0) > 1, [exerciseNameCounts]);
   const filteredExercises = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase();
-    return exercises.filter((exercise) => {
+    const sourceFiltered = exercises.filter((exercise) => {
       const starter = isStarterExerciseId(exercise.id);
       if (catalogFilter === 'review' && !needsCatalogReview(exercise)) return false;
       if (catalogFilter === 'custom' && starter) return false;
       if (catalogFilter === 'jien' && !starter) return false;
-      if (!term) return true;
-      const searchable = [
-        exercise.name,
-        exercise.equipment ?? 'bodyweight',
-        muscleGroupLabel(exercise.primaryMuscleGroup),
-        ...exercise.secondaryMuscleGroups.map(muscleGroupLabel),
-      ].join(' ').toLocaleLowerCase();
-      return searchable.includes(term);
+      return true;
     });
-  }, [catalogFilter, exercises, needsCatalogReview, query]);
+    return filterExerciseCatalog(sourceFiltered, { query, muscleSection, equipment: equipmentFilter });
+  }, [catalogFilter, equipmentFilter, exercises, muscleSection, needsCatalogReview, query]);
   const visibleExercises = filteredExercises.slice(0, catalogLimit);
   const customCount = exercises.filter((exercise) => !isStarterExerciseId(exercise.id)).length;
   const reviewCount = exercises.filter(needsCatalogReview).length;
-  useEffect(() => setCatalogLimit(24), [catalogFilter, query]);
+  useEffect(() => setCatalogLimit(24), [catalogFilter, equipmentFilter, muscleSection, query]);
 
   const beginEditing = (exercise: Exercise) => {
     const normalizedPrimary = normalizeMuscleGroupKey(exercise.primaryMuscleGroup);
@@ -106,7 +102,7 @@ export default function ExerciseLibraryScreen() {
           label="Find an exercise"
           value={query}
           onChangeText={setQuery}
-          placeholder="Name, equipment, or muscle…"
+          placeholder="Try bench, quadriceps, or dumbbell…"
           returnKeyType="search"
         />
         <View style={styles.filters}>
@@ -115,6 +111,21 @@ export default function ExerciseLibraryScreen() {
           <Pill label={`Custom ${customCount}`} active={catalogFilter === 'custom'} onPress={() => setCatalogFilter('custom')} />
           <Pill label={`JIEN ${exercises.length - customCount}`} active={catalogFilter === 'jien'} onPress={() => setCatalogFilter('jien')} />
         </View>
+        <View style={styles.quickFilterGroup}>
+          <AppText style={[styles.quickFilterLabel, { color: colors.textMuted }]}>Muscle area</AppText>
+          <View style={styles.filters}>
+            <Pill label="All" active={muscleSection == null} onPress={() => setMuscleSection(null)} />
+            {MUSCLE_GROUP_SECTIONS.map((section) => <Pill key={section} label={section} active={muscleSection === section} onPress={() => setMuscleSection(section)} />)}
+          </View>
+        </View>
+        <View style={styles.quickFilterGroup}>
+          <AppText style={[styles.quickFilterLabel, { color: colors.textMuted }]}>Equipment</AppText>
+          <View style={styles.filters}>
+            <Pill label="All" active={equipmentFilter == null} onPress={() => setEquipmentFilter(null)} />
+            {EXERCISE_EQUIPMENT_FILTERS.map((option) => <Pill key={option.value} label={option.label} active={equipmentFilter === option.value} onPress={() => setEquipmentFilter(option.value)} />)}
+          </View>
+        </View>
+        {query.trim() || muscleSection || equipmentFilter ? <Button label="Clear search and filters" onPress={() => { setQuery(''); setMuscleSection(null); setEquipmentFilter(null); }} variant="quiet" /> : null}
       </Card>
 
       {editingExercise ? (
@@ -123,7 +134,7 @@ export default function ExerciseLibraryScreen() {
             <View style={styles.flex}>
               <AppText style={[styles.kicker, { color: colors.accent }]}>EDITING</AppText>
               <AppText style={styles.editorTitle}>{editingExercise.name}</AppText>
-              <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(editingExercise.id) ? 'Built-in' : 'Custom'} · {humanizeEquipment(editingExercise.equipment)}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(editingExercise.id) ? 'Built-in' : 'Custom'} · {exerciseEquipmentLabel(editingExercise.equipment)}</AppText>
             </View>
             <View style={styles.editorActions}>
               <Button label="Save" onPress={() => void saveTargets()} busy={saving} variant="secondary" />
@@ -164,7 +175,7 @@ export default function ExerciseLibraryScreen() {
       <SectionHeading title="Exercises" detail={`${filteredExercises.length} result${filteredExercises.length === 1 ? '' : 's'} · choose one to edit`} />
       {loading && !data ? <StatePanel title="Opening exercise catalog" body="Reading your on-device exercise list." loading /> : null}
       {error ? <StatePanel title="Exercise catalog is unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
-      {!loading && !error && filteredExercises.length === 0 ? <StatePanel title="No matching exercises" body="Try another name, muscle, or catalog filter." actionLabel="Show all" onAction={() => { setQuery(''); setCatalogFilter('all'); }} /> : null}
+      {!loading && !error && filteredExercises.length === 0 ? <StatePanel title="No matching exercises" body="Try another name, muscle area, equipment type, or catalog filter." actionLabel="Show all" onAction={() => { setQuery(''); setCatalogFilter('all'); setMuscleSection(null); setEquipmentFilter(null); }} /> : null}
       <View style={styles.exerciseGrid}>
         {visibleExercises.map((exercise) => {
           const selected = exercise.id === editingId;
@@ -183,7 +194,7 @@ export default function ExerciseLibraryScreen() {
                 <View style={styles.exerciseHeader}>
                   <View style={styles.flex}>
                     <AppText style={styles.exerciseName}>{exercise.name}</AppText>
-                    <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(exercise.id) ? 'Built-in' : 'Custom'} · {humanizeEquipment(exercise.equipment)} · {exercise.targetRepMin}–{exercise.targetRepMax} reps</AppText>
+                    <AppText style={{ color: colors.textMuted }}>{isStarterExerciseId(exercise.id) ? 'Built-in' : 'Custom'} · {exerciseEquipmentLabel(exercise.equipment)} · {exercise.targetRepMin}–{exercise.targetRepMax} reps</AppText>
                   </View>
                   <AppText style={{ color: needsReview ? colors.warning : colors.accent, fontWeight: '700' }}>{selected ? 'Editing' : duplicateName ? 'Duplicate name' : needsReview ? 'Check tags' : 'Edit'}</AppText>
                 </View>
@@ -239,11 +250,6 @@ function TargetPicker({
   );
 }
 
-function humanizeEquipment(value: string | null | undefined): string {
-  if (!value) return 'Bodyweight';
-  return value.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase());
-}
-
 function normalizedExerciseName(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
 }
@@ -254,6 +260,8 @@ const styles = StyleSheet.create({
   guidance: { padding: spacing.lg },
   guidanceTitle: { ...typography.bodyLarge, fontWeight: '800' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  quickFilterGroup: { gap: spacing.xs },
+  quickFilterLabel: { ...typography.caption, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   editor: { padding: spacing.lg, gap: spacing.lg },
   editorHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   editorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },

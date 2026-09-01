@@ -36,6 +36,21 @@ test('mobile startup exposes touch-sized account controls without overflow', asy
   expect(undersizedTargets).toEqual([]);
 });
 
+test('routine starters adapt to saved equipment without inventing targets', async ({ context, page }, testInfo) => {
+  await prepareIsolatedJienContext(context, page);
+  if (testInfo.project.name !== 'ios-webkit') await fixJienClock(page);
+  await completeOnboarding(page);
+  await page.getByRole('tab', { name: 'Train' }).click();
+  await page.getByRole('button', { name: 'Plan workout' }).click();
+  await expect(page.getByText('Start from a routine')).toBeVisible();
+  await page.getByRole('button', { name: 'Use Full body routine starter' }).click();
+  await expect(page.getByText('5 selected')).toBeVisible();
+  await expect(page.getByText('Machine Chest Press', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText('Machine Hip Thrust', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText('Choose load · 8–12 reps').first()).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});
+
 test('isolated daily loop persists records and hands SQLite to a newer tab', async ({ context, page }, testInfo) => {
   const capturesVisualBaselines = testInfo.project.name === 'edge-desktop';
   const pageErrors: string[] = [];
@@ -56,6 +71,8 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
 
   await page.getByRole('button', { name: /Log workout/ }).first().click();
   await page.getByLabel('Session name').fill('Browser QA strength');
+  await page.getByLabel('Find exercise for exercise 1').fill('quadriceps dumbbell');
+  await expect(page.getByRole('button', { name: /^Bulgarian Split Squat .*Choose$/ })).toBeVisible();
   await page.getByLabel('Find exercise for exercise 1').fill('Goblet Squat');
   await page.getByRole('button', { name: /^Goblet Squat .*Choose$/ }).click();
   const loads = page.getByRole('textbox', { name: 'Load (kg)', exact: true });
