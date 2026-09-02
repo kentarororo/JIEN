@@ -42,7 +42,9 @@ numeric targets or chooses a workout without an explicit user action.
 - Production authentication, offline/online reconciliation, and multi-device restore.
   Device-local sync health now records the last attempt and last successful restore
   without exporting provider details or health records.
-- Error monitoring, privacy review, data export/delete checks, and release operations.
+- Privacy-safe app recovery history now stores only stable codes, timestamps, and a
+  count on the device, with an explicit Settings control to clear that history.
+  Remote error monitoring, data export/delete checks, and release operations remain.
 - Closed-beta instrumentation focused on failed saves, sync health, logging time, and
   advisory usefulness rather than engagement pressure.
 

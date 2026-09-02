@@ -24,7 +24,8 @@ The approved interface hierarchy and moodboard consensus are recorded in
 [docs/product-visual-direction.md](docs/product-visual-direction.md). Interface grammar,
 error structure, and AI-copy constraints are recorded in
 [docs/product-voice.md](docs/product-voice.md). Current and upcoming delivery gates are
-recorded in [docs/roadmap.md](docs/roadmap.md).
+recorded in [docs/roadmap.md](docs/roadmap.md). The local-only error record and its
+privacy boundary are documented in [docs/runtime-diagnostics.md](docs/runtime-diagnostics.md).
 
 ## Local setup
 

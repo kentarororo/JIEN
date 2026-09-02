@@ -130,6 +130,8 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await expect(page.getByRole('heading', { name: 'Account and sync', exact: true })).toBeVisible();
   await expect(page.getByText('Cloud current', { exact: true })).toBeVisible();
   await expect(page.getByText(/Last successful cloud sync/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'App recovery', exact: true })).toBeVisible();
+  await expect(page.getByText('No app recovery errors recorded', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sync now' }).click();
   await expect(page.getByText('Cloud sync is current.', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Export', exact: true })).toBeVisible();

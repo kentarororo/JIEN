@@ -7,15 +7,16 @@ import { AppText, Button, Card, Pill, Screen, ScreenHeading, SectionHeading, Sta
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
 import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
-import { getAccountSyncHealth, getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, subscribeToAccountSyncHealth, syncAccountData } from '@/lib/db';
+import { clearRuntimeDiagnostics, getAccountSyncHealth, getRuntimeDiagnostics, getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, subscribeToAccountSyncHealth, syncAccountData } from '@/lib/db';
 import { reconcileMealGapNotification, reconcileSyncAttentionNotification, reconcileWorkoutPlanNotification } from '@/lib/notifications';
 import { radii, spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
 
 async function loadSettings(db: ReturnType<typeof useSQLiteContext>) {
-  const [sync, syncHealth, notifications, account, profile] = await Promise.all([getSyncStatus(db), getAccountSyncHealth(db), listNotificationPreferences(db), getAccountState(), getUserProfile(db)]);
+  const [sync, syncHealth, diagnostics, notifications, account, profile] = await Promise.all([getSyncStatus(db), getAccountSyncHealth(db), getRuntimeDiagnostics(db), listNotificationPreferences(db), getAccountState(), getUserProfile(db)]);
   return {
     sync,
     syncHealth,
+    diagnostics,
     account,
     profile,
     mealGap: notifications.find((item) => item.type === 'meal_gap') ?? null,
@@ -143,6 +144,25 @@ export default function SettingsScreen() {
     });
   };
 
+  const confirmClearRecoveryHistory = () => {
+    Alert.alert(
+      'Clear recovery history?',
+      'Only local recovery codes and timestamps will be removed. Workout, meal, wellness, account, and sync records will not change.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: () => void run('diagnostics', async () => {
+            await clearRuntimeDiagnostics(db);
+            showMessage('Recovery history cleared.');
+            await reload();
+          }),
+        },
+      ],
+    );
+  };
+
   return (
     <Screen>
       <ScreenHeading title="Settings" eyebrow="Account, preferences and data" />
@@ -218,6 +238,14 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
+        <SectionHeading title="App recovery" detail="Private history stored only on this device" />
+        <Card>
+          <AppText style={styles.cardTitle}>{data?.diagnostics ? `${data.diagnostics.totalCount} app ${data.diagnostics.totalCount === 1 ? 'error' : 'errors'} recorded` : 'No app recovery errors recorded'}</AppText>
+          {data?.diagnostics ? <AppText style={{ color: theme.colors.textMuted }}>Latest code: {formatRecoveryCode(data.diagnostics.lastCode)} · {formatSyncTimestamp(data.diagnostics.lastOccurredAt)}</AppText> : <AppText style={{ color: theme.colors.textMuted }}>There is no recovery history on this device.</AppText>}
+          <AppText style={{ color: theme.colors.textMuted }}>This history contains only recovery codes and timestamps. It does not contain training, nutrition, wellness, AI, account, or exception details.</AppText>
+          {data?.diagnostics ? <View style={styles.dataActions}><Button label="Clear recovery history" onPress={confirmClearRecoveryHistory} busy={busy === 'diagnostics'} variant="quiet" /></View> : null}
+        </Card>
+
         <SectionHeading title="Export" detail="Portable files generated from this device" />
         <Card>
           <AppText style={{ color: theme.colors.textMuted }}>Exports contain sensitive health, nutrition, training, and AI records. Store and share them carefully.</AppText>
@@ -266,4 +294,8 @@ function formatSyncTimestamp(value: string): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date);
+}
+
+function formatRecoveryCode(value: string): string {
+  return value.toLocaleLowerCase().replaceAll('_', ' ').replace(/(^|\s)\S/g, (letter) => letter.toLocaleUpperCase());
 }

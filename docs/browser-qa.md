@@ -41,5 +41,5 @@ read-only observations unless a dedicated QA account is available.
 
 The browser flow covers onboarding, equipment-aware routine drafts, one completed
 workout, set review, a manual meal, history, persisted sync health and manual sync,
-Settings, reload persistence, newer-tab SQLite handoff, mobile overflow and
+the empty app-recovery history in Settings, reload persistence, newer-tab SQLite handoff, mobile overflow and
 touch-target checks, and unhandled page errors across the supported browser projects.

@@ -1,8 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
-import { SQLiteProvider } from '@/lib/db/database-context';
+import { SQLiteProvider, useSQLiteContext } from '@/lib/db/database-context';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/app-error-boundary';
@@ -22,9 +22,9 @@ import {
   parseWebOAuthCallbackUrl,
   type OAuthCallbackRequest,
 } from '@/lib/auth/oauth';
-import { migrateDatabase } from '@/lib/db';
+import { migrateDatabase, recordRuntimeDiagnostic } from '@/lib/db';
 import { configureNotificationHandling } from '@/lib/notifications';
-import { JienThemeProvider, useJienTheme } from '@/theme';
+import { JienThemeProvider, themes, useJienTheme } from '@/theme';
 
 configureNotificationHandling();
 
@@ -86,11 +86,7 @@ function DatabaseApp() {
       onInit={migrateDatabase}
     >
       <JienThemeProvider>
-        <WebSQLiteDatabaseLifecycle />
-        <WebCloudHydrationGate>
-          <AppRuntime />
-          <AppNavigator />
-        </WebCloudHydrationGate>
+        <DatabaseRuntime />
       </JienThemeProvider>
     </SQLiteProvider>
   );
@@ -98,6 +94,22 @@ function DatabaseApp() {
   return Platform.OS === 'web'
     ? <WebSQLiteProviderErrorBoundary>{database}</WebSQLiteProviderErrorBoundary>
     : database;
+}
+
+function DatabaseRuntime() {
+  const db = useSQLiteContext();
+  const recordError = useCallback((error: Error) => {
+    void recordRuntimeDiagnostic(db, error).catch(() => undefined);
+  }, [db]);
+  return (
+    <AppErrorBoundary scope="runtime" onError={recordError}>
+      <WebSQLiteDatabaseLifecycle />
+      <WebCloudHydrationGate>
+        <AppRuntime />
+        <AppNavigator />
+      </WebCloudHydrationGate>
+    </AppErrorBoundary>
+  );
 }
 
 export default function RootLayout() {
@@ -132,7 +144,7 @@ export default function RootLayout() {
   }
 
   return (
-    <AppErrorBoundary>
+    <AppErrorBoundary scope="startup">
       {callbackRequest
         ? <OAuthCallbackCompletion request={callbackRequest} />
         : <WebSQLiteGate><WebAuthGate><DatabaseApp /></WebAuthGate></WebSQLiteGate>}
@@ -142,7 +154,7 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   app: { flex: 1 },
-  boot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7F1E7' },
+  boot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: themes.light.colors.canvas },
   headerBack: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerBackPressed: { opacity: 0.62 },
 });

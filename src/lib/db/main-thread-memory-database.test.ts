@@ -18,6 +18,7 @@ import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
 import { savePrivateFood } from './private-food.ts';
+import { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
 import { listVolumeHistory, saveWorkout, updateWorkout } from './workouts.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
@@ -89,6 +90,19 @@ test('main-thread database persists committed work and isolates delayed transact
       code: null,
       safeMessage: null,
     });
+    await recordRuntimeDiagnostic(database, new Error('private route /wellness/secret failed'), '2026-09-02T04:00:00.000Z');
+    await recordRuntimeDiagnostic(database, new Error('IndexedDB quota for account secret@example.com'), '2026-09-02T05:00:00.000Z');
+    assert.deepEqual(await getRuntimeDiagnostics(database), {
+      schemaVersion: 1,
+      totalCount: 2,
+      firstOccurredAt: '2026-09-02T04:00:00.000Z',
+      lastOccurredAt: '2026-09-02T05:00:00.000Z',
+      lastCode: 'LOCAL_STORAGE_ERROR',
+    });
+    assert.equal((await database.getFirstAsync<{ value: string }>('SELECT value FROM app_settings WHERE key = ?', ['runtime_diagnostics_v1']))?.value.includes('secret'), false);
+    await clearRuntimeDiagnostics(database);
+    assert.equal(await getRuntimeDiagnostics(database), null);
+    await recordRuntimeDiagnostic(database, new Error('component render stopped'), '2026-09-02T06:00:00.000Z');
     assert.deepEqual(
       await database.getFirstAsync(
         `SELECT name, source, source_ref AS sourceRef, calories_kcal AS caloriesKcal
@@ -487,6 +501,13 @@ test('main-thread database persists committed work and isolates delayed transact
       { name: 'Protein cereal', calories_kcal: 215, protein_g: 21, source: 'custom' },
       'private foods must survive a durable database close and fresh SQLite lifecycle',
     );
+    assert.deepEqual(await getRuntimeDiagnostics(restored), {
+      schemaVersion: 1,
+      totalCount: 1,
+      firstOccurredAt: '2026-09-02T06:00:00.000Z',
+      lastOccurredAt: '2026-09-02T06:00:00.000Z',
+      lastCode: 'UI_RENDER_ERROR',
+    }, 'privacy-safe recovery history must survive a fresh SQLite lifecycle');
     assert.deepEqual(await restored.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await restored.getAllAsync('PRAGMA foreign_key_check'), []);
     await restored.closeAsync();

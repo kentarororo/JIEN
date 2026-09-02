@@ -18,6 +18,8 @@ const exerciseCatalog = readFileSync(new URL('../src/lib/training/exercise-catal
 const routineStarters = readFileSync(new URL('../src/lib/planning/routine-starters.ts', import.meta.url), 'utf8');
 const cloudSync = readFileSync(new URL('../src/lib/db/cloud-sync.ts', import.meta.url), 'utf8');
 const syncHealth = readFileSync(new URL('../src/lib/db/sync-health.ts', import.meta.url), 'utf8');
+const appErrorBoundary = readFileSync(new URL('../src/components/app-error-boundary.tsx', import.meta.url), 'utf8');
+const runtimeDiagnostics = readFileSync(new URL('../src/lib/db/runtime-diagnostics.ts', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/components/ui.tsx', import.meta.url), 'utf8');
 
 test('Today is week-first while preserving the month and day workspace', () => {
@@ -136,6 +138,15 @@ test('Settings separates general preferences, reminders, and local data controls
   assert.match(settings, /Saved offline/);
   assert.match(cloudSync, /recordAccountSyncHealth\(db, result\)/);
   assert.match(syncHealth, /ACCOUNT_SYNC_HEALTH_KEY = 'account_sync_health_v1'/);
+  assert.match(settings, /App recovery/);
+  assert.match(settings, /Clear recovery history/);
+  assert.match(settings, /only recovery codes and timestamps/);
+  assert.match(rootLayout, /<AppErrorBoundary scope="startup">/);
+  assert.match(rootLayout, /<AppErrorBoundary scope="runtime" onError=\{recordError\}>/);
+  assert.match(rootLayout, /recordRuntimeDiagnostic\(db, error\)/);
+  assert.match(appErrorBoundary, /Recovery code: \{code\}/);
+  assert.match(runtimeDiagnostics, /RUNTIME_DIAGNOSTICS_KEY = 'runtime_diagnostics_v1'/);
+  assert.doesNotMatch(runtimeDiagnostics, /componentStack|pathname|userId|email/);
   assert.doesNotMatch(settings, /#[\da-fA-F]{6}/, 'settings colors must come from semantic theme tokens');
 });
 

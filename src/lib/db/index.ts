@@ -5,6 +5,8 @@ export { syncAccountData } from './cloud-sync';
 export type { AccountSyncResult } from './cloud-sync';
 export { getAccountSyncHealth, subscribeToAccountSyncHealth } from './sync-health';
 export type { AccountSyncHealth, AccountSyncHealthState } from './sync-health';
+export { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic } from './runtime-diagnostics';
+export type { RuntimeDiagnosticCode, RuntimeDiagnostics } from './runtime-diagnostics';
 export { listCalendarActivity } from './calendar';
 export {
   createCustomExercise,
