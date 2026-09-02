@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -10,8 +11,6 @@ import { MemoryVFS } from '../../../node_modules/expo-sqlite/web/wa-sqlite/Memor
 import * as SQLite from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-api.js';
 // @ts-expect-error Expo bundles these JavaScript modules without public declarations.
 import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-constants.js';
-// @ts-expect-error Expo bundles this JavaScript module without a public declaration.
-import WaSQLiteFactoryImport from '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js';
 import { migrateDatabase } from './migrate.ts';
 import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './exercise-targets.ts';
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
@@ -26,20 +25,13 @@ import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQ
 type WaSQLiteModule = Parameters<typeof SQLite.Factory>[0];
 type WaSQLiteFactoryType = (options: { wasmBinary: Uint8Array }) => Promise<WaSQLiteModule>;
 
-// Expo ships this generated factory as CommonJS without package metadata. Node's
-// module interop can expose it directly or under one or more `default` wrappers,
-// depending on the host and loader.
-function resolveWaSQLiteFactory(value: unknown): WaSQLiteFactoryType {
-  let candidate = value;
-  for (let depth = 0; depth < 4; depth += 1) {
-    if (typeof candidate === 'function') return candidate as WaSQLiteFactoryType;
-    if (!candidate || typeof candidate !== 'object' || !('default' in candidate)) break;
-    candidate = (candidate as { default: unknown }).default;
-  }
-  throw new TypeError('Expo wa-sqlite factory export is unavailable.');
-}
-
-const WaSQLiteFactory = resolveWaSQLiteFactory(WaSQLiteFactoryImport);
+// Expo generates this file as CommonJS but does not include public declarations
+// or package metadata beside it. Explicit require keeps Node's Linux and Windows
+// test runners from assigning different ESM interop shapes.
+const requireFromTest = createRequire(import.meta.url);
+const WaSQLiteFactory = requireFromTest(
+  '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js',
+) as WaSQLiteFactoryType;
 
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
   const wasmBinary = readFileSync(new URL(
