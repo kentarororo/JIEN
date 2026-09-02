@@ -146,7 +146,7 @@ export const ADDITIONAL_EXERCISES = [
 
 export const DEFAULT_EXERCISES = [...CORE_EXERCISES, ...ADDITIONAL_EXERCISES] as const;
 
-const STARTER_FOODS = [
+export const STARTER_FOODS = [
   ['starter-chicken-breast', 'Chicken breast, cooked', null, 100, 'g', 165, 31, 0, 3.6, 0],
   ['starter-white-rice', 'White rice, cooked', null, 100, 'g', 130, 2.7, 28.2, 0.3, 0.4],
   ['starter-brown-rice', 'Brown rice, cooked', null, 100, 'g', 123, 2.7, 25.6, 1, 1.6],
@@ -164,7 +164,7 @@ const STARTER_FOODS = [
 // Public-domain USDA FoodData Central records selected to make common Asian
 // ingredients and dishes available before the first network search. Portions
 // remain editable, and the original FDC id is retained for attribution.
-const REGIONAL_STARTER_FOODS = [
+export const REGIONAL_STARTER_FOODS = [
   ['usda-2708356', 'Rice noodles, cooked', 100, 'g', 107, 1.78, 23.87, 0.2, 1, '2708356'],
   ['usda-172467', 'Tempeh, cooked', 100, 'g', 195, 19.9, 7.62, 11.4, null, '172467'],
   ['usda-2707436', 'Edamame, cooked', 100, 'g', 140, 11.54, 8.63, 7.58, 5, '2707436'],

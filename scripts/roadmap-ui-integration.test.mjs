@@ -141,6 +141,9 @@ test('Settings separates general preferences, reminders, and local data controls
   assert.match(settings, /App recovery/);
   assert.match(settings, /Clear recovery history/);
   assert.match(settings, /only recovery codes and timestamps/);
+  assert.match(settings, /Type DELETE to continue/);
+  assert.match(settings, /Permanently delete account/);
+  assert.match(settings, /deleteCloudAccount\(\)[\s\S]*finishAccountDeletionOnDevice\(db, userId\)/);
   assert.match(rootLayout, /<AppErrorBoundary scope="startup">/);
   assert.match(rootLayout, /<AppErrorBoundary scope="runtime" onError=\{recordError\}>/);
   assert.match(rootLayout, /recordRuntimeDiagnostic\(db, error\)/);

@@ -1,11 +1,22 @@
 # Edge Functions
 
-Deploy `food-search`, `food-barcode`, `ai-settings`, `analyze-food-photo`, and `wellness-chat` with
+Deploy `food-search`, `food-barcode`, `ai-settings`, `analyze-food-photo`, `wellness-chat`, and `delete-account` with
 Supabase's normal JWT verification enabled. Configure these server-only secrets:
 
 On Windows, deploy the food-search function with `scripts/deploy-food-search.ps1`.
 The helper resolves the repository's bundled Supabase CLI, so a global `supabase`
 command is not required.
+
+Deploy the account-deletion boundary from the repository root with:
+
+```powershell
+& .\scripts\deploy-account-deletion.ps1
+```
+
+`delete-account` accepts only the version 1 typed-confirmation request, verifies the
+bearer token again inside the function, removes a personal Gemini Vault secret, and
+then hard-deletes that authenticated user so the schema's owner foreign keys cascade.
+It never accepts a user ID from the request body.
 
 - `USDA_FDC_API_KEY` from USDA FoodData Central.
 - `FATSECRET_CLIENT_ID` and `FATSECRET_CLIENT_SECRET` from a FatSecret Platform

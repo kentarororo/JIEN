@@ -84,7 +84,7 @@ export function completeOAuthSignIn(code: string): Promise<void> {
   return promise;
 }
 
-export async function signOut(): Promise<void> {
-  const { error } = await getSupabaseClient().auth.signOut();
+export async function signOut(scope: 'global' | 'local' = 'global'): Promise<void> {
+  const { error } = await getSupabaseClient().auth.signOut({ scope });
   if (error) throw error;
 }

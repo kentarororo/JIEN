@@ -49,6 +49,20 @@ export class EdgeFunctionError extends Error {
   }
 }
 
+export type EdgeFunctionMessages = {
+  notConfigured: string;
+  authRequired: string;
+  timeout: string;
+  networkRequired: string;
+};
+
+const DEFAULT_EDGE_FUNCTION_MESSAGES: EdgeFunctionMessages = {
+  notConfigured: 'This AI feature needs Supabase configuration. Your local logs remain available.',
+  authRequired: 'Sign in to request new AI guidance.',
+  timeout: 'The AI request timed out. You can retry it.',
+  networkRequired: 'AI needs a working connection. Try again when you’re online.',
+};
+
 export async function invokeEdgeFunction<T>(
   name: string,
   data: Record<string, unknown>,
@@ -62,18 +76,19 @@ export async function invokeEdgeFunctionEnvelope<T>(
   name: string,
   data: Record<string, unknown>,
   timeoutMs = 25_000,
+  messages: EdgeFunctionMessages = DEFAULT_EDGE_FUNCTION_MESSAGES,
 ): Promise<{ data: T; requestId: string }> {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !publishableKey) {
     throw new EdgeFunctionError(
-      'This AI feature needs Supabase configuration. Your local logs remain available.',
+      messages.notConfigured,
       'NOT_CONFIGURED',
     );
   }
   const { data: sessionData, error: sessionError } = await getSupabaseClient().auth.getSession();
   if (sessionError || !sessionData.session) {
-    throw new EdgeFunctionError('Sign in to request new AI guidance.', 'AUTH_REQUIRED');
+    throw new EdgeFunctionError(messages.authRequired, 'AUTH_REQUIRED');
   }
 
   const controller = new AbortController();
@@ -105,9 +120,9 @@ export async function invokeEdgeFunctionEnvelope<T>(
   } catch (error) {
     if (error instanceof EdgeFunctionError) throw error;
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new EdgeFunctionError('The AI request timed out. You can retry it.', 'REQUEST_TIMEOUT', true, requestId);
+      throw new EdgeFunctionError(messages.timeout, 'REQUEST_TIMEOUT', true, requestId);
     }
-    throw new EdgeFunctionError('AI needs a working connection. Try again when you’re online.', 'NETWORK_REQUIRED', true, requestId);
+    throw new EdgeFunctionError(messages.networkRequired, 'NETWORK_REQUIRED', true, requestId);
   } finally {
     clearTimeout(timeout);
   }

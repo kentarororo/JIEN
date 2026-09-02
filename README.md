@@ -61,6 +61,11 @@ The first successful account on a device owns that local database. Signing out k
 the offline records, while signing into a different account is blocked instead of
 silently merging two people's health data.
 
+Settings > Data offers a portable full JSON export followed by typed-confirmation
+account deletion. Deletion is cloud-first: a failed request preserves the local
+database, while a confirmed request removes cloud ownership and then clears the
+device copy in one SQLite transaction. See [docs/account-deletion.md](docs/account-deletion.md).
+
 Online food search combines Open Food Facts with USDA FoodData Central when the
 optional Supabase function is configured; barcode lookup falls back safely to Open
 Food Facts. Completed manual or label-assisted entries can be saved as device-local

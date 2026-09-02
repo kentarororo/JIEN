@@ -52,6 +52,15 @@ export async function removeMealPhotoPayload(reference: string): Promise<void> {
   }
 }
 
+export async function clearMealPhotoPayloadsForAccount(ownerUserId: string): Promise<void> {
+  const database = await openPayloadDatabase(ownerUserId);
+  try {
+    await runRequest(database, 'readwrite', (store) => store.clear());
+  } finally {
+    database.close();
+  }
+}
+
 async function requireOwnerUserId(): Promise<string> {
   const account = await getAccountState();
   if (!account.configured || !account.user?.id) throw new Error('Sign in before storing a meal photo.');

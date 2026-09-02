@@ -59,10 +59,8 @@ export async function cancelMealGapNotification(db: SQLiteDatabase): Promise<voi
       // The operating system may already have delivered or cleared this identifier.
     }
   }
-  await Promise.all([
-    setScheduledNotificationId(db, 'meal_gap', null),
-    setSetting(db, MEAL_GAP_SCHEDULE_KEY, ''),
-  ]);
+  await setScheduledNotificationId(db, 'meal_gap', null);
+  await setSetting(db, MEAL_GAP_SCHEDULE_KEY, '');
 }
 
 export async function reconcileMealGapNotification(
@@ -161,10 +159,8 @@ export async function cancelSyncAttentionNotification(db: SQLiteDatabase): Promi
       // The operating system may already have delivered or cleared this identifier.
     }
   }
-  await Promise.all([
-    setScheduledNotificationId(db, 'sync_issue', null),
-    setSetting(db, SYNC_ATTENTION_SCHEDULE_KEY, ''),
-  ]);
+  await setScheduledNotificationId(db, 'sync_issue', null);
+  await setSetting(db, SYNC_ATTENTION_SCHEDULE_KEY, '');
 }
 
 export async function cancelWorkoutPlanNotification(db: SQLiteDatabase): Promise<void> {
@@ -176,10 +172,8 @@ export async function cancelWorkoutPlanNotification(db: SQLiteDatabase): Promise
       // The operating system may already have delivered or cleared this identifier.
     }
   }
-  await Promise.all([
-    setScheduledNotificationId(db, 'workout_plan', null),
-    setSetting(db, WORKOUT_PLAN_SCHEDULE_KEY, ''),
-  ]);
+  await setScheduledNotificationId(db, 'workout_plan', null);
+  await setSetting(db, WORKOUT_PLAN_SCHEDULE_KEY, '');
 }
 
 export async function reconcileWorkoutPlanNotification(
@@ -336,6 +330,14 @@ export async function reconcileContextualNotifications(db: SQLiteDatabase): Prom
     reconcileWorkoutPlanNotification(db),
     reconcileSyncAttentionNotification(db),
   ]);
+}
+
+export async function cancelAllContextualNotifications(_db: SQLiteDatabase): Promise<void> {
+  // Account deletion clears the preference rows immediately afterward, so it
+  // only needs to remove JIEN's operating-system schedule here. Avoiding local
+  // writes also keeps this safe while the database is about to be reset.
+  if (Platform.OS === 'web') return;
+  await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
 export { getDeliveredNotificationType, getNotificationHref } from './navigation';

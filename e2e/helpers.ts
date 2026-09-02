@@ -56,6 +56,31 @@ export async function prepareIsolatedJienContext(context: BrowserContext, page: 
       });
       return;
     }
+    if (url.pathname === '/functions/v1/delete-account') {
+      if (request.method() === 'OPTIONS') {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-request-id',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          },
+          body: 'ok',
+        });
+        return;
+      }
+      const requestBody = request.postDataJSON() as { version?: number; data?: { confirmation?: string } } | null;
+      const confirmed = requestBody?.version === 1 && requestBody.data?.confirmation === 'DELETE';
+      await route.fulfill({
+        status: confirmed ? 200 : 400,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        contentType: 'application/json',
+        body: JSON.stringify(confirmed
+          ? { data: { deleted: true }, requestId: 'e2e-account-deletion' }
+          : { error: { code: 'CONFIRMATION_REQUIRED', message: 'Confirmation required.', retryable: false }, requestId: 'e2e-account-deletion' }),
+      });
+      return;
+    }
     await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'E2E route not mocked' }) });
   });
 

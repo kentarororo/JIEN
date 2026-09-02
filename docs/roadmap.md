@@ -44,7 +44,10 @@ numeric targets or chooses a workout without an explicit user action.
   without exporting provider details or health records.
 - Privacy-safe app recovery history now stores only stable codes, timestamps, and a
   count on the device, with an explicit Settings control to clear that history.
-  Remote error monitoring, data export/delete checks, and release operations remain.
+  Full-data export is available before a typed-confirmation account deletion. The
+  authenticated deletion function removes the Vault credential and Auth owner so
+  all account rows cascade, then the client atomically clears device data. Remote
+  error monitoring and release operations remain.
 - Closed-beta instrumentation focused on failed saves, sync health, logging time, and
   advisory usefulness rather than engagement pressure.
 

@@ -22,10 +22,8 @@ async function clearWebSchedule(
   type: 'meal_gap' | 'workout_plan' | 'sync_issue',
   scheduleKey: string,
 ): Promise<void> {
-  await Promise.all([
-    setScheduledNotificationId(db, type, null),
-    setSetting(db, scheduleKey, ''),
-  ]);
+  await setScheduledNotificationId(db, type, null);
+  await setSetting(db, scheduleKey, '');
 }
 
 export async function cancelMealGapNotification(db: SQLiteDatabase): Promise<void> {
@@ -77,6 +75,11 @@ export async function reconcileContextualNotifications(db: SQLiteDatabase): Prom
     reconcileWorkoutPlanNotification(db),
     reconcileSyncAttentionNotification(db),
   ]);
+}
+
+export async function cancelAllContextualNotifications(_db: SQLiteDatabase): Promise<void> {
+  // The account-deletion transaction clears preferences and schedule keys.
+  // Browsers do not have JIEN operating-system schedules to cancel.
 }
 
 export { getDeliveredNotificationType, getNotificationHref } from './navigation';

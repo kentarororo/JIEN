@@ -5,6 +5,7 @@ import {
   expectNoHorizontalOverflow,
   fixJienClock,
   prepareIsolatedJienContext,
+  qaSession,
 } from './helpers';
 
 test('signed-out startup remains usable at every supported width and theme', async ({ page }, testInfo) => {
@@ -157,6 +158,21 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await newerPage.goto('/today');
   await expect(newerPage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(page.getByText('Startup code: LOCAL_STORAGE_HANDED_OFF')).toBeVisible();
+
+  await newerPage.getByRole('tab', { name: 'Settings' }).click();
+  await newerPage.getByRole('button', { name: 'Data', exact: true }).click();
+  await newerPage.getByRole('button', { name: 'Delete account', exact: true }).click();
+  await newerPage.getByLabel('Type DELETE to continue').fill('DELETE');
+  await newerPage.getByRole('button', { name: 'Permanently delete account' }).click();
+  await expect(newerPage.getByRole('heading', { name: 'Your training record, on every device' })).toBeVisible();
+
+  await newerPage.evaluate(({ key, value }) => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, { key: 'sb-jien-e2e-auth-token', value: qaSession() });
+  await completeOnboarding(newerPage);
+  await newerPage.getByRole('tab', { name: 'Train' }).click();
+  await newerPage.getByRole('button', { name: /History/ }).click();
+  await expect(newerPage.getByRole('link', { name: /Open Browser QA strength from/ })).toHaveCount(0);
   await newerPage.close();
   expect(pageErrors).toEqual([]);
 });

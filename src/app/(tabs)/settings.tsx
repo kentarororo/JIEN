@@ -3,11 +3,12 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Platform, StyleSheet, Switch, View } from 'react-native';
 
-import { AppText, Button, Card, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
+import { AccountDeletionDeviceError, finishAccountDeletionOnDevice } from '@/lib/account-deletion';
 import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
-import { clearRuntimeDiagnostics, getAccountSyncHealth, getRuntimeDiagnostics, getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, subscribeToAccountSyncHealth, syncAccountData } from '@/lib/db';
+import { clearRuntimeDiagnostics, deleteCloudAccount, getAccountSyncHealth, getRuntimeDiagnostics, getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, subscribeToAccountSyncHealth, syncAccountData } from '@/lib/db';
 import { reconcileMealGapNotification, reconcileSyncAttentionNotification, reconcileWorkoutPlanNotification } from '@/lib/notifications';
 import { radii, spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
 
@@ -35,6 +36,9 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<'success' | 'warning'>('success');
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [cloudDeletedForUserId, setCloudDeletedForUserId] = useState<string | null>(null);
 
   useEffect(() => subscribeToAccountSyncHealth(() => { void reload(); }), [reload]);
 
@@ -163,6 +167,46 @@ export default function SettingsScreen() {
     );
   };
 
+  const performAccountDeletion = async () => {
+    const userId = cloudDeletedForUserId ?? data?.account.user?.id;
+    if (!userId) {
+      Alert.alert('Account not deleted', 'Sign in before deleting this account.');
+      return;
+    }
+
+    setBusy('delete-account');
+    setMessage(null);
+    try {
+      if (!cloudDeletedForUserId) {
+        if (deleteConfirmation.trim() !== 'DELETE') return;
+        await deleteCloudAccount();
+        setCloudDeletedForUserId(userId);
+      }
+
+      try {
+        await finishAccountDeletionOnDevice(db, userId);
+      } catch (cause) {
+        const cleanupCode = cause instanceof AccountDeletionDeviceError
+          ? ` Cleanup code: ${cause.code}.`
+          : '';
+        showMessage(
+          `Your account and cloud records were deleted, but this device still needs to finish clearing its local copy.${cleanupCode} Keep JIEN open and tap “Finish clearing this device”.`,
+          'warning',
+        );
+        return;
+      }
+
+      if (Platform.OS !== 'web') router.replace('/onboarding');
+    } catch (cause) {
+      Alert.alert(
+        'Account not deleted',
+        cause instanceof Error ? cause.message : 'The account service did not confirm deletion. Please try again.',
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <Screen>
       <ScreenHeading title="Settings" eyebrow="Account, preferences and data" />
@@ -255,6 +299,57 @@ export default function SettingsScreen() {
             <Button label="Full data JSON" onPress={() => void run('all', async () => { await exportAllJson(db); setMessage(Platform.OS === 'web' ? 'Your full data JSON was downloaded by this browser.' : 'Your full data JSON was passed to the system share sheet.'); })} busy={busy === 'all'} variant="quiet" />
           </View>
         </Card>
+
+        {data?.account.user || cloudDeletedForUserId ? <>
+          <SectionHeading title="Delete account" detail="Permanent account and data removal" />
+          <Card style={{ backgroundColor: theme.colors.dangerSoft, borderColor: theme.colors.danger }}>
+            <AppText style={[styles.cardTitle, { color: theme.colors.danger }]}>Delete this JIEN account</AppText>
+            <AppText style={{ color: theme.colors.textMuted }}>
+              Deletes your account and cloud records, then clears JIEN records from this device. This cannot be undone. Download your full data JSON first if you want a copy.
+            </AppText>
+            {!showDeleteAccount && !cloudDeletedForUserId ? (
+              <View style={styles.dataActions}>
+                <Button label="Delete account" onPress={() => setShowDeleteAccount(true)} variant="danger" />
+              </View>
+            ) : (
+              <View style={styles.deleteConfirmation}>
+                {cloudDeletedForUserId ? (
+                  <AppText style={{ color: theme.colors.danger }}>
+                    Cloud deletion is complete. Finish clearing this device to remove its remaining local copy.
+                  </AppText>
+                ) : (
+                  <Field
+                    label="Type DELETE to continue"
+                    value={deleteConfirmation}
+                    onChangeText={setDeleteConfirmation}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                )}
+                <View style={styles.dataActions}>
+                  <Button
+                    label={cloudDeletedForUserId ? 'Finish clearing this device' : 'Permanently delete account'}
+                    onPress={() => void performAccountDeletion()}
+                    disabled={!cloudDeletedForUserId && deleteConfirmation.trim() !== 'DELETE'}
+                    busy={busy === 'delete-account'}
+                    variant="danger"
+                  />
+                  {!cloudDeletedForUserId ? (
+                    <Button
+                      label="Cancel"
+                      onPress={() => {
+                        setShowDeleteAccount(false);
+                        setDeleteConfirmation('');
+                      }}
+                      disabled={busy === 'delete-account'}
+                      variant="quiet"
+                    />
+                  ) : null}
+                </View>
+              </View>
+            )}
+          </Card>
+        </> : null}
       </> : null}
     </Screen>
   );
@@ -270,6 +365,7 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth },
   syncNotice: { padding: spacing.sm, borderRadius: radii.control },
   dataActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  deleteConfirmation: { gap: spacing.md },
 });
 
 function syncHealthLabel(data: Awaited<ReturnType<typeof loadSettings>> | null): string {

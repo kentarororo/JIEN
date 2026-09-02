@@ -68,6 +68,13 @@ The profile is deleted automatically when the Auth user is deleted. Revoking AI
 consent does not erase history automatically; it prevents new client-side AI thread
 or message inserts and must prevent new Edge Function provider calls.
 
+Whole-account deletion is the one user-facing hard-delete path. The authenticated
+`delete-account` Edge Function derives the owner only from the verified bearer token,
+deletes any `private.user_ai_credentials` row first so its trigger removes the Vault
+secret, then uses the service role to delete that Auth user. The `auth.users` foreign
+key and user-scoped child foreign keys cascade through every public application row
+and retained private allowance row. The request body cannot select another user ID.
+
 ### `exercises`
 
 The user's exercise catalog. `movement_pattern`, primary/secondary muscle groups,

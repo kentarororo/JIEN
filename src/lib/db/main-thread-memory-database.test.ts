@@ -20,6 +20,7 @@ import { savePrivateFood } from './private-food.ts';
 import { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
 import { listVolumeHistory, saveWorkout, updateWorkout } from './workouts.ts';
+import { resetLocalAccountData } from './account-data-reset.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
 type WaSQLiteModule = Parameters<typeof SQLite.Factory>[0];
@@ -521,6 +522,50 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.deepEqual(await restored.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await restored.getAllAsync('PRAGMA foreign_key_check'), []);
     await restored.closeAsync();
+
+    assert.ok((await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM workouts'))!.count > 0);
+    assert.ok((await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM meal_photo_jobs'))!.count > 0);
+    assert.ok((await database.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM app_settings'))!.count > 0);
+    await resetLocalAccountData(database, new Date('2026-09-02T09:00:00.000Z'));
+    for (const table of [
+      'workouts',
+      'workout_sets',
+      'meals',
+      'food_items',
+      'nutrition_targets',
+      'wellness_logs',
+      'ai_conversations',
+      'ai_messages',
+      'notification_preferences',
+      'sync_queue',
+      'app_settings',
+      'user_profile',
+      'meal_photo_jobs',
+    ]) {
+      assert.deepEqual(
+        await database.getFirstAsync(`SELECT COUNT(*) AS count FROM "${table}"`),
+        { count: 0 },
+        `${table} must be empty after account deletion`,
+      );
+    }
+    assert.deepEqual(
+      await database.getFirstAsync('SELECT COUNT(*) AS count FROM exercises'),
+      { count: 132 },
+      'the built-in exercise catalog must be restored',
+    );
+    assert.deepEqual(
+      await database.getFirstAsync('SELECT COUNT(*) AS count FROM food_catalog_cache'),
+      { count: 18 },
+      'the built-in global and regional food catalogs must be restored',
+    );
+    assert.equal(
+      await database.getFirstAsync('SELECT id FROM food_catalog_cache WHERE id = ?', ['custom-protein-cereal']),
+      null,
+      'private foods must be removed with the account',
+    );
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 15 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
+    assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 
     failNextSave = true;
     await assert.rejects(

@@ -80,7 +80,8 @@ created offline with an older client clock cannot be missed permanently by the
 incremental cursor.
 
 Soft-deletion tombstones use the same queue path. Hard delete is reserved for
-privileged maintenance outside the client.
+privileged maintenance and the explicit whole-account deletion function; ordinary
+record edits and removals never bypass the queue.
 
 ## Local onboarding profile
 
@@ -92,8 +93,10 @@ account exists without inventing a remote owner.
 
 The first authenticated user ID is stored locally as `cloud_owner_user_id`. Signing
 out does not remove offline records. A different account is blocked from sync until
-an explicit future account-switch/reset flow exists, preventing accidental
-cross-account health-data merges.
+the original account returns or that account is permanently deleted, preventing
+accidental cross-account health-data merges. Confirmed account deletion resets the
+database to its built-in catalog and removes the owner key before the local session
+is cleared; it is not an account-switch shortcut.
 
 ## Portable export boundary
 
@@ -110,6 +113,11 @@ user-readable export and this policy is declared as `active_records_only`. Auth
 tokens, Supabase keys, raw sync queue payloads/errors, pull cursors, browser storage,
 and device-only scheduled notification identifiers are never selected. CSV export
 contracts remain unchanged.
+
+Account deletion is deliberately cloud-first. A network or server failure therefore
+leaves every local row and queued change intact. Only a successful authenticated
+`delete-account` response starts device cleanup. See `docs/account-deletion.md` for
+the complete ordering and retry boundary.
 
 The onboarding body baseline is a normal local `wellness_logs` row and is queued in
 the same transaction as the profile. Height and optional body-fat details live in

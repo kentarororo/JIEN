@@ -9,3 +9,7 @@ export async function resolveMealPhotoPayload(reference: string): Promise<string
 }
 
 export async function removeMealPhotoPayload(_reference: string): Promise<void> {}
+
+// Native photo payloads live inside meal_photo_jobs and are removed by the
+// account-data SQLite transaction.
+export async function clearMealPhotoPayloadsForAccount(_ownerUserId: string): Promise<void> {}
