@@ -23,12 +23,23 @@ import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts'
 import { listVolumeHistory, saveWorkout, updateWorkout } from './workouts.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
-// Expo ships this generated factory as CommonJS without package metadata. Node
-// exposes it directly on Windows and under `default` on Linux, so normalize the
-// interop shape before the cross-platform integration tests open WASM.
-const WaSQLiteFactory = typeof WaSQLiteFactoryImport === 'function'
-  ? WaSQLiteFactoryImport
-  : (WaSQLiteFactoryImport as unknown as { default: typeof WaSQLiteFactoryImport }).default;
+type WaSQLiteModule = Parameters<typeof SQLite.Factory>[0];
+type WaSQLiteFactoryType = (options: { wasmBinary: Uint8Array }) => Promise<WaSQLiteModule>;
+
+// Expo ships this generated factory as CommonJS without package metadata. Node's
+// module interop can expose it directly or under one or more `default` wrappers,
+// depending on the host and loader.
+function resolveWaSQLiteFactory(value: unknown): WaSQLiteFactoryType {
+  let candidate = value;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (typeof candidate === 'function') return candidate as WaSQLiteFactoryType;
+    if (!candidate || typeof candidate !== 'object' || !('default' in candidate)) break;
+    candidate = (candidate as { default: unknown }).default;
+  }
+  throw new TypeError('Expo wa-sqlite factory export is unavailable.');
+}
+
+const WaSQLiteFactory = resolveWaSQLiteFactory(WaSQLiteFactoryImport);
 
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
   const wasmBinary = readFileSync(new URL(
