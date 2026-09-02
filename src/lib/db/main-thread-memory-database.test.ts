@@ -11,7 +11,7 @@ import * as SQLite from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-
 // @ts-expect-error Expo bundles these JavaScript modules without public declarations.
 import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-constants.js';
 // @ts-expect-error Expo bundles this JavaScript module without a public declaration.
-import WaSQLiteFactory from '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js';
+import WaSQLiteFactoryImport from '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js';
 import { migrateDatabase } from './migrate.ts';
 import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './exercise-targets.ts';
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
@@ -22,6 +22,13 @@ import { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic
 import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
 import { listVolumeHistory, saveWorkout, updateWorkout } from './workouts.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
+
+// Expo ships this generated factory as CommonJS without package metadata. Node
+// exposes it directly on Windows and under `default` on Linux, so normalize the
+// interop shape before the cross-platform integration tests open WASM.
+const WaSQLiteFactory = typeof WaSQLiteFactoryImport === 'function'
+  ? WaSQLiteFactoryImport
+  : (WaSQLiteFactoryImport as unknown as { default: typeof WaSQLiteFactoryImport }).default;
 
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
   const wasmBinary = readFileSync(new URL(
