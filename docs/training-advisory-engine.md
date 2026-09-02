@@ -4,8 +4,9 @@ JIEN separates two questions that require different measurements:
 
 1. **What should receive attention next?** Use completed working-set credits by
    muscle group across recent calendar weeks.
-2. **How should a specific exercise progress?** Use that exercise's own prior sets,
-   rep range, load increment, RPE, and joint hold state.
+2. **How should a specific exercise progress?** Use the latest matching set structure
+   for load and rep cues, and its recent three-session median for the volume baseline,
+   alongside the rep range, load increment, RPE, and joint hold state.
 
 This prevents a cable fly, push-up, and chest press from being compared by raw
 `load × reps` as though their external loads were interchangeable. Their chest set
@@ -65,6 +66,20 @@ The engine runs locally over completed working sets:
 The 48-hour rule is a conservative prioritization heuristic, not a declaration that
 a muscle is or is not physiologically recovered. The interface tells the user to use
 current soreness, joint status, and recovery before repeating recent work.
+
+## Exercise progression baseline
+
+The logger reads up to three completed sessions for the exact exercise. It uses their
+median working-set `load × reps` as the comparison baseline, which dampens a single
+outlier without making the system slow to reflect current training. A single prior
+session is still useful as a temporary baseline, and the median becomes more stable
+as the second and third matching sessions are logged.
+
+The latest matching session remains the source for set-by-set double progression.
+JIEN does not average loads, rep counts, or set counts because that could create a
+workout the user never performed. The live logger shows both layers: the recent
+median for context and an explicit option to fill blank rows from the latest sets.
+Different exercises are never merged by volume, even when they share a muscle target.
 
 ## Advisory-to-plan handoff
 

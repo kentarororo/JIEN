@@ -2,7 +2,13 @@ import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toLocalDateKey } from '@/lib/time';
-import { calculateOverloadChangePercent, calculateSetVolumeKg, normalizeMuscleGroupKey } from '@/lib/progression';
+import {
+  calculateOverloadChangePercent,
+  calculateRecentExerciseBaseline,
+  calculateSetVolumeKg,
+  normalizeMuscleGroupKey,
+  RECENT_EXERCISE_BASELINE_SESSION_LIMIT,
+} from '@/lib/progression';
 import { parsePlannedWorkoutPlan } from '@/lib/planning/workout-plan';
 
 import { exerciseRemotePayload } from './exercises';
@@ -902,26 +908,46 @@ export async function getExerciseSessionHistory(
   };
 }
 
-export async function getLastExerciseSessionSets(
+export async function getRecentExerciseSessionSets(
   db: SQLiteDatabase,
   exerciseId: string,
-): Promise<WorkoutSet[]> {
-  const latest = await db.getFirstAsync<{ workout_id: string }>(
-    `SELECT s.workout_id
+  options: { excludeWorkoutId?: string; beforeCompletedAt?: string; limit?: number } = {},
+): Promise<WorkoutSet[][]> {
+  const limit = Math.min(
+    RECENT_EXERCISE_BASELINE_SESSION_LIMIT,
+    Math.max(1, Math.trunc(options.limit ?? RECENT_EXERCISE_BASELINE_SESSION_LIMIT)),
+  );
+  const conditions = [
+    's.exercise_id = ?',
+    "s.kind = 'working'",
+    's.deleted_at IS NULL',
+    'w.deleted_at IS NULL',
+    "w.status = 'completed'",
+  ];
+  const parameters: Array<string | number> = [exerciseId];
+  if (options.excludeWorkoutId) {
+    conditions.push('w.id <> ?');
+    parameters.push(options.excludeWorkoutId);
+  }
+  if (options.beforeCompletedAt) {
+    conditions.push('w.completed_at < ?');
+    parameters.push(options.beforeCompletedAt);
+  }
+  parameters.push(limit);
+  const recent = await db.getAllAsync<{ workout_id: string }>(
+    `SELECT w.id AS workout_id
      FROM workout_sets s
      JOIN workouts w ON w.id = s.workout_id
-     WHERE s.exercise_id = ?
-       AND s.kind = 'working'
-       AND s.deleted_at IS NULL
-       AND w.deleted_at IS NULL
-       AND w.status = 'completed'
-     ORDER BY w.completed_at DESC
-     LIMIT 1`,
-    [exerciseId],
+     WHERE ${conditions.join('\n       AND ')}
+     GROUP BY w.id
+     ORDER BY COALESCE(w.completed_at, w.started_at, w.created_at) DESC, w.id DESC
+     LIMIT ?`,
+    parameters,
   );
-  if (!latest) return [];
-  const detail = await getWorkoutDetail(db, latest.workout_id);
-  return detail?.sets.filter((set) => set.exerciseId === exerciseId && set.kind === 'working') ?? [];
+  const details = await Promise.all(recent.map((session) => getWorkoutDetail(db, session.workout_id)));
+  return details.map((detail) => (
+    detail?.sets.filter((set) => set.exerciseId === exerciseId && set.kind === 'working') ?? []
+  )).filter((sets) => sets.length > 0);
 }
 
 export async function getWorkoutProgressComparison(
@@ -942,52 +968,33 @@ export async function getWorkoutProgressComparison(
   }
 
   const exercises = await Promise.all([...grouped.entries()].map(async ([exerciseId, current]) => {
-    const previous = await db.getFirstAsync<{ volume_kg: number | null }>(
-      `SELECT SUM(CASE
-          WHEN s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
-          ELSE s.load_value * s.reps END) AS volume_kg
-       FROM workout_sets s
-       WHERE s.workout_id = (
-         SELECT previous_workout.id
-         FROM workouts previous_workout
-         JOIN workout_sets previous_set ON previous_set.workout_id = previous_workout.id
-         WHERE previous_set.exercise_id = ?
-           AND previous_set.kind = 'working'
-           AND previous_set.deleted_at IS NULL
-           AND previous_workout.deleted_at IS NULL
-           AND previous_workout.status = 'completed'
-           AND previous_workout.completed_at < ?
-         GROUP BY previous_workout.id
-         ORDER BY previous_workout.completed_at DESC
-         LIMIT 1
-       )
-         AND s.exercise_id = ?
-         AND s.kind = 'working'
-         AND s.deleted_at IS NULL`,
-      [exerciseId, workout.completedAt, exerciseId],
-    );
-    const previousVolumeKg = previous?.volume_kg ?? null;
+    const recentSessions = await getRecentExerciseSessionSets(db, exerciseId, {
+      excludeWorkoutId: targetId,
+      beforeCompletedAt: workout.completedAt ?? undefined,
+    });
+    const baseline = calculateRecentExerciseBaseline(recentSessions);
     return {
       exerciseId,
       exerciseName: current.exerciseName,
       currentVolumeKg: current.currentVolumeKg,
-      previousVolumeKg,
-      changePercent: previousVolumeKg == null
+      baselineVolumeKg: baseline.volumeKg,
+      baselineSessionCount: baseline.sessionCount,
+      changePercent: baseline.volumeKg == null
         ? null
-        : calculateOverloadChangePercent(current.currentVolumeKg, previousVolumeKg),
+        : calculateOverloadChangePercent(current.currentVolumeKg, baseline.volumeKg),
     };
   }));
 
-  const comparable = exercises.filter((exercise) => exercise.previousVolumeKg != null && exercise.previousVolumeKg > 0);
+  const comparable = exercises.filter((exercise) => exercise.baselineVolumeKg != null && exercise.baselineVolumeKg > 0);
   const currentComparableVolumeKg = comparable.reduce((sum, exercise) => sum + exercise.currentVolumeKg, 0);
-  const previousComparableVolumeKg = comparable.reduce((sum, exercise) => sum + (exercise.previousVolumeKg ?? 0), 0);
+  const baselineComparableVolumeKg = comparable.reduce((sum, exercise) => sum + (exercise.baselineVolumeKg ?? 0), 0);
   return {
     workoutId: targetId,
     comparableExerciseCount: comparable.length,
     improvedExerciseCount: comparable.filter((exercise) => (exercise.changePercent ?? 0) > 0).length,
     currentComparableVolumeKg,
-    previousComparableVolumeKg,
-    overallChangePercent: calculateOverloadChangePercent(currentComparableVolumeKg, previousComparableVolumeKg),
+    baselineComparableVolumeKg,
+    overallChangePercent: calculateOverloadChangePercent(currentComparableVolumeKg, baselineComparableVolumeKg),
     exercises,
   };
 }

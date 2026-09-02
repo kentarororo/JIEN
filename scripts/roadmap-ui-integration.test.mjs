@@ -97,7 +97,7 @@ test('Workout planning keeps repeat, scheduling, catalog, and save in one progre
   assert.match(workoutPlan, /results\.slice\(0, catalogLimit\)/);
   assert.match(workoutPlan, /Start from a routine/);
   assert.match(workoutPlan, /resolveRoutineStarter\(starter, catalog, availableEquipment\)/);
-  assert.match(workoutPlan, /getLastExerciseSessionSets\(db, exercise\.id\)/);
+  assert.match(workoutPlan, /getRecentExerciseSessionSets\(db, exercise\.id\)/);
   assert.match(workoutPlan, /listVolumeHistory/);
   assert.match(workoutPlan, /rankRoutineStarters/);
   assert.match(workoutPlan, /CURRENT MUSCLE FOCUS/);
@@ -168,6 +168,11 @@ test('Workout logging keeps guidance available without delaying set entry', () =
   assert.match(workoutLogger, /saveWorkout/);
   assert.match(workoutLogger, /completePlannedWorkout/);
   assert.match(workoutLogger, /updateWorkout/);
+  assert.match(workoutLogger, /Recent baseline/);
+  assert.match(workoutLogger, /Fill from latest/);
+  assert.match(workoutLogger, /baselineSessions: block\.baselineSessions/);
+  assert.match(workoutRepository, /getRecentExerciseSessionSets/);
+  assert.match(workoutRepository, /calculateRecentExerciseBaseline\(recentSessions\)/);
 });
 
 test('Joint considerations recommend a hold but preserve an explicit session choice', () => {
@@ -183,8 +188,8 @@ test('Joint considerations recommend a hold but preserve an explicit session cho
 
 test('Workout set completion connects local history to the five-percent progression review', () => {
   assert.match(workoutLogger, /const \[completedBlockKeys, setCompletedBlockKeys\] = useState<string\[\]>\(\[\]\)/);
-  assert.match(workoutLogger, /buildCompletedExerciseVolumeFeedback\(\{[\s\S]*currentSets: draftSetsForProgression\(block\.sets, unit\)[\s\S]*previousSets: block\.sourceSets/);
-  assert.match(workoutLogger, /\{ \.\.\.block, progression, sourceSets: history, historyStatus: 'ready'/, 'the history fetched for the visible cue is retained for completed-set comparison');
+  assert.match(workoutLogger, /buildCompletedExerciseVolumeFeedback\(\{[\s\S]*currentSets: draftSetsForProgression\(block\.sets, unit\)[\s\S]*baselineSessions: block\.baselineSessions/);
+  assert.match(workoutLogger, /sourceSets: history,[\s\S]*baselineSessions: recentSessions,[\s\S]*historyStatus: 'ready'/, 'the latest set structure and recent baseline are retained together');
   assert.match(workoutLogger, /block\.exerciseId !== exerciseId \|\| block\.historyRequestId !== requestId/, 'an obsolete lookup cannot attach history to a changed or superseded exercise request');
   assert.match(workoutLogger, /historyStatus === 'idle'/, 'only idle exercise histories are loaded automatically');
   assert.match(workoutLogger, /historyStatus: 'error'/, 'history failures settle into a recoverable state instead of an endless loading panel');

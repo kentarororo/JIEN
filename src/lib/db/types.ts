@@ -259,7 +259,8 @@ export type ExerciseProgressComparison = {
   exerciseId: string;
   exerciseName: string;
   currentVolumeKg: number;
-  previousVolumeKg: number | null;
+  baselineVolumeKg: number | null;
+  baselineSessionCount: number;
   changePercent: number | null;
 };
 
@@ -268,7 +269,7 @@ export type WorkoutProgressComparison = {
   comparableExerciseCount: number;
   improvedExerciseCount: number;
   currentComparableVolumeKg: number;
-  previousComparableVolumeKg: number;
+  baselineComparableVolumeKg: number;
   overallChangePercent: number | null;
   exercises: ExerciseProgressComparison[];
 };

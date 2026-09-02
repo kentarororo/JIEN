@@ -19,7 +19,13 @@ import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
 import { savePrivateFood } from './private-food.ts';
 import { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
-import { listVolumeHistory, saveWorkout, updateWorkout } from './workouts.ts';
+import {
+  getRecentExerciseSessionSets,
+  getWorkoutProgressComparison,
+  listVolumeHistory,
+  saveWorkout,
+  updateWorkout,
+} from './workouts.ts';
 import { resetLocalAccountData } from './account-data-reset.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
@@ -306,6 +312,44 @@ test('main-thread database persists committed work and isolates delayed transact
       ['33333333-3333-4333-8333-333333333333'],
     );
     assert.equal(JSON.parse(queuedSet?.payload_json ?? '{}').primary_muscle_group, 'chest');
+
+    const baselineExercise = {
+      id: '10000000-0000-4000-8000-000000000001',
+      name: 'Machine Chest Press',
+      movementPattern: 'horizontal_push',
+      primaryMuscleGroup: 'front_delts',
+      secondaryMuscleGroups: ['triceps'],
+      equipment: 'machine',
+      targetRepMin: 8,
+      targetRepMax: 12,
+      loadIncrement: 2.5,
+      notes: null,
+      isArchived: false,
+    };
+    for (const [index, loadValue] of [30, 40, 100].entries()) {
+      await saveWorkout(database, {
+        id: `44444444-4444-4444-8444-44444444444${index}`,
+        title: `Baseline session ${index + 1}`,
+        startedAt: new Date(Date.now() - (3 - index) * 86_400_000).toISOString(),
+        exercises: [{
+          exercise: baselineExercise,
+          sets: [{ reps: 10, loadValue, loadUnit: 'kg', rpe: 8 }],
+        }],
+      });
+    }
+    const recentSessions = await getRecentExerciseSessionSets(
+      database,
+      baselineExercise.id,
+      { excludeWorkoutId: '33333333-3333-4333-8333-333333333333' },
+    );
+    assert.deepEqual(recentSessions.map((sets) => sets[0]?.loadValue), [100, 40, 30]);
+    const recentComparison = await getWorkoutProgressComparison(
+      database,
+      '33333333-3333-4333-8333-333333333333',
+    );
+    assert.equal(recentComparison?.exercises[0]?.baselineSessionCount, 3);
+    assert.equal(recentComparison?.exercises[0]?.baselineVolumeKg, 400);
+    assert.equal(recentComparison?.exercises[0]?.changePercent, 10);
 
     await database.runAsync(
       'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',

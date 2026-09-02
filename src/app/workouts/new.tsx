@@ -9,7 +9,7 @@ import { JointProgressionChoicePanel, type JointProgressionChoice } from '@/comp
 import {
   createCustomExercise,
   completePlannedWorkout,
-  getLastExerciseSessionSets,
+  getRecentExerciseSessionSets,
   getWorkoutDetail,
   getUserProfile,
   listExercises,
@@ -23,6 +23,7 @@ import { getAccountState } from '@/lib/auth';
 import {
   buildCompletedExerciseVolumeFeedback,
   buildSetProgressionPlan,
+  calculateRecentExerciseBaseline,
   MUSCLE_GROUP_OPTIONS,
   MUSCLE_GROUP_SECTIONS,
   muscleGroupFamilyKey,
@@ -53,6 +54,7 @@ type DraftExercise = {
   sets: DraftSet[];
   progression: SetProgressionPlan | null;
   sourceSets: ProgressionSet[] | null;
+  baselineSessions: ProgressionSet[][] | null;
   historyStatus: 'idle' | 'loading' | 'ready' | 'error';
   historyRequestId: string | null;
 };
@@ -65,6 +67,7 @@ const newBlock = (exerciseId: string): DraftExercise => ({
   sets: [newSet(), newSet(), newSet()],
   progression: null,
   sourceSets: null,
+  baselineSessions: null,
   historyStatus: 'idle',
   historyRequestId: null,
 });
@@ -164,6 +167,7 @@ export default function NewWorkoutScreen() {
         sets: block.sets.map((set) => newSet(set.load, set.reps, set.rpe, set.id)),
         progression: null,
         sourceSets: null,
+        baselineSessions: null,
         historyStatus: 'idle',
         historyRequestId: null,
       })));
@@ -206,7 +210,15 @@ export default function NewWorkoutScreen() {
       return updated ? next : current;
     });
     try {
-      const history = sourceSets ?? await getLastExerciseSessionSets(db, exerciseId);
+      const recentSessions = await getRecentExerciseSessionSets(db, exerciseId, {
+        excludeWorkoutId: editWorkoutId,
+      });
+      const rawHistory = sourceSets ?? recentSessions[0] ?? [];
+      const history = rawHistory.map((set) => ({
+        ...set,
+        loadValue: convertLoadValue(set.loadValue, set.loadUnit, unit),
+        loadUnit: unit,
+      }));
       const progression = buildSetProgressionPlan({
         sets: history,
         repMin: exercise.targetRepMin,
@@ -219,7 +231,14 @@ export default function NewWorkoutScreen() {
         const next = current.map((block) => {
           if (block.key !== blockKey || block.exerciseId !== exerciseId || block.historyRequestId !== requestId) return block;
           updated = true;
-          return { ...block, progression, sourceSets: history, historyStatus: 'ready' as const, historyRequestId: null };
+          return {
+            ...block,
+            progression,
+            sourceSets: history,
+            baselineSessions: recentSessions,
+            historyStatus: 'ready' as const,
+            historyRequestId: null,
+          };
         });
         return updated ? next : current;
       });
@@ -229,12 +248,12 @@ export default function NewWorkoutScreen() {
         const next = current.map((block) => {
           if (block.key !== blockKey || block.exerciseId !== exerciseId || block.historyRequestId !== requestId) return block;
           updated = true;
-          return { ...block, progression: null, sourceSets: null, historyStatus: 'error' as const, historyRequestId: null };
+          return { ...block, progression: null, sourceSets: null, baselineSessions: null, historyStatus: 'error' as const, historyRequestId: null };
         });
         return updated ? next : current;
       });
     }
-  }, [catalog, db, jointProgressionHold, unit]);
+  }, [catalog, db, editWorkoutId, jointProgressionHold, unit]);
 
   const chooseJointProgression = (choice: JointProgressionChoice) => {
     setJointProgressionChoice(choice);
@@ -255,12 +274,12 @@ export default function NewWorkoutScreen() {
   const completedFeedbackByKey = useMemo(() => {
     const feedback = new Map<string, CompletedExerciseVolumeFeedback>();
     for (const block of blocks) {
-      if (!completedBlockKeys.includes(block.key) || block.sourceSets == null) continue;
+      if (!completedBlockKeys.includes(block.key) || block.baselineSessions == null) continue;
       const exercise = catalog?.find((item) => item.id === block.exerciseId);
       if (!exercise) continue;
       feedback.set(block.key, buildCompletedExerciseVolumeFeedback({
         currentSets: draftSetsForProgression(block.sets, unit),
-        previousSets: block.sourceSets,
+        baselineSessions: block.baselineSessions,
         repMin: exercise.targetRepMin,
         repMax: exercise.targetRepMax,
         loadIncrement: unit === 'lb' ? Math.max(5, exercise.loadIncrement) : exercise.loadIncrement,
@@ -339,11 +358,34 @@ export default function NewWorkoutScreen() {
       exerciseId,
       progression: null,
       sourceSets: null,
+      baselineSessions: null,
       historyStatus: 'idle',
       historyRequestId: null,
     } : block));
     setExerciseQueries((current) => ({ ...current, [blockKey]: '' }));
     setExerciseBrowsers((current) => ({ ...current, [blockKey]: false }));
+  };
+
+  const fillFromLatestSets = (blockKey: string) => {
+    markBlockIncomplete(blockKey);
+    setBlocks((current) => current.map((block) => {
+      if (block.key !== blockKey || !block.sourceSets?.length) return block;
+      const count = Math.max(block.sets.length, block.sourceSets.length);
+      return {
+        ...block,
+        sets: Array.from({ length: count }, (_, index) => {
+          const existing = block.sets[index] ?? newSet();
+          const source = block.sourceSets?.[index];
+          if (!source || !isRowEmpty(existing)) return existing;
+          return {
+            ...existing,
+            load: String(convertLoadValue(source.loadValue, source.loadUnit, unit)),
+            reps: String(source.reps),
+            rpe: source.rpe == null ? '' : String(source.rpe),
+          };
+        }),
+      };
+    }));
   };
 
   const updateSet = (blockKey: string, setKey: string, field: 'load' | 'reps' | 'rpe', value: string) => {
@@ -422,6 +464,7 @@ export default function NewWorkoutScreen() {
             exerciseId: exercise.id,
             progression: null,
             sourceSets: null,
+            baselineSessions: null,
             historyStatus: 'idle',
             historyRequestId: null,
           } : block);
@@ -568,6 +611,7 @@ export default function NewWorkoutScreen() {
         const latestLoad = latestValidWorkoutLoad(block.sets);
         const setsComplete = completedBlockKeys.includes(block.key);
         const completionFeedback = completedFeedbackByKey.get(block.key) ?? null;
+        const recentBaseline = calculateRecentExerciseBaseline(block.baselineSessions ?? []);
         return (
           <Card key={block.key} style={styles.exerciseCard}>
             <View style={styles.blockHeader}>
@@ -612,7 +656,13 @@ export default function NewWorkoutScreen() {
                 <View style={styles.suggestionCopy}>
                   <AppText style={[styles.suggestionTitle, { color: block.progression.action === 'hold' ? colors.warning : colors.success }]}>{block.progression.action === 'hold' ? 'Repeat before increasing' : 'Progression suggestion'}</AppText>
                   <AppText style={styles.suggestionText}>{block.progression.reason}</AppText>
+                  {recentBaseline.volumeKg != null ? (
+                    <AppText style={{ color: colors.textMuted }}>
+                      Recent baseline · {formatDraftWork(recentBaseline.volumeKg)} kg·reps median across {recentBaseline.sessionCount} matching session{recentBaseline.sessionCount === 1 ? '' : 's'}
+                    </AppText>
+                  ) : <AppText style={{ color: colors.textMuted }}>No matching session yet. Today will establish this exercise’s baseline.</AppText>}
                 </View>
+                {block.sourceSets?.length && block.sets.some(isRowEmpty) ? <Button label="Fill from latest" onPress={() => fillFromLatestSets(block.key)} variant="quiet" /> : null}
               </View>
             ) : null}
 
@@ -671,7 +721,7 @@ export default function NewWorkoutScreen() {
             <View style={[styles.completeSets, { borderTopColor: colors.border }]}>
               <View style={styles.completeSetsCopy}>
                 <AppText style={styles.suggestionTitle}>Review completed sets</AppText>
-                <AppText style={{ color: colors.textMuted }}>Compare these sets with the previous session and calculate an optional progression.</AppText>
+                <AppText style={{ color: colors.textMuted }}>Compare these sets with your recent matching baseline and calculate an optional progression.</AppText>
               </View>
               <Button
                 label={setsComplete ? 'Check again' : 'Complete sets'}
@@ -719,7 +769,7 @@ export default function NewWorkoutScreen() {
                   <Pill label="Sets checked" active />
                 </View>
                 <View style={styles.completionMetrics}>
-                  <VolumeMetric label="Latest" value={completionFeedback.previousVolumeKg} />
+                  <VolumeMetric label={`Recent median (${completionFeedback.baselineSessionCount})`} value={completionFeedback.baselineVolumeKg} />
                   <VolumeMetric label="Today" value={completionFeedback.currentVolumeKg} />
                   <View style={styles.completionMetric}>
                     <AppText style={styles.completionValue}>{formatVolumeChange(completionFeedback.changePercent)}</AppText>
@@ -732,7 +782,7 @@ export default function NewWorkoutScreen() {
                     <AppText style={styles.suggestionTitle}>Next time</AppText>
                     <AppText>{formatCompletionCues(completionFeedback.cues)}</AppText>
                     {completionFeedback.projectedChangePercent != null ? (
-                      <AppText style={{ color: colors.textMuted }}>Projected volume: {formatVolumeChange(completionFeedback.projectedChangePercent)} vs latest. The 5% figure is a guide, not a forced jump.</AppText>
+                      <AppText style={{ color: colors.textMuted }}>Projected volume: {formatVolumeChange(completionFeedback.projectedChangePercent)} vs recent baseline. The 5% figure is a guide, not a forced jump.</AppText>
                     ) : null}
                   </View>
                 ) : null}
@@ -952,6 +1002,7 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
       sets: [],
       progression: null,
       sourceSets: [],
+      baselineSessions: null,
       historyStatus: 'idle',
       historyRequestId: null,
     };
@@ -972,7 +1023,7 @@ function blocksFromEdit(template: WorkoutDetail): DraftExercise[] {
   const grouped = new Map<string, DraftExercise>();
   template.sets.filter((set) => set.kind === 'working').forEach((set) => {
     const block = grouped.get(set.exerciseId) ?? {
-      key: Crypto.randomUUID(), exerciseId: set.exerciseId, sets: [], progression: null, sourceSets: null, historyStatus: 'idle', historyRequestId: null,
+      key: Crypto.randomUUID(), exerciseId: set.exerciseId, sets: [], progression: null, sourceSets: null, baselineSessions: null, historyStatus: 'idle', historyRequestId: null,
     };
     block.sets.push(newSet(
       String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe), set.id,
@@ -998,7 +1049,8 @@ function blocksFromPlan(template: WorkoutDetail): DraftExercise[] {
       rpe: set.rpe ?? null,
       kind: 'working' as const,
     }]),
-    historyStatus: exercise.progression ? 'ready' : 'idle',
+    baselineSessions: null,
+    historyStatus: 'idle',
     historyRequestId: null,
   })) ?? [];
 }
@@ -1011,4 +1063,10 @@ function SetCueRow({ cue, onApply }: { cue: SetProgressionCue; onApply: (cue: Se
       <Button label="Use" onPress={() => onApply(cue)} variant="quiet" />
     </View>
   );
+}
+
+function convertLoadValue(value: number, from: LoadUnit, to: LoadUnit): number {
+  if (from === to) return value;
+  const converted = from === 'lb' ? value * 0.45359237 : value / 0.45359237;
+  return Math.round(converted * 100) / 100;
 }

@@ -99,7 +99,7 @@ export {
   getExerciseHistory,
   getExerciseSessionHistory,
   getNextPlannedWorkout,
-  getLastExerciseSessionSets,
+  getRecentExerciseSessionSets,
   getWorkoutProgressComparison,
   getWorkoutDetail,
   listRecentWorkouts,

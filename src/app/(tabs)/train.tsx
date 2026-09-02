@@ -83,22 +83,22 @@ export default function TrainScreen() {
       </> : null}
       {data?.progress ? (
         <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-          <AppText style={[styles.kicker, { color: colors.accent }]}>LATEST EXERCISE CHECK</AppText>
+          <AppText style={[styles.kicker, { color: colors.accent }]}>RECENT EXERCISE CHECK</AppText>
           {data.progress.overallChangePercent == null ? (
             <>
               <AppText style={styles.progressValue}>Baseline saved</AppText>
-              <AppText style={{ color: colors.textMuted }}>A comparison appears after you repeat one of these exercises.</AppText>
+              <AppText style={{ color: colors.textMuted }}>A recent baseline appears after you repeat one of these exercises.</AppText>
             </>
           ) : (
             <>
               <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}> 
                 {formatPercent(data.progress.overallChangePercent)}
               </AppText>
-              <AppText style={{ color: colors.textMuted }}>Load × reps versus each exercise’s previous matching session · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} repeated exercises up</AppText>
+              <AppText style={{ color: colors.textMuted }}>Load × reps versus each exercise’s median across up to three prior matching sessions · {data.progress.improvedExerciseCount} of {data.progress.comparableExerciseCount} repeated exercises up</AppText>
               <View style={styles.comparisonGrid}>
                 <View style={[styles.comparisonMetric, { backgroundColor: colors.surfaceRaised }]}> 
-                  <AppText style={[styles.comparisonLabel, { color: colors.textMuted }]}>Previous matching work</AppText>
-                  <AppText style={styles.comparisonValue}>{formatWork(data.progress.previousComparableVolumeKg)}</AppText>
+                  <AppText style={[styles.comparisonLabel, { color: colors.textMuted }]}>Recent baseline work</AppText>
+                  <AppText style={styles.comparisonValue}>{formatWork(data.progress.baselineComparableVolumeKg)}</AppText>
                 </View>
                 <View style={[styles.comparisonMetric, { backgroundColor: colors.surfaceRaised }]}> 
                   <AppText style={[styles.comparisonLabel, { color: colors.textMuted }]}>This session</AppText>
@@ -114,9 +114,9 @@ export default function TrainScreen() {
                   <View style={styles.flex}>
                     <AppText>{exercise.exerciseName}</AppText>
                     <AppText style={[styles.exerciseWork, { color: colors.textMuted }]}>
-                      {exercise.previousVolumeKg == null
+                      {exercise.baselineVolumeKg == null
                         ? `${formatWork(exercise.currentVolumeKg)} baseline`
-                        : `${formatWork(exercise.previousVolumeKg)} → ${formatWork(exercise.currentVolumeKg)}`}
+                        : `${formatWork(exercise.baselineVolumeKg)} median (${exercise.baselineSessionCount}) → ${formatWork(exercise.currentVolumeKg)}`}
                     </AppText>
                   </View>
                   <View style={styles.exerciseHistoryEnd}>

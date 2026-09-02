@@ -119,7 +119,8 @@ export type CompletedExerciseVolumeFeedback = {
   status: 'baseline' | 'hold' | 'target_reached' | 'progress';
   targetPercent: number;
   currentVolumeKg: number;
-  previousVolumeKg: number | null;
+  baselineVolumeKg: number | null;
+  baselineSessionCount: number;
   targetVolumeKg: number | null;
   changePercent: number | null;
   projectedChangePercent: number | null;
@@ -127,6 +128,13 @@ export type CompletedExerciseVolumeFeedback = {
   reason: string;
   cues: SetProgressionCue[];
 };
+
+export type RecentExerciseBaseline = {
+  volumeKg: number | null;
+  sessionCount: number;
+};
+
+export const RECENT_EXERCISE_BASELINE_SESSION_LIMIT = 3;
 
 export type DeloadSignal = {
   kind: 'none' | 'stagnation' | 'volume_drop';
@@ -148,6 +156,28 @@ export function calculateSetVolumeKg(set: ProgressionSet): number {
 export function calculateOverloadChangePercent(currentVolumeKg: number, previousVolumeKg: number): number | null {
   if (!Number.isFinite(currentVolumeKg) || !Number.isFinite(previousVolumeKg) || previousVolumeKg <= 0) return null;
   return ((currentVolumeKg - previousVolumeKg) / previousVolumeKg) * 100;
+}
+
+/**
+ * Returns the median working-set volume from up to three recent sessions of the
+ * same exercise. The median limits the effect of one unusually high or low day.
+ */
+export function calculateRecentExerciseBaseline(
+  sessions: readonly (readonly ProgressionSet[])[],
+): RecentExerciseBaseline {
+  const volumes = sessions
+    .slice(0, RECENT_EXERCISE_BASELINE_SESSION_LIMIT)
+    .map((sets) => sets
+      .filter((set) => (set.kind ?? 'working') === 'working')
+      .reduce((total, set) => total + calculateSetVolumeKg(set), 0))
+    .filter((volume) => Number.isFinite(volume) && volume > 0)
+    .sort((a, b) => a - b);
+  if (volumes.length === 0) return { volumeKg: null, sessionCount: 0 };
+  const middle = Math.floor(volumes.length / 2);
+  const volumeKg = volumes.length % 2 === 1
+    ? volumes[middle]!
+    : (volumes[middle - 1]! + volumes[middle]!) / 2;
+  return { volumeKg, sessionCount: volumes.length };
 }
 
 export function isoWeekKey(value: string): string {
@@ -525,13 +555,14 @@ export function buildSetProgressionPlan(input: {
 }
 
 /**
- * Reviews a completed exercise against its latest completed exposure.
+ * Reviews a completed exercise against the median of up to three recent,
+ * matching completed exposures.
  * The five-percent target is a guide; safe double progression determines
  * the smallest opt-in change and logged sets are never mutated here.
  */
 export function buildCompletedExerciseVolumeFeedback(input: {
   currentSets: ProgressionSet[];
-  previousSets?: ProgressionSet[] | null;
+  baselineSessions?: ProgressionSet[][] | null;
   repMin: number;
   repMax: number;
   loadIncrement: number;
@@ -544,10 +575,8 @@ export function buildCompletedExerciseVolumeFeedback(input: {
     : 5;
   const currentSets = input.currentSets.filter((set) => (set.kind ?? 'working') === 'working');
   const currentVolumeKg = currentSets.reduce((total, set) => total + calculateSetVolumeKg(set), 0);
-  const previousSets = (input.previousSets ?? []).filter((set) => (set.kind ?? 'working') === 'working');
-  const previousVolumeKg = previousSets.length > 0
-    ? previousSets.reduce((total, set) => total + calculateSetVolumeKg(set), 0)
-    : null;
+  const baseline = calculateRecentExerciseBaseline(input.baselineSessions ?? []);
+  const baselineVolumeKg = baseline.volumeKg;
   const hasInvalidCurrentSet = currentSets.length === 0 || currentSets.some((set) => (
     !Number.isFinite(set.loadValue)
     || set.loadValue < 0
@@ -560,12 +589,13 @@ export function buildCompletedExerciseVolumeFeedback(input: {
       status: 'hold',
       targetPercent,
       currentVolumeKg,
-      previousVolumeKg,
-      targetVolumeKg: previousVolumeKg != null && previousVolumeKg > 0
-        ? previousVolumeKg * (1 + targetPercent / 100)
+      baselineVolumeKg,
+      baselineSessionCount: baseline.sessionCount,
+      targetVolumeKg: baselineVolumeKg != null && baselineVolumeKg > 0
+        ? baselineVolumeKg * (1 + targetPercent / 100)
         : null,
-      changePercent: previousVolumeKg != null
-        ? calculateOverloadChangePercent(currentVolumeKg, previousVolumeKg)
+      changePercent: baselineVolumeKg != null
+        ? calculateOverloadChangePercent(currentVolumeKg, baselineVolumeKg)
         : null,
       projectedChangePercent: null,
       cueTiming: null,
@@ -574,23 +604,24 @@ export function buildCompletedExerciseVolumeFeedback(input: {
     };
   }
 
-  if (previousVolumeKg == null || previousVolumeKg <= 0) {
+  if (baselineVolumeKg == null || baselineVolumeKg <= 0) {
     return {
       status: 'baseline',
       targetPercent,
       currentVolumeKg,
-      previousVolumeKg: null,
+      baselineVolumeKg: null,
+      baselineSessionCount: 0,
       targetVolumeKg: null,
       changePercent: null,
       projectedChangePercent: null,
       cueTiming: null,
-      reason: 'Baseline saved. The next completed exposure can be compared with this work.',
+      reason: 'First baseline saved. A comparison appears after you repeat this exercise.',
       cues: [],
     };
   }
 
-  const targetVolumeKg = previousVolumeKg * (1 + targetPercent / 100);
-  const changePercent = calculateOverloadChangePercent(currentVolumeKg, previousVolumeKg);
+  const targetVolumeKg = baselineVolumeKg * (1 + targetPercent / 100);
+  const changePercent = calculateOverloadChangePercent(currentVolumeKg, baselineVolumeKg);
   if (input.jointFlag || currentSets.some((set) => set.rpe != null && set.rpe > 9)) {
     const hold = buildSetProgressionPlan({
       sets: currentSets,
@@ -603,7 +634,8 @@ export function buildCompletedExerciseVolumeFeedback(input: {
       status: 'hold',
       targetPercent,
       currentVolumeKg,
-      previousVolumeKg,
+      baselineVolumeKg,
+      baselineSessionCount: baseline.sessionCount,
       targetVolumeKg,
       changePercent,
       projectedChangePercent: null,
@@ -617,12 +649,13 @@ export function buildCompletedExerciseVolumeFeedback(input: {
       status: 'target_reached',
       targetPercent,
       currentVolumeKg,
-      previousVolumeKg,
+      baselineVolumeKg,
+      baselineSessionCount: baseline.sessionCount,
       targetVolumeKg,
       changePercent,
       projectedChangePercent: changePercent,
       cueTiming: null,
-      reason: `Volume is at least ${formatProgressionNumber(targetPercent)}% above the latest completed exposure.`,
+      reason: `Volume is at least ${formatProgressionNumber(targetPercent)}% above your ${formatBaselineLabel(baseline.sessionCount)}.`,
       cues: [],
     };
   }
@@ -639,7 +672,8 @@ export function buildCompletedExerciseVolumeFeedback(input: {
       status: 'hold',
       targetPercent,
       currentVolumeKg,
-      previousVolumeKg,
+      baselineVolumeKg,
+      baselineSessionCount: baseline.sessionCount,
       targetVolumeKg,
       changePercent,
       projectedChangePercent: null,
@@ -658,16 +692,21 @@ export function buildCompletedExerciseVolumeFeedback(input: {
     status: 'progress',
     targetPercent,
     currentVolumeKg,
-    previousVolumeKg,
+    baselineVolumeKg,
+    baselineSessionCount: baseline.sessionCount,
     targetVolumeKg,
     changePercent,
-    projectedChangePercent: calculateOverloadChangePercent(projectedVolumeKg, previousVolumeKg),
+    projectedChangePercent: calculateOverloadChangePercent(projectedVolumeKg, baselineVolumeKg),
     cueTiming: 'next_session',
     reason: plan.action === 'add_load'
       ? 'The rep ceiling is complete. Use the smallest load step at the bottom of the rep range next session.'
       : 'Add one controlled rep next time to move toward the volume guide.',
     cues: plan.cues,
   };
+}
+
+function formatBaselineLabel(count: number): string {
+  return count === 1 ? 'single-session baseline' : `recent ${count}-session median`;
 }
 
 function formatProgressionNumber(value: number): string {

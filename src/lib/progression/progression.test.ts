@@ -8,6 +8,7 @@ import {
   buildMuscleGroupTrends,
   buildSetProgressionPlan,
   calculateOverloadChangePercent,
+  calculateRecentExerciseBaseline,
   calculateSetVolumeKg,
   detectDeloadSignal,
   MUSCLE_GROUP_OPTIONS,
@@ -36,6 +37,24 @@ test('compares only against a meaningful prior volume', () => {
 test('normalizes pounds and ignores warm-up volume', () => {
   assert.ok(Math.abs(calculateSetVolumeKg({ reps: 10, loadValue: 100, loadUnit: 'lb' }) - 453.59237) < 0.001);
   assert.equal(calculateSetVolumeKg({ reps: 10, loadValue: 50, loadUnit: 'kg', kind: 'warmup' }), 0);
+});
+
+test('uses the median of up to three matching sessions as the recent exercise baseline', () => {
+  const session = (loadValue: number) => [{ reps: 10, loadValue, loadUnit: 'kg' as const, kind: 'working' as const }];
+  assert.deepEqual(calculateRecentExerciseBaseline([
+    session(20),
+    session(10),
+    session(100),
+    session(5),
+  ]), { volumeKg: 200, sessionCount: 3 });
+  assert.deepEqual(calculateRecentExerciseBaseline([session(10), session(20)]), {
+    volumeKg: 150,
+    sessionCount: 2,
+  });
+  assert.deepEqual(calculateRecentExerciseBaseline([[{ ...session(10)[0]!, kind: 'warmup' }]]), {
+    volumeKg: null,
+    sessionCount: 0,
+  });
 });
 
 test('adds load only when every working set reaches the top of range with effort recorded', () => {
@@ -143,7 +162,7 @@ test('completed exercise review establishes a baseline without inventing a targe
       { reps: 10, loadValue: 40, loadUnit: 'kg', rpe: 8 },
       { reps: 10, loadValue: 40, loadUnit: 'kg', rpe: 8 },
     ],
-    previousSets: null,
+    baselineSessions: null,
     repMin: 8,
     repMax: 12,
     loadIncrement: 2.5,
@@ -157,7 +176,7 @@ test('completed exercise review establishes a baseline without inventing a targe
 test('completed exercise review confirms when the five-percent guide is reached', () => {
   const result = buildCompletedExerciseVolumeFeedback({
     currentSets: [{ reps: 11, loadValue: 10, loadUnit: 'kg', rpe: 8 }],
-    previousSets: [{ reps: 10, loadValue: 10, loadUnit: 'kg', rpe: 8 }],
+    baselineSessions: [[{ reps: 10, loadValue: 10, loadUnit: 'kg', rpe: 8 }]],
     repMin: 8,
     repMax: 12,
     loadIncrement: 2.5,
@@ -167,11 +186,29 @@ test('completed exercise review confirms when the five-percent guide is reached'
   assert.equal(result.cues.length, 0);
 });
 
+test('completed exercise review resists one unusually high recent session', () => {
+  const result = buildCompletedExerciseVolumeFeedback({
+    currentSets: [{ reps: 11, loadValue: 10, loadUnit: 'kg', rpe: 8 }],
+    baselineSessions: [
+      [{ reps: 30, loadValue: 10, loadUnit: 'kg', rpe: 10 }],
+      [{ reps: 10, loadValue: 10, loadUnit: 'kg', rpe: 8 }],
+      [{ reps: 9, loadValue: 10, loadUnit: 'kg', rpe: 8 }],
+    ],
+    repMin: 8,
+    repMax: 12,
+    loadIncrement: 2.5,
+  });
+  assert.equal(result.baselineVolumeKg, 100);
+  assert.equal(result.baselineSessionCount, 3);
+  assert.equal(result.changePercent, 10);
+  assert.equal(result.status, 'target_reached');
+});
+
 test('completed exercise review offers one controlled rep toward the guide', () => {
   const sets = [0, 1, 2].map(() => ({ reps: 10, loadValue: 10, loadUnit: 'kg' as const, rpe: 8 }));
   const result = buildCompletedExerciseVolumeFeedback({
     currentSets: sets,
-    previousSets: sets,
+    baselineSessions: [sets],
     repMin: 8,
     repMax: 12,
     loadIncrement: 2.5,
@@ -186,7 +223,7 @@ test('completed exercise review holds under joint or high-effort constraints', (
   const previousSets = [{ reps: 10, loadValue: 10, loadUnit: 'kg' as const, rpe: 8 }];
   const jointHold = buildCompletedExerciseVolumeFeedback({
     currentSets: previousSets,
-    previousSets,
+    baselineSessions: [previousSets],
     repMin: 8,
     repMax: 12,
     loadIncrement: 2.5,
@@ -197,7 +234,7 @@ test('completed exercise review holds under joint or high-effort constraints', (
 
   const effortHold = buildCompletedExerciseVolumeFeedback({
     currentSets: [{ ...previousSets[0]!, reps: 12, rpe: 9.5 }],
-    previousSets,
+    baselineSessions: [previousSets],
     repMin: 8,
     repMax: 12,
     loadIncrement: 2.5,
@@ -211,7 +248,7 @@ test('completed exercise review defers a load increase to the next session', () 
   const topSets = [0, 1, 2].map(() => ({ reps: 12, loadValue: 40, loadUnit: 'kg' as const, rpe: 8 }));
   const result = buildCompletedExerciseVolumeFeedback({
     currentSets: topSets,
-    previousSets: topSets,
+    baselineSessions: [topSets],
     repMin: 8,
     repMax: 12,
     loadIncrement: 2.5,

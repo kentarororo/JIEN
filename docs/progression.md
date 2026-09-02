@@ -25,8 +25,15 @@ coverage view; exact exercise and detailed target tags remain in history.
 
 `load × reps` remains descriptive exercise/session detail. It is never compared
 across different movements as a muscle score and is never labelled strength,
-hypertrophy, or muscle growth. Exercise-specific double progression still compares
-only matching exercise history. See [training-advisory-engine.md](training-advisory-engine.md).
+hypertrophy, or muscle growth. Exercise-specific double progression still uses only
+matching exercise history. The live logger and completed-workout review compare the
+current exercise with the median volume of up to its three most recent completed
+sessions. One unusually strong or weak day therefore cannot become the whole target.
+The latest matching session—not an average—continues to supply the actual set rows,
+load, rep, RPE, and double-progression cue so JIEN never invents a set structure.
+With two prior sessions the midpoint is used; with one, that session is the temporary
+baseline; with none, the current session establishes it. See
+[training-advisory-engine.md](training-advisory-engine.md).
 
 AI receives the same bounded four-week body-part summary alongside recent recovery,
 each logged nutrition day's macro totals, logged-day averages, and the current macro

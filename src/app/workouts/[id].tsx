@@ -176,7 +176,7 @@ export default function WorkoutDetailScreen() {
           ) : (
             <>
               <AppText style={[styles.progressValue, { color: data.progress.overallChangePercent >= 0 ? colors.success : colors.warning }]}>{formatPercent(data.progress.overallChangePercent)}</AppText>
-              <AppText style={{ color: colors.textMuted }}>work performed versus the previous matching exposure for each exercise</AppText>
+              <AppText style={{ color: colors.textMuted }}>work performed versus each exercise’s median across up to three prior matching sessions</AppText>
             </>
           )}
           <View style={styles.progressRows}>
@@ -184,7 +184,7 @@ export default function WorkoutDetailScreen() {
               <View key={exercise.exerciseId} style={styles.progressRow}>
                 <View style={styles.flex}>
                   <AppText style={styles.progressName}>{exercise.exerciseName}</AppText>
-                  <AppText style={{ color: colors.textMuted }}>{Math.round(exercise.currentVolumeKg).toLocaleString()} kg this session</AppText>
+                  <AppText style={{ color: colors.textMuted }}>{Math.round(exercise.currentVolumeKg).toLocaleString()} kg·reps this session{exercise.baselineVolumeKg == null ? '' : ` · ${Math.round(exercise.baselineVolumeKg).toLocaleString()} recent median (${exercise.baselineSessionCount})`}</AppText>
                 </View>
                 <AppText style={{ color: exercise.changePercent == null ? colors.textMuted : exercise.changePercent >= 0 ? colors.success : colors.warning, fontWeight: '800' }}>
                   {exercise.changePercent == null ? 'baseline' : formatPercent(exercise.changePercent)}

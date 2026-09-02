@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 're
 import { JointProgressionChoicePanel, type JointProgressionChoice } from '@/components/joint-progression-choice';
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import {
-  getLastExerciseSessionSets,
+  getRecentExerciseSessionSets,
   getUserProfile,
   getWorkoutDetail,
   listExercises,
@@ -137,7 +137,7 @@ export default function PlanWorkoutScreen() {
     setBusyExerciseId(exercise.id);
     setFormError(null);
     try {
-      const history = await getLastExerciseSessionSets(db, exercise.id);
+      const history = (await getRecentExerciseSessionSets(db, exercise.id))[0] ?? [];
       const next = buildPlannedWorkoutExercise({
         exercise,
         history,
@@ -198,7 +198,7 @@ export default function PlanWorkoutScreen() {
       }
       const next = await Promise.all(exercises.map(async (exercise) => buildPlannedWorkoutExercise({
         exercise,
-        history: await getLastExerciseSessionSets(db, exercise.id),
+        history: (await getRecentExerciseSessionSets(db, exercise.id))[0] ?? [],
         preferredLoadUnit: preferredUnit,
         jointFlag: jointProgressionHold,
       })));
@@ -359,7 +359,7 @@ export default function PlanWorkoutScreen() {
 
       {planned.length ? (
         <Card>
-          <AppText style={styles.cardTitle}>Targets use your last completed sets</AppText>
+          <AppText style={styles.cardTitle}>Targets start from your latest matching sets</AppText>
           {draftReason ? <AppText style={{ color: colors.accent }}>{draftReason}</AppText> : null}
           <AppText style={{ color: colors.textMuted }}>Optional progression cues never overwrite the loads and reps you logged.</AppText>
         </Card>
