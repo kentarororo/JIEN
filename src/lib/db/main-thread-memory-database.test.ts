@@ -18,6 +18,7 @@ import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
 import { savePrivateFood } from './private-food.ts';
+import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
 import { listVolumeHistory, saveWorkout, updateWorkout } from './workouts.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
@@ -70,6 +71,24 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
     assert.equal(setColumns.some((column) => column.name === 'primary_muscle_group'), true);
     assert.equal(setColumns.some((column) => column.name === 'secondary_muscle_groups'), true);
+    await recordAccountSyncHealth(database, {
+      state: 'synced',
+      pushed: 2,
+      pulled: 4,
+      profileRestored: true,
+    }, '2026-09-02T02:00:00.000Z');
+    await recordAccountSyncHealth(database, { state: 'offline' }, '2026-09-02T03:00:00.000Z');
+    assert.deepEqual(await getAccountSyncHealth(database), {
+      schemaVersion: 1,
+      state: 'offline',
+      lastAttemptAt: '2026-09-02T03:00:00.000Z',
+      lastSuccessAt: '2026-09-02T02:00:00.000Z',
+      pushed: 0,
+      pulled: 0,
+      profileRestored: false,
+      code: null,
+      safeMessage: null,
+    });
     assert.deepEqual(
       await database.getFirstAsync(
         `SELECT name, source, source_ref AS sourceRef, calories_kcal AS caloriesKcal

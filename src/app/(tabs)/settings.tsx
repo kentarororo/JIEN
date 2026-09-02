@@ -1,20 +1,21 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Platform, StyleSheet, Switch, View } from 'react-native';
 
 import { AppText, Button, Card, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
 import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
-import { getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, syncAccountData } from '@/lib/db';
+import { getAccountSyncHealth, getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, subscribeToAccountSyncHealth, syncAccountData } from '@/lib/db';
 import { reconcileMealGapNotification, reconcileSyncAttentionNotification, reconcileWorkoutPlanNotification } from '@/lib/notifications';
-import { spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
+import { radii, spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
 
 async function loadSettings(db: ReturnType<typeof useSQLiteContext>) {
-  const [sync, notifications, account, profile] = await Promise.all([getSyncStatus(db), listNotificationPreferences(db), getAccountState(), getUserProfile(db)]);
+  const [sync, syncHealth, notifications, account, profile] = await Promise.all([getSyncStatus(db), getAccountSyncHealth(db), listNotificationPreferences(db), getAccountState(), getUserProfile(db)]);
   return {
     sync,
+    syncHealth,
     account,
     profile,
     mealGap: notifications.find((item) => item.type === 'meal_gap') ?? null,
@@ -32,6 +33,19 @@ export default function SettingsScreen() {
   const [settingsView, setSettingsView] = useState<'general' | 'reminders' | 'data'>('general');
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageTone, setMessageTone] = useState<'success' | 'warning'>('success');
+
+  useEffect(() => subscribeToAccountSyncHealth(() => { void reload(); }), [reload]);
+
+  const selectSettingsView = (view: 'general' | 'reminders' | 'data') => {
+    setSettingsView(view);
+    setMessage(null);
+  };
+
+  const showMessage = (value: string, tone: 'success' | 'warning' = 'success') => {
+    setMessageTone(tone);
+    setMessage(value);
+  };
 
   const run = async (key: string, task: () => Promise<void>) => {
     setBusy(key);
@@ -49,8 +63,9 @@ export default function SettingsScreen() {
     await run('notification', async () => {
       await saveNotificationPreference(db, 'meal_gap', enabled);
       const outcome = await reconcileMealGapNotification(db, enabled);
-      setMessage(
+      showMessage(
         !enabled ? 'Meal-gap reminders are off.' : outcome === 'scheduled' ? 'A reminder will appear only if today still looks incomplete.' : outcome === 'permission_denied' ? 'Notification permission was not granted.' : outcome === 'unsupported' ? 'Local reminders are available on iOS and Android.' : 'No reminder is needed for today.',
+        outcome === 'permission_denied' || outcome === 'unsupported' ? 'warning' : 'success',
       );
       await reload();
     });
@@ -60,7 +75,7 @@ export default function SettingsScreen() {
     await run('sync-notification', async () => {
       await saveNotificationPreference(db, 'sync_issue', enabled);
       const outcome = await reconcileSyncAttentionNotification(db, enabled);
-      setMessage(
+      showMessage(
         !enabled
           ? 'Sync-attention reminders are off.'
           : outcome === 'scheduled'
@@ -70,6 +85,7 @@ export default function SettingsScreen() {
               : outcome === 'unsupported'
                 ? 'Local reminders are available on iOS and Android.'
                 : 'No sync action is needed right now.',
+        outcome === 'permission_denied' || outcome === 'unsupported' ? 'warning' : 'success',
       );
       await reload();
     });
@@ -79,7 +95,7 @@ export default function SettingsScreen() {
     await run('workout-notification', async () => {
       await saveNotificationPreference(db, 'workout_plan', enabled);
       const outcome = await reconcileWorkoutPlanNotification(db, enabled);
-      setMessage(
+      showMessage(
         !enabled
           ? 'Planned-workout reminders are off.'
           : outcome === 'scheduled'
@@ -89,6 +105,7 @@ export default function SettingsScreen() {
               : outcome === 'unsupported'
                 ? 'Local reminders are available on iOS and Android.'
                 : 'Plan a future workout before a reminder is needed.',
+        outcome === 'permission_denied' || outcome === 'unsupported' ? 'warning' : 'success',
       );
       await reload();
     });
@@ -99,25 +116,27 @@ export default function SettingsScreen() {
       const result = await syncAccountData(db, { trigger: 'manual' });
       switch (result.state) {
         case 'synced':
-          setMessage(`${result.pushed} uploaded · ${result.pulled} cloud row${result.pulled === 1 ? '' : 's'} checked.`);
+          showMessage(result.pushed || result.pulled
+            ? `${result.pushed} uploaded · ${result.pulled} restored from cloud.`
+            : 'Cloud sync is current.');
           break;
         case 'signed_out':
-          setMessage('Local records remain on this device. Sign in to enable cloud sync.');
+          showMessage('Local records remain on this device. Sign in to enable cloud sync.', 'warning');
           break;
         case 'not_configured':
-          setMessage('Add Supabase environment variables to enable cloud sync.');
+          showMessage('Add Supabase environment variables to enable cloud sync.', 'warning');
           break;
         case 'offline':
-          setMessage('You’re offline. Changes remain queued on this device.');
+          showMessage('You’re offline. Changes remain queued on this device.', 'warning');
           break;
         case 'partial':
-          setMessage(`Uploaded ${result.pushed}, then paused: ${result.error}`);
+          showMessage(`Uploaded ${result.pushed}, then paused: ${result.error}`, 'warning');
           break;
         case 'action_required':
-          setMessage(`${result.error} Queued records remain on this device.`);
+          showMessage(`${result.error} Queued records remain on this device.`, 'warning');
           break;
         case 'account_conflict':
-          setMessage('This device belongs to a different JIEN account. Sign back in with the original account; records were not merged.');
+          showMessage('This device belongs to a different JIEN account. Sign back in with the original account; records were not merged.', 'warning');
           break;
       }
       await reload();
@@ -129,12 +148,12 @@ export default function SettingsScreen() {
       <ScreenHeading title="Settings" eyebrow="Account, preferences and data" />
       {loading && !data ? <StatePanel title="Loading settings" body="Reading preferences from this device." loading /> : null}
       {error ? <StatePanel title="Settings are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
-      {message ? <Card style={{ backgroundColor: theme.colors.successSoft }}><AppText>{message}</AppText></Card> : null}
+      {message ? <Card style={{ backgroundColor: messageTone === 'warning' ? theme.colors.warningSoft : theme.colors.successSoft }}><AppText style={{ color: messageTone === 'warning' ? theme.colors.warning : theme.colors.success }}>{message}</AppText></Card> : null}
 
       <View accessibilityRole="tablist" style={[styles.viewSwitcher, { backgroundColor: theme.colors.surfaceMuted }]}>
-        <Pill label="General" active={settingsView === 'general'} onPress={() => setSettingsView('general')} />
-        <Pill label="Reminders" active={settingsView === 'reminders'} onPress={() => setSettingsView('reminders')} />
-        <Pill label="Data" active={settingsView === 'data'} onPress={() => setSettingsView('data')} />
+        <Pill label="General" active={settingsView === 'general'} onPress={() => selectSettingsView('general')} />
+        <Pill label="Reminders" active={settingsView === 'reminders'} onPress={() => selectSettingsView('reminders')} />
+        <Pill label="Data" active={settingsView === 'data'} onPress={() => selectSettingsView('data')} />
       </View>
 
       {settingsView === 'general' ? <>
@@ -185,7 +204,12 @@ export default function SettingsScreen() {
       {settingsView === 'data' ? <>
         <SectionHeading title="Account and sync" detail="SQLite remains the on-device source of truth" />
         <Card>
-          <View style={styles.copy}><AppText style={styles.cardTitle}>{data?.account.user?.email ?? (data?.account.configured ? 'Not signed in' : 'Supabase not configured')}</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.account.user ? 'Signed in on this device. Newer cloud records restore in the background.' : data?.account.configured ? 'Local logging remains available.' : 'Add the public URL and publishable key in your environment.'}</AppText></View>
+          <View style={styles.syncHeading}>
+            <View style={styles.copy}><AppText style={styles.cardTitle}>{data?.account.user?.email ?? (data?.account.configured ? 'Not signed in' : 'Supabase not configured')}</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.account.user ? 'Signed in on this device. Newer cloud records restore in the background.' : data?.account.configured ? 'Local logging remains available.' : 'Add the public URL and publishable key in your environment.'}</AppText></View>
+            <Pill label={syncHealthLabel(data)} active={data?.account.user != null && data?.sync.pendingCount === 0 && data?.syncHealth?.state === 'synced'} />
+          </View>
+          {data?.syncHealth?.lastSuccessAt ? <AppText style={{ color: theme.colors.textMuted }}>Last successful cloud sync {formatSyncTimestamp(data.syncHealth.lastSuccessAt)}.</AppText> : data?.account.user ? <AppText style={{ color: theme.colors.textMuted }}>No successful cloud sync is recorded on this device yet.</AppText> : null}
+          {data?.syncHealth?.safeMessage ? <View style={[styles.syncNotice, { backgroundColor: theme.colors.warningSoft }]}><AppText style={{ color: theme.colors.warning }}>{data.syncHealth.safeMessage} Queued records remain on this device.</AppText></View> : null}
           <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
           <View style={styles.copy}><AppText style={styles.cardTitle}>{data?.sync.pendingCount ?? 0} queued</AppText><AppText style={{ color: theme.colors.textMuted }}>{data?.sync.actionRequiredCount ? `${data.sync.actionRequiredCount} need attention. Sync now retries them after you sign in or update the app.` : data?.sync.failedCount ? `${data.sync.failedCount} waiting for an automatic retry` : 'No records are waiting for upload.'}</AppText></View>
           <View style={styles.dataActions}>
@@ -212,8 +236,34 @@ const styles = StyleSheet.create({
   pillRow: { flexDirection: 'row', flexWrap: 'wrap' },
   viewSwitcher: { alignSelf: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', borderRadius: 999, padding: spacing.xxs, gap: spacing.xxs },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  syncHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
   copy: { flex: 1, gap: spacing.xxs },
   cardTitle: { ...typography.bodyLarge, fontWeight: '700' },
   divider: { height: StyleSheet.hairlineWidth },
+  syncNotice: { padding: spacing.sm, borderRadius: radii.control },
   dataActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 });
+
+function syncHealthLabel(data: Awaited<ReturnType<typeof loadSettings>> | null): string {
+  if (!data?.account.configured) return 'Local only';
+  if (!data.account.user) return 'Not signed in';
+  if (data.sync.actionRequiredCount > 0 || data.syncHealth?.state === 'action_required') return 'Needs attention';
+  if (data.syncHealth?.state === 'partial') return 'Retry scheduled';
+  if (data.sync.pendingCount > 0) {
+    if (data.syncHealth?.state === 'offline') return 'Saved offline';
+    return 'Upload queued';
+  }
+  if (data.syncHealth?.state === 'synced') return 'Cloud current';
+  if (data.syncHealth?.state === 'offline') return 'Offline';
+  return 'Checking sync';
+}
+
+function formatSyncTimestamp(value: string): string {
+  const date = new Date(value);
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}

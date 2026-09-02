@@ -128,6 +128,10 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await expect(page.getByRole('switch', { name: 'Possible missing meal reminder' })).toBeVisible();
   await page.getByRole('button', { name: 'Data', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Account and sync', exact: true })).toBeVisible();
+  await expect(page.getByText('Cloud current', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Last successful cloud sync/)).toBeVisible();
+  await page.getByRole('button', { name: 'Sync now' }).click();
+  await expect(page.getByText('Cloud sync is current.', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Export', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 

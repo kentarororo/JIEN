@@ -16,6 +16,8 @@ const progression = readFileSync(new URL('../src/lib/progression/index.ts', impo
 const workoutRepository = readFileSync(new URL('../src/lib/db/workouts.ts', import.meta.url), 'utf8');
 const exerciseCatalog = readFileSync(new URL('../src/lib/training/exercise-catalog.ts', import.meta.url), 'utf8');
 const routineStarters = readFileSync(new URL('../src/lib/planning/routine-starters.ts', import.meta.url), 'utf8');
+const cloudSync = readFileSync(new URL('../src/lib/db/cloud-sync.ts', import.meta.url), 'utf8');
+const syncHealth = readFileSync(new URL('../src/lib/db/sync-health.ts', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/components/ui.tsx', import.meta.url), 'utf8');
 
 test('Today is week-first while preserving the month and day workspace', () => {
@@ -127,6 +129,13 @@ test('Settings separates general preferences, reminders, and local data controls
   assert.match(settings, /settingsView === 'general'[\s\S]*Profile[\s\S]*Appearance[\s\S]*AI connection/);
   assert.match(settings, /settingsView === 'reminders'[\s\S]*Possible missing meal[\s\S]*Planned workout approaching[\s\S]*Sync needs attention/);
   assert.match(settings, /settingsView === 'data'[\s\S]*Account and sync[\s\S]*SQLite remains the on-device source of truth[\s\S]*Export/);
+  assert.match(settings, /getAccountSyncHealth/);
+  assert.match(settings, /subscribeToAccountSyncHealth/);
+  assert.match(settings, /Last successful cloud sync/);
+  assert.match(settings, /Needs attention/);
+  assert.match(settings, /Saved offline/);
+  assert.match(cloudSync, /recordAccountSyncHealth\(db, result\)/);
+  assert.match(syncHealth, /ACCOUNT_SYNC_HEALTH_KEY = 'account_sync_health_v1'/);
   assert.doesNotMatch(settings, /#[\da-fA-F]{6}/, 'settings colors must come from semantic theme tokens');
 });
 

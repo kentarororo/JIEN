@@ -4,6 +4,7 @@ import { hasAccountConflict, needsFullReconciliation, preserveLocalAiMetadata, s
 import { withExclusiveTransaction } from './exclusive-transaction';
 import { getSetting, setSetting } from './settings';
 import { getSupabaseClient } from './supabase';
+import { recordAccountSyncHealth } from './sync-health';
 import { syncPendingChanges, type SyncResult } from './sync-queue';
 import { classifySyncFailure, type SyncRetryTrigger } from './sync-policy';
 import type { FitnessGoal, LoadUnit, TrainingExperience } from './types';
@@ -319,7 +320,32 @@ export async function syncAccountData(
 ): Promise<AccountSyncResult> {
   const activeAccountSync = activeAccountSyncs.get(db);
   if (activeAccountSync) return activeAccountSync;
-  const nextAccountSync = runAccountSync(db, options);
+  const nextAccountSync = (async () => {
+    let result: AccountSyncResult;
+    try {
+      result = await runAccountSync(db, options);
+    } catch (cause) {
+      const failure = classifySyncFailure(cause);
+      result = failure.disposition === 'action_required'
+        ? {
+          state: 'action_required',
+          pushed: 0,
+          pulled: 0,
+          profileRestored: false,
+          error: failure.safeMessage,
+          code: failure.code,
+        }
+        : {
+          state: 'partial',
+          pushed: 0,
+          pulled: 0,
+          profileRestored: false,
+          error: failure.safeMessage,
+        };
+    }
+    await recordAccountSyncHealth(db, result).catch(() => undefined);
+    return result;
+  })();
   activeAccountSyncs.set(db, nextAccountSync);
   try {
     return await nextAccountSync;

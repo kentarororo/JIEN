@@ -3,6 +3,8 @@ export { describeAiConnectionIssue, getAiConnectionStatus, removePersonalGeminiK
 export type { AiConnectionIssue, AiConnectionStatus } from './ai-settings';
 export { syncAccountData } from './cloud-sync';
 export type { AccountSyncResult } from './cloud-sync';
+export { getAccountSyncHealth, subscribeToAccountSyncHealth } from './sync-health';
+export type { AccountSyncHealth, AccountSyncHealthState } from './sync-health';
 export { listCalendarActivity } from './calendar';
 export {
   createCustomExercise,

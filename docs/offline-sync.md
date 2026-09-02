@@ -39,6 +39,14 @@ unpauses the row so an account, schema, or app-state correction can be tested.
 The app attempts sync at startup, after authentication, when returning to the
 foreground, when connectivity returns, and when the user chooses **Sync now**.
 
+Every account-sync attempt stores a small device-local health summary in
+`app_settings`: the stable outcome, attempt time, last successful time, row counts,
+and an already-sanitized action message when applicable. Settings uses this summary
+to distinguish current, queued, offline, retrying, and action-required states. The
+summary is not added to the sync queue or portable export and never contains auth
+tokens, row payloads, provider responses, or health-record content. A diagnostic
+write failure never changes the outcome of the underlying account sync.
+
 On web, wa-sqlite runs on the main thread with `IDBBatchAtomicVFS`, avoiding Expo's
 OPFS access-handle worker. The VFS commits page versions atomically to strict-durability,
 account-scoped IndexedDB storage; SQLite transactions still contain local rows, the

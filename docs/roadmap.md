@@ -20,7 +20,7 @@ until their measurements and progression rules are explicit.
 - Multi-term exercise search, muscle/equipment filters, and equipment-aware lifting
   routine starters.
 
-## Current milestone — Alpha 2.2 advisory-to-plan
+## Completed — Alpha 2.2 advisory-to-plan
 
 The muscle advisory must lead to an explainable, editable workout draft:
 
@@ -36,10 +36,12 @@ Acceptance requires a tested path from Training focus to planner draft, schedule
 workout, completed workout, and refreshed muscle coverage. No AI output supplies
 numeric targets or chooses a workout without an explicit user action.
 
-## Next — Alpha 2.3 production hardening
+## Current milestone — Alpha 2.3 production hardening
 
 - Physical iPhone and Android validation in addition to browser emulation.
 - Production authentication, offline/online reconciliation, and multi-device restore.
+  Device-local sync health now records the last attempt and last successful restore
+  without exporting provider details or health records.
 - Error monitoring, privacy review, data export/delete checks, and release operations.
 - Closed-beta instrumentation focused on failed saves, sync health, logging time, and
   advisory usefulness rather than engagement pressure.
