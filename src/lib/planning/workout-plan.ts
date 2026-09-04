@@ -127,14 +127,31 @@ export function parsePlannedWorkoutPlan(value: unknown): PlannedWorkoutPlan | nu
   if (parsed.jointProgressionChoice !== undefined
     && parsed.jointProgressionChoice !== 'hold'
     && parsed.jointProgressionChoice !== 'continue') return null;
+  const programContext = parseProgramContext(parsed.programContext);
+  if (parsed.programContext !== undefined && programContext == null) return null;
   const exercises = parsed.exercises.map(parseExercise);
   return exercises.every((exercise): exercise is PlannedWorkoutExercise => exercise != null)
     ? {
         version: 1,
         exercises,
         ...(parsed.jointProgressionChoice === undefined ? {} : { jointProgressionChoice: parsed.jointProgressionChoice }),
+        ...(programContext ? { programContext } : {}),
       }
     : null;
+}
+
+function parseProgramContext(value: unknown): PlannedWorkoutPlan['programContext'] | null {
+  if (!isRecord(value)
+    || (value.splitId !== 'push_pull_legs' && value.splitId !== 'upper_lower' && value.splitId !== 'full_body')
+    || !Number.isInteger(value.sessionIndex) || value.sessionIndex < 0
+    || (value.availableMinutes !== 30 && value.availableMinutes !== 45 && value.availableMinutes !== 60 && value.availableMinutes !== 90)
+    || (value.missedSessionPolicy !== 'reschedule' && value.missedSessionPolicy !== 'skip')) return null;
+  return {
+    splitId: value.splitId,
+    sessionIndex: value.sessionIndex,
+    availableMinutes: value.availableMinutes,
+    missedSessionPolicy: value.missedSessionPolicy,
+  };
 }
 
 function parseExercise(value: unknown): PlannedWorkoutExercise | null {

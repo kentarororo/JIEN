@@ -38,6 +38,15 @@ numeric targets or chooses a workout without an explicit user action.
 
 ## Current milestone — Alpha 2.3 production hardening
 
+- Logging integrity and active execution are now part of the production slice:
+  repeated or planned rows reuse load and reps as editable targets but never copy
+  historical RPE or completed state; performed sets require explicit completion,
+  support undo and set-kind tagging, and can run an optional rest timer. Device-local
+  SQLite drafts retain those fields across interruption on web and native.
+- Programme continuity is explicit rather than autonomous: a user can choose
+  Push/Pull/Legs, Upper/Lower, or Full body order, fit a starter to 30–90 available
+  minutes, choose how a missed plan should be handled, and start the next session
+  without converting a suggestion into observed work.
 - Physical iPhone and Android validation in addition to browser emulation.
 - Production authentication, offline/online reconciliation, and multi-device restore.
   Device-local sync health now records the last attempt and last successful restore

@@ -21,6 +21,7 @@ const syncHealth = readFileSync(new URL('../src/lib/db/sync-health.ts', import.m
 const appErrorBoundary = readFileSync(new URL('../src/components/app-error-boundary.tsx', import.meta.url), 'utf8');
 const runtimeDiagnostics = readFileSync(new URL('../src/lib/db/runtime-diagnostics.ts', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/components/ui.tsx', import.meta.url), 'utf8');
+const packageManifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 test('Today is week-first while preserving the month and day workspace', () => {
   assert.match(today, /const \[monthExpanded, setMonthExpanded\] = useState\(false\)/);
@@ -187,18 +188,47 @@ test('Joint considerations recommend a hold but preserve an explicit session cho
 });
 
 test('Workout set completion connects local history to the five-percent progression review', () => {
-  assert.match(workoutLogger, /const \[completedBlockKeys, setCompletedBlockKeys\] = useState<string\[\]>\(\[\]\)/);
+  assert.match(workoutLogger, /startedSets\.every\(\(set\) => set\.completed\)/);
   assert.match(workoutLogger, /buildCompletedExerciseVolumeFeedback\(\{[\s\S]*currentSets: draftSetsForProgression\(block\.sets, unit\)[\s\S]*baselineSessions: block\.baselineSessions/);
   assert.match(workoutLogger, /sourceSets: history,[\s\S]*baselineSessions: recentSessions,[\s\S]*historyStatus: 'ready'/, 'the latest set structure and recent baseline are retained together');
   assert.match(workoutLogger, /block\.exerciseId !== exerciseId \|\| block\.historyRequestId !== requestId/, 'an obsolete lookup cannot attach history to a changed or superseded exercise request');
   assert.match(workoutLogger, /historyStatus === 'idle'/, 'only idle exercise histories are loaded automatically');
   assert.match(workoutLogger, /historyStatus: 'error'/, 'history failures settle into a recoverable state instead of an endless loading panel');
   assert.match(workoutLogger, /Recent sets unavailable[\s\S]*Retry history/, 'failed history reads explain that entered sets are safe and offer an explicit retry');
-  assert.match(workoutLogger, /function completeSets\(blockKey: string\)[\s\S]*setCompletedBlockKeys/);
+  assert.match(workoutLogger, /function completeSets\(blockKey: string\)[\s\S]*completed: true/);
+  assert.match(workoutLogger, /function toggleSetCompleted\(blockKey: string, setKey: string\)/);
+  assert.match(workoutLogger, /set\.completed \? 'Undo completed set' : 'Mark set complete'/);
+  assert.match(workoutLogger, /<SetKindPicker value=\{set\.kind\}/);
+  assert.match(workoutLogger, /kind === 'working'/);
+  assert.match(workoutLogger, /restTimerSeconds[\s\S]*restEndsAt/);
   assert.match(workoutLogger, /label=\{setsComplete \? 'Check again' : 'Complete sets'\}/);
   assert.match(workoutLogger, /5% VOLUME GUIDE/);
-  assert.match(workoutLogger, /function markBlockIncomplete[\s\S]*updateSet[\s\S]*markBlockIncomplete\(blockKey\)/);
   assert.match(workoutLogger, /Next time[\s\S]*formatCompletionCues/);
+});
+
+test('Workout drafts are part of the standard suite and recover active execution state from SQLite', () => {
+  const standardTests = packageManifest.scripts.test;
+  const drafts = readFileSync(new URL('../src/lib/db/workout-drafts.ts', import.meta.url), 'utf8');
+  assert.match(standardTests, /src\/lib\/workout-draft\.test\.ts/);
+  assert.match(standardTests, /src\/lib\/meal-draft\.test\.ts/);
+  assert.match(workoutLogger, /getWorkoutDraft/);
+  assert.match(workoutLogger, /saveWorkoutDraft/);
+  assert.match(workoutLogger, /recoveryDraftKey/);
+  assert.match(workoutRepository, /clearRecoveryDraft\(db, input\.recoveryDraftKey\)/);
+  assert.match(drafts, /withExclusiveTransaction/);
+  assert.match(drafts, /excluded\.updated_at >= app_settings\.updated_at/);
+});
+
+test('Programme continuity stays explicit, local-first, and adaptable to available time', () => {
+  const workoutDetail = readFileSync(new URL('../src/app/workouts/[id].tsx', import.meta.url), 'utf8');
+  assert.match(workoutPlan, /TRAINING_SPLITS\.map/);
+  assert.match(workoutPlan, /routineStarterForProgram\(splitId, sessionIndex\)/);
+  assert.match(workoutPlan, /exerciseLimitForSessionMinutes\(availableMinutes\)/);
+  assert.match(workoutPlan, /missedSessionPolicy/);
+  assert.match(workoutRepository, /export async function reschedulePlannedWorkout/);
+  assert.match(workoutDetail, /Move to tomorrow/);
+  assert.match(workoutDetail, /Mark skipped/);
+  assert.match(workoutDetail, /Plan next programme session/);
 });
 
 test('Meal no-match entry saves an editable private food through the SQLite catalog', () => {

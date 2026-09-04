@@ -29,8 +29,10 @@ hypertrophy, or muscle growth. Exercise-specific double progression still uses o
 matching exercise history. The live logger and completed-workout review compare the
 current exercise with the median volume of up to its three most recent completed
 sessions. One unusually strong or weak day therefore cannot become the whole target.
-The latest matching session—not an average—continues to supply the actual set rows,
-load, rep, RPE, and double-progression cue so JIEN never invents a set structure.
+The latest matching session—not an average—continues to supply editable target rows,
+load, reps, and the double-progression cue so JIEN never invents a set structure.
+Historical RPE and completion state are never copied: effort is fresh feedback entered
+after the person performs today's set.
 With two prior sessions the midpoint is used; with one, that session is the temporary
 baseline; with none, the current session establishes it. See
 [training-advisory-engine.md](training-advisory-engine.md).

@@ -49,6 +49,7 @@ export {
 } from './meal-photo-queue';
 export type { MealPhotoQueueSummary, QueuedMealPhotoResult } from './meal-photo-queue';
 export { migrateDatabase } from './migrate';
+export { deleteWorkoutDraft, getWorkoutDraft, getWorkoutDraftOwnerId, saveWorkoutDraft } from './workout-drafts';
 export { getUserProfile, hasCompletedOnboarding, saveUserProfile } from './profile';
 export {
   acknowledgeMedicalDisclaimer,
@@ -111,6 +112,7 @@ export {
   saveWorkout,
   updateWorkout,
   savePlannedWorkout,
+  reschedulePlannedWorkout,
   skipPlannedWorkout,
 } from './workouts';
 export type * from './types';

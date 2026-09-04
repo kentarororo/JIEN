@@ -131,12 +131,15 @@ A planned or performed session. `performed_on` is the user's local calendar day;
 | `scheduled_at` | `timestamptz` | Optional absolute start time for a planned session |
 | `started_at`, `completed_at` | `timestamptz` | Optional absolute session times |
 | `notes` | `text` | Optional session notes |
-| `plan_json` | `jsonb` | Versioned exercise order, prior-set targets, and deterministic progression overlays for a planned session |
+| `plan_json` | `jsonb` | Versioned exercise order, prior-set targets, deterministic progression overlays, and optional programme context for a planned session |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
 
 `plan_json` is a snapshot used to make a scheduled workout usable offline. It keeps
 the previous completed set values separate from optional green progression cues;
 starting the workout pre-fills the recorded values and never silently applies a cue.
+Its optional programme context records only the chosen split, zero-based session
+index, available-time band, and missed-session preference. It does not create future
+workout rows automatically; the next session remains an explicit planning action.
 Completing a plan changes the same workout row to `completed` and writes observed
 sets transactionally. Skipping, deleting, completing, or rescheduling a plan makes
 its reminder ineligible and causes the device scheduler to cancel or replace it.

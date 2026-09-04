@@ -109,7 +109,29 @@ test('planned workout parsing rejects malformed provider or sync content', () =>
   const validExercise = buildPlannedWorkoutExercise({ exercise, history: [set(10, 40, 8)], preferredLoadUnit: 'kg' });
   assert.ok(parsePlannedWorkoutPlan(JSON.stringify({ version: 1, exercises: [validExercise] })));
   assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], jointProgressionChoice: 'continue' })?.jointProgressionChoice, 'continue');
+  const programme = parsePlannedWorkoutPlan({
+    version: 1,
+    exercises: [validExercise],
+    programContext: {
+      splitId: 'push_pull_legs',
+      sessionIndex: 4,
+      availableMinutes: 45,
+      missedSessionPolicy: 'reschedule',
+    },
+  });
+  assert.deepEqual(programme?.programContext, {
+    splitId: 'push_pull_legs',
+    sessionIndex: 4,
+    availableMinutes: 45,
+    missedSessionPolicy: 'reschedule',
+  });
   assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], jointProgressionChoice: 'always' }), null);
+  assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], programContext: {
+    splitId: 'push_pull_legs', sessionIndex: -1, availableMinutes: 45, missedSessionPolicy: 'reschedule',
+  } }), null);
+  assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], programContext: {
+    splitId: 'upper_lower', sessionIndex: 1, availableMinutes: 75, missedSessionPolicy: 'skip',
+  } }), null);
   assert.equal(parsePlannedWorkoutPlan('{bad json'), null);
   assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [{ ...validExercise, sets: [{ loadValue: -1, loadUnit: 'kg', reps: 8 }] }] }), null);
 });

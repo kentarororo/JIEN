@@ -1,6 +1,6 @@
-import type { LoadUnit } from './db/types';
+import type { LoadUnit, SetKind } from './db/types';
 
-const DRAFT_VERSION = 1;
+const DRAFT_VERSION = 2;
 
 export type RecoverableWorkoutDraft = {
   version: typeof DRAFT_VERSION;
@@ -11,13 +11,28 @@ export type RecoverableWorkoutDraft = {
   unit: LoadUnit;
   startedAt: string | null;
   updatedAt: string;
+  restTimerSeconds: number;
+  restEndsAt: number | null;
   blocks: Array<{
     exerciseId: string;
-    sets: Array<{ id?: string; load: string; reps: string; rpe: string }>;
+    sets: Array<{
+      id?: string;
+      load: string;
+      reps: string;
+      rpe: string;
+      kind: SetKind;
+      completed: boolean;
+    }>;
   }>;
 };
 
-export type WorkoutEntrySet = { load: string; reps: string; rpe: string };
+export type WorkoutEntrySet = {
+  load: string;
+  reps: string;
+  rpe: string;
+  kind?: SetKind;
+  completed?: boolean;
+};
 
 export type WorkoutDraftSummary = {
   completedSetCount: number;
@@ -61,6 +76,21 @@ export function fillBlankWorkoutLoads<T extends WorkoutEntrySet>(sets: T[]): {
   return { copiedLoad, sets: nextSets, filledCount };
 }
 
+export function prefillWorkoutSetFromHistory<T extends WorkoutEntrySet>(
+  existing: T,
+  source: { load: string; reps: string; kind?: SetKind },
+): T {
+  if (existing.load.trim() || existing.reps.trim() || existing.rpe.trim()) return existing;
+  return {
+    ...existing,
+    load: source.load,
+    reps: source.reps,
+    rpe: '',
+    kind: source.kind ?? 'working',
+    completed: false,
+  };
+}
+
 export function summarizeWorkoutDraft(blocks: Array<{ sets: WorkoutEntrySet[] }>): WorkoutDraftSummary {
   const summary: WorkoutDraftSummary = { completedSetCount: 0, needsAttentionCount: 0, blankSetCount: 0, work: 0 };
   for (const { sets } of blocks) {
@@ -86,8 +116,12 @@ export function summarizeWorkoutDraft(blocks: Array<{ sets: WorkoutEntrySet[] }>
         summary.needsAttentionCount += 1;
         continue;
       }
+      if (set.completed === false) {
+        summary.needsAttentionCount += 1;
+        continue;
+      }
       summary.completedSetCount += 1;
-      summary.work += load * reps;
+      if ((set.kind ?? 'working') === 'working') summary.work += load * reps;
     }
   }
   return summary;
@@ -97,6 +131,10 @@ export function workoutDraftStorageKey(ownerUserId: string, context = 'default')
   return `jien:workout-draft:v${DRAFT_VERSION}:${ownerUserId.toLowerCase()}:${encodeURIComponent(context)}`;
 }
 
+export function legacyWorkoutDraftStorageKey(ownerUserId: string, context = 'default'): string {
+  return `jien:workout-draft:v1:${ownerUserId.toLowerCase()}:${encodeURIComponent(context)}`;
+}
+
 export function parseWorkoutDraft(
   value: string | null,
   ownerUserId: string,
@@ -104,8 +142,11 @@ export function parseWorkoutDraft(
 ): RecoverableWorkoutDraft | null {
   if (!value) return null;
   try {
-    const draft = JSON.parse(value) as Partial<RecoverableWorkoutDraft>;
-    if (draft.version !== DRAFT_VERSION
+    const draft = JSON.parse(value) as Omit<Partial<RecoverableWorkoutDraft>, 'version' | 'blocks'> & {
+      version?: number;
+      blocks?: unknown;
+    };
+    if ((draft.version !== 1 && draft.version !== DRAFT_VERSION)
       || draft.ownerUserId !== ownerUserId
       || draft.context !== context
       || typeof draft.workoutId !== 'string'
@@ -115,27 +156,47 @@ export function parseWorkoutDraft(
       || typeof draft.updatedAt !== 'string'
       || !Array.isArray(draft.blocks)
       || draft.blocks.length > 40) return null;
-    const blocks = draft.blocks.map((block) => {
+    const blocks = draft.blocks.map((rawBlock) => {
+      const block = rawBlock as Record<string, unknown> | null;
       if (!block || typeof block.exerciseId !== 'string' || !Array.isArray(block.sets) || block.sets.length > 50) {
         throw new Error('invalid draft block');
       }
       return {
         exerciseId: block.exerciseId,
-        sets: block.sets.map((set) => {
+        sets: block.sets.map((rawSet) => {
+          const set = rawSet as Record<string, unknown> | null;
           if (!set || typeof set.load !== 'string' || typeof set.reps !== 'string' || typeof set.rpe !== 'string') {
             throw new Error('invalid draft set');
           }
           return {
             id: typeof set.id === 'string' ? set.id : undefined,
             load: set.load.slice(0, 20), reps: set.reps.slice(0, 20), rpe: set.rpe.slice(0, 20),
+            kind: isSetKind(set.kind) ? set.kind : 'working',
+            completed: draft.version === 1 ? false : set.completed === true,
           };
         }),
       };
     });
-    return { ...draft, blocks } as RecoverableWorkoutDraft;
+    return {
+      ...draft,
+      version: DRAFT_VERSION,
+      restTimerSeconds: normalizeRestTimerSeconds(draft.restTimerSeconds),
+      restEndsAt: typeof draft.restEndsAt === 'number' && Number.isFinite(draft.restEndsAt)
+        ? draft.restEndsAt
+        : null,
+      blocks,
+    } as RecoverableWorkoutDraft;
   } catch {
     return null;
   }
+}
+
+function isSetKind(value: unknown): value is SetKind {
+  return value === 'working' || value === 'warmup' || value === 'drop' || value === 'failure';
+}
+
+export function normalizeRestTimerSeconds(value: unknown): number {
+  return value === 60 || value === 90 || value === 120 || value === 180 ? value : 0;
 }
 
 export function workoutDraftContext(input: {

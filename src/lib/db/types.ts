@@ -142,6 +142,8 @@ export type UpdateWorkoutInput = SaveWorkoutInput;
 
 export type SaveWorkoutInput = {
   id?: string;
+  /** Device-only recovery key removed in the same transaction as the saved workout. */
+  recoveryDraftKey?: string;
   title: string;
   startedAt: string;
   notes?: string;
@@ -183,6 +185,16 @@ export type PlannedWorkoutPlan = {
   version: 1;
   exercises: PlannedWorkoutExercise[];
   jointProgressionChoice?: 'hold' | 'continue';
+  programContext?: TrainingProgramContext;
+};
+
+export type TrainingSplitId = 'push_pull_legs' | 'upper_lower' | 'full_body';
+
+export type TrainingProgramContext = {
+  splitId: TrainingSplitId;
+  sessionIndex: number;
+  availableMinutes: 30 | 45 | 60 | 90;
+  missedSessionPolicy: 'reschedule' | 'skip';
 };
 
 export type SavePlannedWorkoutInput = {
@@ -193,6 +205,7 @@ export type SavePlannedWorkoutInput = {
   notes?: string;
   exercises: PlannedWorkoutExercise[];
   jointProgressionChoice?: 'hold' | 'continue';
+  programContext?: TrainingProgramContext;
 };
 
 export type WorkoutSummary = {

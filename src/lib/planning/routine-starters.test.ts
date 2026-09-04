@@ -5,9 +5,12 @@ import type { Exercise } from '../db/types.ts';
 import { DEFAULT_EXERCISES } from '../db/migrate.ts';
 import {
   ROUTINE_STARTERS,
+  TRAINING_SPLITS,
+  exerciseLimitForSessionMinutes,
   rankRoutineStarters,
   repeatedMovementPatterns,
   resolveRoutineStarter,
+  routineStarterForProgram,
   summarizePlannedMuscleCredits,
 } from './routine-starters.ts';
 
@@ -33,6 +36,20 @@ const exercises = [
 
 test('routine starters expose the common lifting splits without activity-mode creep', () => {
   assert.deepEqual(ROUTINE_STARTERS.map((starter) => starter.id), ['push', 'pull', 'legs', 'upper', 'lower', 'full_body']);
+  assert.deepEqual(TRAINING_SPLITS.map((split) => split.id), ['push_pull_legs', 'upper_lower', 'full_body']);
+});
+
+test('programme sessions advance deterministically and wrap without losing the split', () => {
+  assert.equal(routineStarterForProgram('push_pull_legs', 0).id, 'push');
+  assert.equal(routineStarterForProgram('push_pull_legs', 1).id, 'pull');
+  assert.equal(routineStarterForProgram('push_pull_legs', 2).id, 'legs');
+  assert.equal(routineStarterForProgram('push_pull_legs', 3).id, 'push');
+  assert.equal(routineStarterForProgram('upper_lower', 7).id, 'lower');
+  assert.equal(routineStarterForProgram('full_body', 12).id, 'full_body');
+});
+
+test('available time maps to a stable, conservative exercise cap', () => {
+  assert.deepEqual([30, 45, 60, 90].map((minutes) => exerciseLimitForSessionMinutes(minutes as 30 | 45 | 60 | 90)), [3, 4, 5, 7]);
 });
 
 test('a routine starter selects one available exercise per movement slot', () => {

@@ -1,4 +1,5 @@
 import type { Exercise } from '../db/types.ts';
+import type { TrainingSplitId } from '../db/types.ts';
 import {
   muscleGroupFamilyKey,
   muscleGroupFamilyLabel,
@@ -56,6 +57,30 @@ export const ROUTINE_STARTERS: readonly RoutineStarter[] = [
   { id: 'lower', label: 'Lower', sessionTitle: 'Lower-body session', slots: [SLOTS.squat, SLOTS.hinge, SLOTS.unilateralLegs, SLOTS.legCurl, SLOTS.calves] },
   { id: 'full_body', label: 'Full body', sessionTitle: 'Full-body session', slots: [SLOTS.squat, SLOTS.horizontalPress, SLOTS.verticalPull, SLOTS.hinge, SLOTS.verticalPress] },
 ] as const;
+
+export const TRAINING_SPLITS: ReadonlyArray<{
+  id: TrainingSplitId;
+  label: string;
+  sequence: readonly RoutineStarterId[];
+}> = [
+  { id: 'push_pull_legs', label: 'Push · Pull · Legs', sequence: ['push', 'pull', 'legs'] },
+  { id: 'upper_lower', label: 'Upper · Lower', sequence: ['upper', 'lower'] },
+  { id: 'full_body', label: 'Full body', sequence: ['full_body'] },
+];
+
+export function routineStarterForProgram(splitId: TrainingSplitId, sessionIndex: number): RoutineStarter {
+  const split = TRAINING_SPLITS.find((item) => item.id === splitId) ?? TRAINING_SPLITS[2]!;
+  const normalizedIndex = Math.max(0, Math.trunc(sessionIndex));
+  const starterId = split.sequence[normalizedIndex % split.sequence.length]!;
+  return ROUTINE_STARTERS.find((starter) => starter.id === starterId)!;
+}
+
+export function exerciseLimitForSessionMinutes(minutes: 30 | 45 | 60 | 90): number {
+  if (minutes === 30) return 3;
+  if (minutes === 45) return 4;
+  if (minutes === 60) return 5;
+  return 7;
+}
 
 /**
  * Chooses at most one exercise per movement slot. Profile equipment narrows the

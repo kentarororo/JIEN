@@ -17,6 +17,7 @@ import {
   type Exercise,
   type LoadUnit,
   type PlannedWorkoutExercise,
+  type TrainingSplitId,
   type WorkoutDetail,
 } from '@/lib/db';
 import {
@@ -27,9 +28,12 @@ import {
 } from '@/lib/planning/workout-plan';
 import {
   ROUTINE_STARTERS,
+  TRAINING_SPLITS,
+  exerciseLimitForSessionMinutes,
   rankRoutineStarters,
   repeatedMovementPatterns,
   resolveRoutineStarter,
+  routineStarterForProgram,
   summarizePlannedMuscleCredits,
   type RoutineStarter,
 } from '@/lib/planning/routine-starters';
@@ -53,7 +57,14 @@ function futureDateKey(offset: number): string {
 export default function PlanWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const params = useLocalSearchParams<{ date?: string; planWorkoutId?: string; source?: string }>();
+  const params = useLocalSearchParams<{
+    date?: string;
+    planWorkoutId?: string;
+    source?: string;
+    splitId?: TrainingSplitId;
+    sessionIndex?: string;
+    availableMinutes?: string;
+  }>();
   const { width } = useWindowDimensions();
   const compact = width < 640;
   const { colors } = useJienTheme();
@@ -82,6 +93,10 @@ export default function PlanWorkoutScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [busyExerciseId, setBusyExerciseId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [splitId, setSplitId] = useState<TrainingSplitId | null>(params.splitId ?? null);
+  const [sessionIndex, setSessionIndex] = useState(() => Math.max(0, Math.trunc(Number(params.sessionIndex) || 0)));
+  const [availableMinutes, setAvailableMinutes] = useState<30 | 45 | 60 | 90>(() => parseSessionMinutes(params.availableMinutes));
+  const [missedSessionPolicy, setMissedSessionPolicy] = useState<'reschedule' | 'skip'>('reschedule');
 
   const load = useCallback(async () => {
     setLoadingError(null);
@@ -112,6 +127,12 @@ export default function PlanWorkoutScreen() {
           exercises,
           shouldHoldProgression && savedJointChoice === 'hold',
         ));
+        if (existingPlan.plan.programContext) {
+          setSplitId(existingPlan.plan.programContext.splitId);
+          setSessionIndex(existingPlan.plan.programContext.sessionIndex);
+          setAvailableMinutes(existingPlan.plan.programContext.availableMinutes);
+          setMissedSessionPolicy(existingPlan.plan.programContext.missedSessionPolicy);
+        }
       }
     } catch (cause) {
       setLoadingError(cause instanceof Error ? cause.message : 'Could not prepare workout planning.');
@@ -192,7 +213,8 @@ export default function PlanWorkoutScreen() {
     setBusyExerciseId(busyId);
     setFormError(null);
     try {
-      const exercises = resolveRoutineStarter(starter, catalog, availableEquipment);
+      const exercises = resolveRoutineStarter(starter, catalog, availableEquipment)
+        .slice(0, exerciseLimitForSessionMinutes(availableMinutes));
       if (exercises.length < 2) {
         throw new Error('This routine needs more exercises for the equipment saved in your profile. Add exercises individually or update your equipment.');
       }
@@ -252,6 +274,12 @@ export default function PlanWorkoutScreen() {
         scheduledAt,
         exercises: planned,
         jointProgressionChoice: hasJointConsideration ? jointProgressionChoice : undefined,
+        programContext: splitId ? {
+          splitId,
+          sessionIndex,
+          availableMinutes,
+          missedSessionPolicy,
+        } : undefined,
       });
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
@@ -287,6 +315,7 @@ export default function PlanWorkoutScreen() {
     planned.map((exercise) => exercise.exerciseId),
     catalog ?? [],
   ), [catalog, planned]);
+  const programStarter = splitId ? routineStarterForProgram(splitId, sessionIndex) : null;
 
   if (!catalog && !loadingError) return <Screen><StatePanel title="Preparing your plan" body="Reading exercises and recent completed sessions from this device." loading /></Screen>;
   if (loadingError) return <Screen><StatePanel title="Planning is unavailable" body={loadingError} actionLabel="Try again" onAction={() => void load()} /></Screen>;
@@ -315,6 +344,38 @@ export default function PlanWorkoutScreen() {
       ) : null}
 
       {hasJointConsideration ? <JointProgressionChoicePanel value={jointProgressionChoice} onChange={chooseJointProgression} /> : null}
+
+      <SectionHeading title="Programme" detail={splitId ? `Session ${sessionIndex + 1} · ${availableMinutes} minutes available` : 'Optional repeating order'} />
+      <Card>
+        <AppText style={styles.cardTitle}>Keep a repeatable session order</AppText>
+        <AppText style={{ color: colors.textMuted }}>The split sets the next routine order. Each session is still reviewed and saved explicitly.</AppText>
+        <View style={styles.pills}>
+          <Pill label="One-off" active={splitId == null} onPress={() => setSplitId(null)} />
+          {TRAINING_SPLITS.map((split) => (
+            <Pill key={split.id} label={split.label} active={splitId === split.id} onPress={() => { setSplitId(split.id); setSessionIndex(0); }} />
+          ))}
+        </View>
+        {splitId ? (
+          <>
+            <View>
+              <AppText style={styles.label}>Time available</AppText>
+              <View style={styles.pills}>{([30, 45, 60, 90] as const).map((minutes) => <Pill key={minutes} label={`${minutes} min`} active={availableMinutes === minutes} onPress={() => setAvailableMinutes(minutes)} />)}</View>
+            </View>
+            <View>
+              <AppText style={styles.label}>If this session is missed</AppText>
+              <View style={styles.pills}>
+                <Pill label="Move it" active={missedSessionPolicy === 'reschedule'} onPress={() => setMissedSessionPolicy('reschedule')} />
+                <Pill label="Mark skipped" active={missedSessionPolicy === 'skip'} onPress={() => setMissedSessionPolicy('skip')} />
+              </View>
+            </View>
+            <View style={[styles.notice, { backgroundColor: colors.accentSoft }]}>
+              <AppText style={{ color: colors.accent, fontWeight: '700' }}>Next in order: {programStarter?.label}</AppText>
+              <AppText style={{ color: colors.textMuted }}>A starter adds up to {exerciseLimitForSessionMinutes(availableMinutes)} exercises for this time window. You can still add, remove, swap, or reorder them.</AppText>
+              {!planned.length && programStarter ? <Button label={`Use ${programStarter.label} session`} onPress={() => void useRoutineStarter(programStarter)} busy={busyExerciseId === `routine:${programStarter.id}`} variant="secondary" /> : null}
+            </View>
+          </>
+        ) : null}
+      </Card>
 
       <SectionHeading title="Schedule" detail={`${formatPlanDate(date)} · ${formatPlanTime(time)}`} />
       <Card>
@@ -549,4 +610,9 @@ function formatSetCredits(value: number): string {
 
 function movementPatternLabel(value: string): string {
   return value.replaceAll('_', ' ').replace(/^./, (character) => character.toLocaleUpperCase());
+}
+
+function parseSessionMinutes(value: string | undefined): 30 | 45 | 60 | 90 {
+  const parsed = Number(value);
+  return parsed === 30 || parsed === 45 || parsed === 90 ? parsed : 60;
 }

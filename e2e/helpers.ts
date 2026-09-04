@@ -44,7 +44,12 @@ export async function prepareIsolatedJienContext(context: BrowserContext, page: 
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname.startsWith('/auth/v1/token')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
+      await route.fulfill({
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        contentType: 'application/json',
+        body: JSON.stringify(session),
+      });
       return;
     }
     if (url.pathname.startsWith('/rest/v1/')) {

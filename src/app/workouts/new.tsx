@@ -10,16 +10,19 @@ import {
   createCustomExercise,
   completePlannedWorkout,
   getRecentExerciseSessionSets,
+  getWorkoutDraft,
+  getWorkoutDraftOwnerId,
   getWorkoutDetail,
   getUserProfile,
   listExercises,
   saveWorkout,
+  saveWorkoutDraft,
   updateWorkout,
   type Exercise,
   type LoadUnit,
+  type SetKind,
   type WorkoutDetail,
 } from '@/lib/db';
-import { getAccountState } from '@/lib/auth';
 import {
   buildCompletedExerciseVolumeFeedback,
   buildSetProgressionPlan,
@@ -41,13 +44,23 @@ import { formatShortDate, localTimestampForDate } from '@/lib/time';
 import {
   fillBlankWorkoutLoads,
   latestValidWorkoutLoad,
+  prefillWorkoutSetFromHistory,
   parseWorkoutDraft,
+  legacyWorkoutDraftStorageKey,
   summarizeWorkoutDraft,
   workoutDraftContext,
   workoutDraftStorageKey,
 } from '@/lib/workout-draft';
 
-type DraftSet = { key: string; id?: string; load: string; reps: string; rpe: string };
+type DraftSet = {
+  key: string;
+  id?: string;
+  load: string;
+  reps: string;
+  rpe: string;
+  kind: SetKind;
+  completed: boolean;
+};
 type DraftExercise = {
   key: string;
   exerciseId: string;
@@ -60,7 +73,14 @@ type DraftExercise = {
 };
 
 const COMMON_EXERCISE_COUNT = 12;
-const newSet = (load = '', reps = '', rpe = '', id?: string): DraftSet => ({ key: Crypto.randomUUID(), id, load, reps, rpe });
+const newSet = (
+  load = '',
+  reps = '',
+  rpe = '',
+  id?: string,
+  kind: SetKind = 'working',
+  completed = false,
+): DraftSet => ({ key: Crypto.randomUUID(), id, load, reps, rpe, kind, completed });
 const newBlock = (exerciseId: string): DraftExercise => ({
   key: Crypto.randomUUID(),
   exerciseId,
@@ -79,6 +99,7 @@ export default function NewWorkoutScreen() {
   const { templateWorkoutId, planWorkoutId, editWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; planWorkoutId?: string; editWorkoutId?: string; date?: string }>();
   const workoutIdRef = useRef(editWorkoutId ?? planWorkoutId ?? Crypto.randomUUID());
   const submitLockRef = useRef(false);
+  const draftPersistenceActiveRef = useRef(true);
   const { width } = useWindowDimensions();
   const compact = width < 520;
   const { colors } = useJienTheme();
@@ -90,14 +111,16 @@ export default function NewWorkoutScreen() {
   const [hasJointConsideration, setHasJointConsideration] = useState(false);
   const [jointProgressionChoice, setJointProgressionChoice] = useState<JointProgressionChoice>('hold');
   const [blocks, setBlocks] = useState<DraftExercise[]>([]);
-  const [completedBlockKeys, setCompletedBlockKeys] = useState<string[]>([]);
   const [exerciseQueries, setExerciseQueries] = useState<Record<string, string>>({});
   const [exerciseBrowsers, setExerciseBrowsers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [editStartedAt, setEditStartedAt] = useState<string | null>(null);
   const [draftOwnerUserId, setDraftOwnerUserId] = useState<string | null>(null);
-  const [draftReady, setDraftReady] = useState(process.env.EXPO_OS !== 'web');
+  const [draftReady, setDraftReady] = useState(false);
   const [draftRecovered, setDraftRecovered] = useState(false);
+  const [restTimerSeconds, setRestTimerSeconds] = useState(0);
+  const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [showRpeGuide, setShowRpeGuide] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState('');
@@ -143,43 +166,61 @@ export default function NewWorkoutScreen() {
   const draftMuscleCredits = useMemo(() => summarizeDraftMuscleCredits(blocks, catalog ?? []), [blocks, catalog]);
 
   useEffect(() => {
-    if (process.env.EXPO_OS !== 'web') return;
-    void getAccountState().then((account) => {
-      setDraftOwnerUserId(account.configured ? account.user?.id ?? null : null);
+    let active = true;
+    void getWorkoutDraftOwnerId(db).then((owner) => {
+      if (active) setDraftOwnerUserId(owner);
+    }).catch(() => {
+      if (active) setDraftOwnerUserId('local-device');
     });
-  }, []);
+    return () => { active = false; };
+  }, [db]);
 
   useEffect(() => {
-    if (process.env.EXPO_OS !== 'web' || !catalog || !draftOwnerUserId || draftReady) return;
-    const recovered = parseWorkoutDraft(
-      globalThis.localStorage?.getItem(workoutDraftStorageKey(draftOwnerUserId, draftContext)) ?? null,
-      draftOwnerUserId,
-      draftContext,
-    );
-    if (recovered) {
-      workoutIdRef.current = recovered.workoutId;
-      setTitle(recovered.title);
-      setUnit(recovered.unit);
-      setEditStartedAt(recovered.startedAt);
-      setBlocks(recovered.blocks.map((block) => ({
-        key: Crypto.randomUUID(),
-        exerciseId: block.exerciseId,
-        sets: block.sets.map((set) => newSet(set.load, set.reps, set.rpe, set.id)),
-        progression: null,
-        sourceSets: null,
-        baselineSessions: null,
-        historyStatus: 'idle',
-        historyRequestId: null,
-      })));
-      setDraftRecovered(true);
-    }
-    setDraftReady(true);
-  }, [catalog, draftContext, draftOwnerUserId, draftReady]);
+    if (!catalog || !draftOwnerUserId || draftReady) return;
+    let active = true;
+    void (async () => {
+      let recovered = await getWorkoutDraft(db, draftOwnerUserId, draftContext);
+      if (!recovered && process.env.EXPO_OS === 'web') {
+        recovered = parseWorkoutDraft(
+          globalThis.localStorage?.getItem(workoutDraftStorageKey(draftOwnerUserId, draftContext))
+            ?? globalThis.localStorage?.getItem(legacyWorkoutDraftStorageKey(draftOwnerUserId, draftContext))
+            ?? null,
+          draftOwnerUserId,
+          draftContext,
+        );
+        if (recovered) await saveWorkoutDraft(db, recovered);
+      }
+      if (!active) return;
+      if (recovered) {
+        workoutIdRef.current = recovered.workoutId;
+        setTitle(recovered.title);
+        setUnit(recovered.unit);
+        setEditStartedAt(recovered.startedAt);
+        setRestTimerSeconds(recovered.restTimerSeconds);
+        setRestEndsAt(recovered.restEndsAt && recovered.restEndsAt > Date.now() ? recovered.restEndsAt : null);
+        setBlocks(recovered.blocks.map((block) => ({
+          key: Crypto.randomUUID(),
+          exerciseId: block.exerciseId,
+          sets: block.sets.map((set) => newSet(set.load, set.reps, set.rpe, set.id, set.kind, set.completed)),
+          progression: null,
+          sourceSets: null,
+          baselineSessions: null,
+          historyStatus: 'idle',
+          historyRequestId: null,
+        })));
+        setDraftRecovered(true);
+      }
+      setDraftReady(true);
+    })().catch(() => {
+      if (active) setDraftReady(true);
+    });
+    return () => { active = false; };
+  }, [catalog, db, draftContext, draftOwnerUserId, draftReady]);
 
   useEffect(() => {
-    if (process.env.EXPO_OS !== 'web' || !draftReady || !draftOwnerUserId || blocks.length === 0) return;
-    globalThis.localStorage?.setItem(workoutDraftStorageKey(draftOwnerUserId, draftContext), JSON.stringify({
-      version: 1,
+    if (!draftReady || !draftOwnerUserId || blocks.length === 0) return;
+    const draft = {
+      version: 2 as const,
       ownerUserId: draftOwnerUserId,
       workoutId: workoutIdRef.current,
       context: draftContext,
@@ -187,16 +228,37 @@ export default function NewWorkoutScreen() {
       unit,
       startedAt: editStartedAt,
       updatedAt: new Date().toISOString(),
+      restTimerSeconds,
+      restEndsAt,
       blocks: blocks.map((block) => ({
         exerciseId: block.exerciseId,
-        sets: block.sets.map(({ id, load, reps, rpe }) => ({ id, load, reps, rpe })),
+        sets: block.sets.map(({ id, load, reps, rpe, kind, completed }) => ({ id, load, reps, rpe, kind, completed })),
       })),
-    }));
-  }, [blocks, draftContext, draftOwnerUserId, draftReady, editStartedAt, title, unit]);
+    };
+    const persist = () => {
+      if (draftPersistenceActiveRef.current) void saveWorkoutDraft(db, draft);
+    };
+    const timer = setTimeout(persist, 250);
+    return () => {
+      clearTimeout(timer);
+      persist();
+    };
+  }, [blocks, db, draftContext, draftOwnerUserId, draftReady, editStartedAt, restEndsAt, restTimerSeconds, title, unit]);
+
+  useEffect(() => {
+    if (restEndsAt == null) return;
+    setTimerNow(Date.now());
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setTimerNow(now);
+      if (now >= restEndsAt) setRestEndsAt(null);
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [restEndsAt]);
 
   const jointProgressionHold = hasJointConsideration && jointProgressionChoice === 'hold';
 
-  const updateProgression = useCallback(async (blockKey: string, exerciseId: string, sourceSets: ProgressionSet[] | null) => {
+  const updateProgression = useCallback(async (blockKey: string, exerciseId: string) => {
     const exercise = catalog?.find((item) => item.id === exerciseId);
     if (!exercise) return;
     const requestId = Crypto.randomUUID();
@@ -212,8 +274,9 @@ export default function NewWorkoutScreen() {
     try {
       const recentSessions = await getRecentExerciseSessionSets(db, exerciseId, {
         excludeWorkoutId: editWorkoutId,
+        beforeCompletedAt: editWorkoutId ? editStartedAt ?? undefined : undefined,
       });
-      const rawHistory = sourceSets ?? recentSessions[0] ?? [];
+      const rawHistory = recentSessions[0] ?? [];
       const history = rawHistory.map((set) => ({
         ...set,
         loadValue: convertLoadValue(set.loadValue, set.loadUnit, unit),
@@ -253,7 +316,7 @@ export default function NewWorkoutScreen() {
         return updated ? next : current;
       });
     }
-  }, [catalog, db, editWorkoutId, jointProgressionHold, unit]);
+  }, [catalog, db, editStartedAt, editWorkoutId, jointProgressionHold, unit]);
 
   const chooseJointProgression = (choice: JointProgressionChoice) => {
     setJointProgressionChoice(choice);
@@ -267,14 +330,15 @@ export default function NewWorkoutScreen() {
 
   useEffect(() => {
     blocks.forEach((block) => {
-      if (block.exerciseId && block.historyStatus === 'idle') void updateProgression(block.key, block.exerciseId, block.sourceSets);
+      if (block.exerciseId && block.historyStatus === 'idle') void updateProgression(block.key, block.exerciseId);
     });
   }, [blocks, updateProgression]);
 
   const completedFeedbackByKey = useMemo(() => {
     const feedback = new Map<string, CompletedExerciseVolumeFeedback>();
     for (const block of blocks) {
-      if (!completedBlockKeys.includes(block.key) || block.baselineSessions == null) continue;
+      const startedSets = block.sets.filter((set) => !isRowEmpty(set));
+      if (!startedSets.length || startedSets.some((set) => !set.completed) || block.baselineSessions == null) continue;
       const exercise = catalog?.find((item) => item.id === block.exerciseId);
       if (!exercise) continue;
       feedback.set(block.key, buildCompletedExerciseVolumeFeedback({
@@ -287,13 +351,12 @@ export default function NewWorkoutScreen() {
       }));
     }
     return feedback;
-  }, [blocks, catalog, completedBlockKeys, jointProgressionHold, unit]);
+  }, [blocks, catalog, jointProgressionHold, unit]);
 
-  const completedBlockCount = completedBlockKeys.filter((key) => blocks.some((block) => block.key === key)).length;
-
-  function markBlockIncomplete(blockKey: string) {
-    setCompletedBlockKeys((current) => current.filter((key) => key !== blockKey));
-  }
+  const completedBlockCount = blocks.filter((block) => {
+    const startedSets = block.sets.filter((set) => !isRowEmpty(set));
+    return startedSets.length > 0 && startedSets.every((set) => set.completed);
+  }).length;
 
   function completeSets(blockKey: string) {
     const block = blocks.find((item) => item.key === blockKey);
@@ -324,24 +387,57 @@ export default function NewWorkoutScreen() {
       }
     }
     setFormError(null);
-    setCompletedBlockKeys((current) => current.includes(blockKey) ? current : [...current, blockKey]);
+    setBlocks((current) => current.map((item) => item.key === blockKey ? {
+      ...item,
+      sets: item.sets.map((set) => isRowEmpty(set) ? set : { ...set, completed: true }),
+    } : item));
+    if (restTimerSeconds > 0) setRestEndsAt(Date.now() + restTimerSeconds * 1_000);
+  }
+
+  function toggleSetCompleted(blockKey: string, setKey: string) {
+    const block = blocks.find((item) => item.key === blockKey);
+    const set = block?.sets.find((item) => item.key === setKey);
+    const exercise = catalog?.find((item) => item.id === block?.exerciseId);
+    if (!block || !set || !exercise) return;
+    if (!set.completed) {
+      const rowNumber = block.sets.findIndex((item) => item.key === setKey) + 1;
+      const error = validateDraftSet(set, `${exercise.name}, set ${rowNumber}`);
+      if (error) {
+        setFormError(error);
+        return;
+      }
+    }
+    setFormError(null);
+    setBlocks((current) => current.map((item) => item.key === blockKey ? {
+      ...item,
+      sets: item.sets.map((row) => row.key === setKey ? { ...row, completed: !row.completed } : row),
+    } : item));
+    if (set.completed) {
+      setRestEndsAt(null);
+    } else if (restTimerSeconds > 0) {
+      setRestEndsAt(Date.now() + restTimerSeconds * 1_000);
+    }
+  }
+
+  function setSetKind(blockKey: string, setKey: string, kind: SetKind) {
+    setBlocks((current) => current.map((block) => block.key === blockKey ? {
+      ...block,
+      sets: block.sets.map((set) => set.key === setKey ? { ...set, kind, completed: false } : set),
+    } : block));
   }
 
   function removeSet(blockKey: string, setKey: string) {
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey
       ? { ...block, sets: block.sets.filter((set) => set.key !== setKey) }
       : block));
   }
 
   function removeExercise(blockKey: string) {
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.filter((block) => block.key !== blockKey));
   }
 
   function changeUnit(nextUnit: LoadUnit) {
     if (nextUnit === unit) return;
-    setCompletedBlockKeys([]);
     setBlocks((current) => current.map((block) => ({
       ...block,
       progression: null,
@@ -352,7 +448,6 @@ export default function NewWorkoutScreen() {
   }
 
   const setExercise = (blockKey: string, exerciseId: string) => {
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? {
       ...block,
       exerciseId,
@@ -367,7 +462,6 @@ export default function NewWorkoutScreen() {
   };
 
   const fillFromLatestSets = (blockKey: string) => {
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => {
       if (block.key !== blockKey || !block.sourceSets?.length) return block;
       const count = Math.max(block.sets.length, block.sourceSets.length);
@@ -377,12 +471,11 @@ export default function NewWorkoutScreen() {
           const existing = block.sets[index] ?? newSet();
           const source = block.sourceSets?.[index];
           if (!source || !isRowEmpty(existing)) return existing;
-          return {
-            ...existing,
+          return prefillWorkoutSetFromHistory(existing, {
             load: String(convertLoadValue(source.loadValue, source.loadUnit, unit)),
             reps: String(source.reps),
-            rpe: source.rpe == null ? '' : String(source.rpe),
-          };
+            kind: source.kind,
+          });
         }),
       };
     }));
@@ -390,16 +483,14 @@ export default function NewWorkoutScreen() {
 
   const updateSet = (blockKey: string, setKey: string, field: 'load' | 'reps' | 'rpe', value: string) => {
     setFormError(null);
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? {
       ...block,
-      sets: block.sets.map((set) => set.key === setKey ? { ...set, [field]: value } : set),
+      sets: block.sets.map((set) => set.key === setKey ? { ...set, [field]: value, completed: false } : set),
     } : block));
   };
 
   const addSet = (blockKey: string) => {
     setFormError(null);
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? {
       ...block,
       sets: [...block.sets, newSet(latestValidWorkoutLoad(block.sets) ?? '')],
@@ -408,7 +499,6 @@ export default function NewWorkoutScreen() {
 
   const fillBlankLoads = (blockKey: string) => {
     setFormError(null);
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => {
       if (block.key !== blockKey) return block;
       const filled = fillBlankWorkoutLoads(block.sets);
@@ -417,14 +507,14 @@ export default function NewWorkoutScreen() {
   };
 
   const applySetCue = (blockKey: string, cue: SetProgressionCue) => {
-    markBlockIncomplete(blockKey);
     setBlocks((current) => current.map((block) => block.key === blockKey ? {
       ...block,
-      sets: block.sets.map((set, index) => index === cue.workingSetIndex ? {
+      sets: block.sets.map((set, index) => workingSetIndexAt(block.sets, index) === cue.workingSetIndex ? {
         ...set,
         load: String(cue.loadValue),
         reps: String(cue.targetReps),
         rpe: '',
+        completed: false,
       } : set),
     } : block));
   };
@@ -490,10 +580,15 @@ export default function NewWorkoutScreen() {
     setFormError(null);
     try {
       const exercises = blocks.flatMap((block) => {
-        const completedRows = block.sets.filter((set) => !isRowEmpty(set));
-        if (completedRows.length === 0) return [];
+        const startedRows = block.sets.filter((set) => !isRowEmpty(set));
+        if (startedRows.length === 0) return [];
         const exercise = catalog.find((item) => item.id === block.exerciseId);
         if (!exercise) throw new Error('Choose an exercise for every completed set.');
+        const unfinishedIndex = block.sets.findIndex((set) => !isRowEmpty(set) && !set.completed);
+        if (unfinishedIndex >= 0) {
+          throw new Error(`${exercise.name}, set ${unfinishedIndex + 1}: mark the set complete or clear the row.`);
+        }
+        const completedRows = startedRows.filter((set) => set.completed);
         const sets = completedRows.map((set, index) => {
           if (!set.load.trim() || !set.reps.trim()) {
             throw new Error(`${exercise.name}, set ${index + 1}: enter both load and reps.`);
@@ -504,7 +599,7 @@ export default function NewWorkoutScreen() {
             reps: Number(set.reps),
             rpe: set.rpe.trim() ? Number(set.rpe) : null,
             loadUnit: unit,
-            kind: 'working' as const,
+            kind: set.kind,
           };
         });
         return [{ exercise, sets }];
@@ -522,17 +617,23 @@ export default function NewWorkoutScreen() {
       const startedAt = editWorkoutId && editStartedAt
         ? editStartedAt
         : planWorkoutId ? new Date().toISOString() : date ? localTimestampForDate(date) : new Date().toISOString();
+      const recoveryDraftKey = draftOwnerUserId
+        ? workoutDraftStorageKey(draftOwnerUserId, draftContext)
+        : undefined;
+      draftPersistenceActiveRef.current = false;
       const id = editWorkoutId
-        ? await updateWorkout(db, editWorkoutId, { id: workoutIdRef.current, title, startedAt, exercises })
+        ? await updateWorkout(db, editWorkoutId, { id: workoutIdRef.current, recoveryDraftKey, title, startedAt, exercises })
         : planWorkoutId
-        ? await completePlannedWorkout(db, planWorkoutId, { id: workoutIdRef.current, title, startedAt, exercises })
-        : await saveWorkout(db, { id: workoutIdRef.current, title, startedAt, exercises });
+        ? await completePlannedWorkout(db, planWorkoutId, { id: workoutIdRef.current, recoveryDraftKey, title, startedAt, exercises })
+        : await saveWorkout(db, { id: workoutIdRef.current, recoveryDraftKey, title, startedAt, exercises });
       saved = true;
       if (process.env.EXPO_OS === 'web' && draftOwnerUserId) {
         globalThis.localStorage?.removeItem(workoutDraftStorageKey(draftOwnerUserId, draftContext));
+        globalThis.localStorage?.removeItem(legacyWorkoutDraftStorageKey(draftOwnerUserId, draftContext));
       }
       router.replace({ pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
+      draftPersistenceActiveRef.current = true;
       const message = cause instanceof Error ? cause.message : 'Please check the sets and try again.';
       setFormError(message);
       if (process.env.EXPO_OS !== 'web') Alert.alert('Workout not saved', message);
@@ -550,7 +651,7 @@ export default function NewWorkoutScreen() {
   return (
     <Screen contentContainerStyle={styles.screenContent}>
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
-      {draftRecovered ? <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}><AppText style={{ color: colors.success, fontWeight: '800' }}>Recovered your unfinished workout</AppText><AppText style={{ color: colors.textMuted }}>Your exercise, set, rep, load, and RPE entries were restored from this account’s browser draft.</AppText></Card> : null}
+      {draftRecovered ? <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}><AppText style={{ color: colors.success, fontWeight: '800' }}>Unfinished workout restored</AppText><AppText style={{ color: colors.textMuted }}>Set entries, completion state, set types, and the rest timer were restored from this device.</AppText></Card> : null}
       <View style={[styles.sessionFields, !compact && styles.sessionFieldsWide]}>
         <Field label="Session name" value={title} onChangeText={setTitle} returnKeyType="done" containerStyle={styles.flex} />
         <View style={styles.unitGroup}>
@@ -597,6 +698,34 @@ export default function NewWorkoutScreen() {
         </Card>
       ) : null}
 
+      <Card style={styles.timerCard}>
+        <View style={styles.timerHeader}>
+          <View style={styles.flex}>
+            <AppText style={styles.suggestionTitle}>Rest timer</AppText>
+            <AppText style={{ color: colors.textMuted }}>Starts when a set is marked complete. It does not affect saved training data.</AppText>
+          </View>
+          {restEndsAt != null ? (
+            <View accessibilityLiveRegion="polite" style={[styles.timerValue, { backgroundColor: colors.accentSoft }]}>
+              <AppText style={styles.timerDigits}>{formatRestTime(Math.max(0, Math.ceil((restEndsAt - timerNow) / 1_000)))}</AppText>
+              <Button label="Stop" onPress={() => setRestEndsAt(null)} variant="quiet" />
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.pills}>
+          {[0, 60, 90, 120, 180].map((seconds) => (
+            <Pill
+              key={seconds}
+              label={formatRestOption(seconds)}
+              active={restTimerSeconds === seconds}
+              onPress={() => {
+                setRestTimerSeconds(seconds);
+                if (seconds === 0) setRestEndsAt(null);
+              }}
+            />
+          ))}
+        </View>
+      </Card>
+
       {formError ? <View accessibilityRole="alert" style={[styles.errorBanner, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
 
       {blocks.map((block, blockIndex) => {
@@ -609,7 +738,8 @@ export default function NewWorkoutScreen() {
         const results = matchingResults.slice(0, 40);
         const loadFill = fillBlankWorkoutLoads(block.sets);
         const latestLoad = latestValidWorkoutLoad(block.sets);
-        const setsComplete = completedBlockKeys.includes(block.key);
+        const startedSets = block.sets.filter((set) => !isRowEmpty(set));
+        const setsComplete = startedSets.length > 0 && startedSets.every((set) => set.completed);
         const completionFeedback = completedFeedbackByKey.get(block.key) ?? null;
         const recentBaseline = calculateRecentExerciseBaseline(block.baselineSessions ?? []);
         return (
@@ -672,6 +802,7 @@ export default function NewWorkoutScreen() {
                 <AppText style={styles.setInputLabel}>Load ({unit})</AppText>
                 <AppText style={styles.setInputLabel}>Reps</AppText>
                 <AppText style={styles.setInputLabel}>RPE</AppText>
+                <AppText style={styles.setDoneLabel}>Done</AppText>
                 <View style={styles.removeColumn} />
               </View>
               {block.sets.map((set, setIndex) => (
@@ -682,6 +813,13 @@ export default function NewWorkoutScreen() {
                     <Field accessibilityLabel={`Set ${setIndex + 1} reps`} value={set.reps} onChangeText={(value) => updateSet(block.key, set.key, 'reps', value)} keyboardType="number-pad" style={styles.compactInput} containerStyle={styles.setField} />
                     <Field accessibilityLabel={`Set ${setIndex + 1} RPE`} value={set.rpe} placeholder="—" onChangeText={(value) => updateSet(block.key, set.key, 'rpe', value)} keyboardType="decimal-pad" style={styles.compactInput} containerStyle={styles.setField} />
                     <Pressable
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={`${set.completed ? 'Undo' : 'Complete'} set ${setIndex + 1} for ${selected?.name ?? 'exercise'}`}
+                      accessibilityState={{ checked: set.completed }}
+                      onPress={() => toggleSetCompleted(block.key, set.key)}
+                      style={({ pressed }) => [styles.setDone, { backgroundColor: set.completed ? colors.successSoft : colors.surfaceRaised, borderColor: set.completed ? colors.success : colors.border }, pressed && styles.pressed]}
+                    ><AppText style={{ color: set.completed ? colors.success : colors.textMuted, fontWeight: '800' }}>{set.completed ? '✓' : '○'}</AppText></Pressable>
+                    <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Remove set ${setIndex + 1}`}
                       disabled={block.sets.length === 1}
@@ -689,8 +827,9 @@ export default function NewWorkoutScreen() {
                       style={({ pressed }) => [styles.removeSet, { borderColor: colors.border }, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}
                     ><AppText style={{ color: colors.textMuted }}>×</AppText></Pressable>
                   </View>
-                  {block.progression?.cues.find((cue) => cue.workingSetIndex === setIndex) ? (
-                    <SetCueRow cue={block.progression.cues.find((cue) => cue.workingSetIndex === setIndex)!} onApply={(cue) => applySetCue(block.key, cue)} />
+                  <SetKindPicker value={set.kind} onChange={(kind) => setSetKind(block.key, set.key, kind)} />
+                  {progressionCueForRow(block.progression, block.sets, setIndex) ? (
+                    <SetCueRow cue={progressionCueForRow(block.progression, block.sets, setIndex)!} onApply={(cue) => applySetCue(block.key, cue)} />
                   ) : null}
                 </View>
               ))}
@@ -698,14 +837,16 @@ export default function NewWorkoutScreen() {
               <View style={styles.mobileSetList}>
                 {block.sets.map((set, setIndex) => (
                   <View key={set.key} style={[styles.mobileSetCard, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}>
-                    <View style={styles.mobileSetHeader}><AppText style={styles.suggestionTitle}>Set {setIndex + 1}</AppText><Pressable accessibilityRole="button" accessibilityLabel={`Remove set ${setIndex + 1}`} disabled={block.sets.length === 1} onPress={() => removeSet(block.key, set.key)} style={({ pressed }) => [styles.mobileRemove, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}><AppText style={{ color: colors.textMuted }}>Remove</AppText></Pressable></View>
+                    <View style={styles.mobileSetHeader}><AppText style={styles.suggestionTitle}>Set {setIndex + 1} · {set.kind === 'warmup' ? 'Warm-up' : set.kind === 'working' ? 'Working' : set.kind === 'drop' ? 'Drop' : 'Failure'}</AppText><Pressable accessibilityRole="button" accessibilityLabel={`Remove set ${setIndex + 1}`} disabled={block.sets.length === 1} onPress={() => removeSet(block.key, set.key)} style={({ pressed }) => [styles.mobileRemove, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}><AppText style={{ color: colors.textMuted }}>Remove</AppText></Pressable></View>
                     <View style={styles.mobileSetFields}>
                       <Field label={`Load (${unit})`} value={set.load} onChangeText={(value) => updateSet(block.key, set.key, 'load', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
                       <Field label="Reps" value={set.reps} onChangeText={(value) => updateSet(block.key, set.key, 'reps', value)} keyboardType="number-pad" containerStyle={styles.mobileSetField} />
                       <Field label="RPE" value={set.rpe} placeholder="optional" onChangeText={(value) => updateSet(block.key, set.key, 'rpe', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
                     </View>
-                    {block.progression?.cues.find((cue) => cue.workingSetIndex === setIndex) ? (
-                      <SetCueRow cue={block.progression.cues.find((cue) => cue.workingSetIndex === setIndex)!} onApply={(cue) => applySetCue(block.key, cue)} />
+                    <SetKindPicker value={set.kind} onChange={(kind) => setSetKind(block.key, set.key, kind)} />
+                    <Button label={set.completed ? 'Undo completed set' : 'Mark set complete'} onPress={() => toggleSetCompleted(block.key, set.key)} variant={set.completed ? 'quiet' : 'secondary'} />
+                    {progressionCueForRow(block.progression, block.sets, setIndex) ? (
+                      <SetCueRow cue={progressionCueForRow(block.progression, block.sets, setIndex)!} onApply={(cue) => applySetCue(block.key, cue)} />
                     ) : null}
                   </View>
                 ))}
@@ -721,7 +862,7 @@ export default function NewWorkoutScreen() {
             <View style={[styles.completeSets, { borderTopColor: colors.border }]}>
               <View style={styles.completeSetsCopy}>
                 <AppText style={styles.suggestionTitle}>Review completed sets</AppText>
-                <AppText style={{ color: colors.textMuted }}>Compare these sets with your recent matching baseline and calculate an optional progression.</AppText>
+                <AppText style={{ color: colors.textMuted }}>Marks every valid entered row complete, then compares working sets with the recent matching baseline.</AppText>
               </View>
               <Button
                 label={setsComplete ? 'Check again' : 'Complete sets'}
@@ -735,7 +876,7 @@ export default function NewWorkoutScreen() {
                 <AppText style={[styles.suggestionTitle, { color: colors.warning }]}>Recent sets unavailable</AppText>
                 <AppText style={styles.suggestionText}>Your entries have not changed. Retry the history check before using a progression suggestion.</AppText>
                 <View style={styles.historyRetryAction}>
-                  <Button label="Retry history" onPress={() => void updateProgression(block.key, block.exerciseId, null)} variant="secondary" />
+                  <Button label="Retry history" onPress={() => void updateProgression(block.key, block.exerciseId)} variant="secondary" />
                 </View>
               </View>
             ) : setsComplete && !completionFeedback ? (
@@ -845,7 +986,7 @@ const styles = StyleSheet.create({
   sessionFieldsWide: { flexDirection: 'row', alignItems: 'flex-end' },
   unitGroup: { gap: spacing.xs },
   label: { fontWeight: '700' },
-  pills: { flexDirection: 'row', gap: spacing.xs },
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   flex: { flex: 1 },
   errorBanner: { padding: spacing.md, borderRadius: radii.control },
   templateBanner: { padding: spacing.md, borderRadius: radii.control, gap: spacing.xxs },
@@ -853,6 +994,10 @@ const styles = StyleSheet.create({
   rpeScale: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   rpeItem: { ...typography.label },
   rpeNumber: { fontWeight: '800' },
+  timerCard: { gap: spacing.sm },
+  timerHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  timerValue: { minHeight: 48, borderRadius: radii.control, paddingLeft: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  timerDigits: { ...typography.section, minWidth: 64, fontWeight: '800', fontVariant: ['tabular-nums'] },
   exerciseCard: { paddingHorizontal: 0, overflow: 'hidden' },
   blockHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, gap: spacing.sm },
   blockHeaderActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.xs },
@@ -880,12 +1025,15 @@ const styles = StyleSheet.create({
   setRow: { flexDirection: 'row', gap: spacing.xs, alignItems: 'center' },
   setNo: { flexBasis: 40, flexGrow: 0, flexShrink: 0, textAlign: 'center', ...typography.label, fontWeight: '700' },
   setInputLabel: { flex: 1, minWidth: 0, textAlign: 'center', ...typography.caption, fontWeight: '700', opacity: 0.7 },
+  setDoneLabel: { width: 44, textAlign: 'center', ...typography.caption, fontWeight: '700', opacity: 0.7 },
   setField: { flex: 1, minWidth: 0 },
   compactInput: { textAlign: 'center', paddingHorizontal: spacing.xs },
   setCue: { marginLeft: 48, paddingLeft: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   setCueCopy: { flex: 1, ...typography.caption, fontWeight: '700' },
   removeColumn: { width: 44 },
+  setDone: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
   removeSet: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
+  setKindPicker: { marginLeft: 48, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   setActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md },
   setActionNote: { ...typography.caption, flexGrow: 1, flexBasis: 220 },
   completeSets: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.xs, paddingHorizontal: spacing.md, paddingTop: spacing.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
@@ -926,6 +1074,7 @@ function summarizeDraftMuscleCredits(blocks: DraftExercise[], catalog: Exercise[
     const exercise = catalog.find((item) => item.id === block.exerciseId);
     if (!exercise) continue;
     const completedSetCount = block.sets.filter((set) => {
+      if (!set.completed || set.kind !== 'working') return false;
       if (isRowEmpty(set)) return false;
       const load = Number(set.load);
       const reps = Number(set.reps);
@@ -949,12 +1098,12 @@ function formatSetCredits(value: number): string {
 }
 
 function draftSetsForProgression(sets: DraftSet[], unit: LoadUnit): ProgressionSet[] {
-  return sets.filter((set) => !isRowEmpty(set)).map((set) => ({
+  return sets.filter((set) => set.completed && set.kind === 'working' && !isRowEmpty(set)).map((set) => ({
     loadValue: Number(set.load),
     loadUnit: unit,
     reps: Number(set.reps),
     rpe: set.rpe.trim() ? Number(set.rpe) : null,
-    kind: 'working',
+    kind: set.kind,
   }));
 }
 
@@ -995,7 +1144,7 @@ function VolumeMetric({ label, value }: { label: string; value: number | null })
 
 function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
   const grouped = new Map<string, DraftExercise>();
-  template.sets.filter((set) => set.kind === 'working').forEach((set) => {
+  template.sets.forEach((set) => {
     const block = grouped.get(set.exerciseId) ?? {
       key: Crypto.randomUUID(),
       exerciseId: set.exerciseId,
@@ -1006,14 +1155,16 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
       historyStatus: 'idle',
       historyRequestId: null,
     };
-    block.sets.push(newSet(String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe)));
-    block.sourceSets?.push({
-      loadValue: set.loadValue,
-      loadUnit: set.loadUnit,
-      reps: set.reps,
-      rpe: set.rpe,
-      kind: set.kind,
-    });
+    block.sets.push(newSet(String(set.loadValue), String(set.reps), '', undefined, set.kind, false));
+    if (set.kind === 'working') {
+      block.sourceSets?.push({
+        loadValue: set.loadValue,
+        loadUnit: set.loadUnit,
+        reps: set.reps,
+        rpe: set.rpe,
+        kind: set.kind,
+      });
+    }
     grouped.set(set.exerciseId, block);
   });
   return [...grouped.values()];
@@ -1021,12 +1172,12 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
 
 function blocksFromEdit(template: WorkoutDetail): DraftExercise[] {
   const grouped = new Map<string, DraftExercise>();
-  template.sets.filter((set) => set.kind === 'working').forEach((set) => {
+  template.sets.forEach((set) => {
     const block = grouped.get(set.exerciseId) ?? {
       key: Crypto.randomUUID(), exerciseId: set.exerciseId, sets: [], progression: null, sourceSets: null, baselineSessions: null, historyStatus: 'idle', historyRequestId: null,
     };
     block.sets.push(newSet(
-      String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe), set.id,
+      String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe), set.id, set.kind, true,
     ));
     grouped.set(set.exerciseId, block);
   });
@@ -1063,6 +1214,54 @@ function SetCueRow({ cue, onApply }: { cue: SetProgressionCue; onApply: (cue: Se
       <Button label="Use" onPress={() => onApply(cue)} variant="quiet" />
     </View>
   );
+}
+
+function SetKindPicker({ value, onChange }: { value: SetKind; onChange: (kind: SetKind) => void }) {
+  return (
+    <View accessibilityRole="radiogroup" style={styles.setKindPicker}>
+      {([
+        ['working', 'Working'],
+        ['warmup', 'Warm-up'],
+        ['drop', 'Drop'],
+        ['failure', 'Failure'],
+      ] as const).map(([kind, label]) => (
+        <Pill key={kind} label={label} active={value === kind} onPress={() => onChange(kind)} accessibilityRole="radio" />
+      ))}
+    </View>
+  );
+}
+
+function workingSetIndexAt(sets: DraftSet[], rowIndex: number): number {
+  if (sets[rowIndex]?.kind !== 'working') return -1;
+  return sets.slice(0, rowIndex).filter((set) => set.kind === 'working').length;
+}
+
+function progressionCueForRow(plan: SetProgressionPlan | null, sets: DraftSet[], rowIndex: number): SetProgressionCue | null {
+  const workingSetIndex = workingSetIndexAt(sets, rowIndex);
+  if (workingSetIndex < 0) return null;
+  return plan?.cues.find((cue) => cue.workingSetIndex === workingSetIndex) ?? null;
+}
+
+function validateDraftSet(set: DraftSet, label: string): string | null {
+  if (!set.load.trim() || !set.reps.trim()) return `${label}: enter both load and reps.`;
+  const load = Number(set.load);
+  const reps = Number(set.reps);
+  const rpe = set.rpe.trim() ? Number(set.rpe) : null;
+  if (!Number.isFinite(load) || load < 0 || !Number.isInteger(reps) || reps <= 0
+    || (rpe != null && (!Number.isFinite(rpe) || rpe < 1 || rpe > 10))) {
+    return `${label}: use a non-negative load, whole-number reps, and optional RPE from 1–10.`;
+  }
+  return null;
+}
+
+function formatRestOption(seconds: number): string {
+  if (seconds === 0) return 'Off';
+  if (seconds === 90) return '1 min 30 sec';
+  return `${seconds / 60} min`;
+}
+
+function formatRestTime(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
 function convertLoadValue(value: number, from: LoadUnit, to: LoadUnit): number {

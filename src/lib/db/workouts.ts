@@ -254,6 +254,7 @@ export async function savePlannedWorkout(
     version: 1 as const,
     exercises: input.exercises,
     ...(input.jointProgressionChoice ? { jointProgressionChoice: input.jointProgressionChoice } : {}),
+    ...(input.programContext ? { programContext: input.programContext } : {}),
   };
   const payload = {
     id,
@@ -343,7 +344,10 @@ export async function saveWorkout(
         completedAt,
       ],
     );
-    if (insertResult.changes === 0) return;
+    if (insertResult.changes === 0) {
+      await clearRecoveryDraft(db, input.recoveryDraftKey);
+      return;
+    }
     await enqueueUpsert(db, 'workouts', id, workoutPayload);
 
     let sortOrder = 0;
@@ -397,6 +401,7 @@ export async function saveWorkout(
         sortOrder += 1;
       }
     }
+    await clearRecoveryDraft(db, input.recoveryDraftKey);
   });
 
   return id;
@@ -551,6 +556,7 @@ export async function updateWorkout(
         deleted_at: changedAt,
       });
     }
+    await clearRecoveryDraft(db, input.recoveryDraftKey);
   });
   return workoutId;
 }
@@ -654,8 +660,14 @@ export async function completePlannedWorkout(
         sortOrder += 1;
       }
     }
+    await clearRecoveryDraft(db, input.recoveryDraftKey);
   });
   return plannedWorkoutId;
+}
+
+async function clearRecoveryDraft(db: SQLiteDatabase, key: string | undefined): Promise<void> {
+  if (!key?.startsWith('jien:workout-draft:')) return;
+  await db.runAsync('DELETE FROM app_settings WHERE key = ?', [key]);
 }
 
 export async function skipPlannedWorkout(db: SQLiteDatabase, workoutId: string): Promise<void> {
@@ -686,6 +698,50 @@ export async function skipPlannedWorkout(db: SQLiteDatabase, workoutId: string):
     await enqueueUpsert(db, 'workouts', workoutId, {
       ...workout,
       status: 'skipped',
+      plan_json: parsePlannedWorkoutPlan(workout.plan_json),
+      client_updated_at: now,
+      deleted_at: null,
+    });
+  });
+}
+
+export async function reschedulePlannedWorkout(
+  db: SQLiteDatabase,
+  workoutId: string,
+  scheduledAt: string,
+): Promise<void> {
+  const scheduled = new Date(scheduledAt);
+  if (!Number.isFinite(scheduled.getTime()) || scheduled.getTime() <= Date.now()) {
+    throw new Error('Choose a future date and time.');
+  }
+  const workout = await db.getFirstAsync<{
+    id: string;
+    title: string;
+    status: WorkoutStatus;
+    started_at: string | null;
+    completed_at: string | null;
+    notes: string | null;
+    plan_json: string | null;
+    created_at: string;
+  }>(
+    `SELECT id, title, status, started_at, completed_at, notes, plan_json, created_at
+     FROM workouts WHERE id = ? AND status = 'planned' AND deleted_at IS NULL`,
+    [workoutId],
+  );
+  if (!workout) throw new Error('This planned workout is no longer available.');
+  const now = new Date().toISOString();
+  const performedOn = toLocalDateKey(scheduled);
+  await withExclusiveTransaction(db, async (transaction) => {
+    const result = await transaction.runAsync(
+      `UPDATE workouts SET performed_on = ?, scheduled_at = ?, updated_at = ?, client_updated_at = ?
+       WHERE id = ? AND status = 'planned' AND deleted_at IS NULL`,
+      [performedOn, scheduledAt, now, now, workoutId],
+    );
+    if (result.changes !== 1) throw new Error('This planned workout changed before it could be moved.');
+    await enqueueUpsert(transaction, 'workouts', workoutId, {
+      ...workout,
+      performed_on: performedOn,
+      scheduled_at: scheduledAt,
       plan_json: parsePlannedWorkoutPlan(workout.plan_json),
       client_updated_at: now,
       deleted_at: null,

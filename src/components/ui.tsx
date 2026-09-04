@@ -163,7 +163,8 @@ export function Pill({
     <Pressable
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ selected: active }}
+      aria-checked={accessibilityRole === 'radio' ? active : undefined}
+      accessibilityState={accessibilityRole === 'radio' ? { checked: active } : { selected: active }}
       onPress={onPress}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}

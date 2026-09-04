@@ -5,7 +5,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { deleteWorkout, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, skipPlannedWorkout } from '@/lib/db';
+import { deleteWorkout, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, reschedulePlannedWorkout, skipPlannedWorkout } from '@/lib/db';
 import { applyStoredJointConsiderationHold, hasStoredJointConsideration } from '@/lib/planning/workout-plan';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -20,6 +20,7 @@ export default function WorkoutDetailScreen() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmSkip, setConfirmSkip] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const [moving, setMoving] = useState(false);
   const loader = useCallback(async () => {
     const [detail, progress, profile] = await Promise.all([
       getWorkoutDetail(db, id),
@@ -73,11 +74,31 @@ export default function WorkoutDetailScreen() {
     }
   };
 
+  const moveWorkoutToTomorrow = async () => {
+    if (moving || !detail?.scheduledAt) return;
+    setMoving(true);
+    setDeleteError(null);
+    try {
+      const previous = new Date(detail.scheduledAt);
+      const next = new Date();
+      next.setDate(next.getDate() + 1);
+      next.setHours(previous.getHours(), previous.getMinutes(), 0, 0);
+      await reschedulePlannedWorkout(db, id, next.toISOString());
+      setConfirmSkip(false);
+      await reload();
+    } catch (cause) {
+      setDeleteError(cause instanceof Error ? cause.message : 'The planned workout could not be moved.');
+    } finally {
+      setMoving(false);
+    }
+  };
+
   if (loading && !data) return <Screen><StatePanel title="Loading workout" body="Reading this session from your device." loading /></Screen>;
   if (error) return <Screen><StatePanel title="Workout unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /></Screen>;
   if (!detail) return <Screen><StatePanel title="Workout not found" body="It may have been removed from this device." /></Screen>;
 
   if (detail.status === 'planned') {
+    const missed = detail.scheduledAt != null && new Date(detail.scheduledAt).getTime() < Date.now();
     return (
       <Screen contentContainerStyle={styles.screenContent}>
         <ScreenHeading
@@ -88,7 +109,19 @@ export default function WorkoutDetailScreen() {
           <AppText style={[styles.kicker, { color: colors.accent }]}>UPCOMING SESSION</AppText>
           <AppText style={styles.progressValue}>{detail.plan?.exercises.length ?? 0} exercises</AppText>
           <AppText style={{ color: colors.textMuted }}>Previous completed values are the starting point. Green cues are optional and remain separate until you choose them.</AppText>
+          {detail.plan?.programContext ? <AppText style={{ color: colors.textMuted }}>{formatSplit(detail.plan.programContext.splitId)} · session {detail.plan.programContext.sessionIndex + 1} · {detail.plan.programContext.availableMinutes} minutes</AppText> : null}
         </Card>
+        {missed ? (
+          <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
+            <AppText style={[styles.progressName, { color: colors.warning }]}>This planned time has passed</AppText>
+            <AppText style={{ color: colors.textMuted }}>{detail.plan?.programContext?.missedSessionPolicy === 'skip' ? 'The saved preference is to mark missed sessions skipped.' : 'The saved preference is to move missed sessions.'} No completed history changes until you choose an action.</AppText>
+            {deleteError ? <AppText style={{ color: colors.danger }}>{deleteError}</AppText> : null}
+            <View style={styles.actions}>
+              <Button label="Move to tomorrow" onPress={() => void moveWorkoutToTomorrow()} busy={moving} variant="secondary" />
+              <Button label="Mark skipped" onPress={() => setConfirmSkip(true)} disabled={moving} variant="quiet" />
+            </View>
+          </Card>
+        ) : null}
         {detail.plan?.exercises.map((exercise) => (
           <View key={exercise.exerciseId} style={styles.group}>
             <SectionHeading title={exercise.exerciseName} detail={`${exercise.primaryMuscleGroup.replaceAll('_', ' ')} · target ${exercise.targetRepMin}–${exercise.targetRepMax}`} />
@@ -213,6 +246,21 @@ export default function WorkoutDetailScreen() {
         <View style={styles.actions}>
           <Button label="Edit this workout" onPress={() => router.replace({ pathname: '/workouts/new', params: { editWorkoutId: detail.id } })} variant="secondary" />
           <Button label="Use as template" onPress={() => router.replace({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
+          {detail.plan?.programContext ? (
+            <Button
+              label="Plan next programme session"
+              onPress={() => router.replace({
+                pathname: '/workouts/plan',
+                params: {
+                  source: 'program',
+                  splitId: detail.plan!.programContext!.splitId,
+                  sessionIndex: String(detail.plan!.programContext!.sessionIndex + 1),
+                  availableMinutes: String(detail.plan!.programContext!.availableMinutes),
+                },
+              } as never)}
+              variant="secondary"
+            />
+          ) : null}
           <Button label="Back to training" onPress={() => router.replace('/train')} variant="secondary" />
         </View>
       </Card>
@@ -257,4 +305,10 @@ const styles = StyleSheet.create({
 function formatPercent(value: number): string {
   const rounded = Math.abs(value) < 10 ? value.toFixed(1) : Math.round(value).toString();
   return `${value > 0 ? '+' : ''}${rounded}%`;
+}
+
+function formatSplit(value: 'push_pull_legs' | 'upper_lower' | 'full_body'): string {
+  if (value === 'push_pull_legs') return 'Push · Pull · Legs';
+  if (value === 'upper_lower') return 'Upper · Lower';
+  return 'Full body';
 }

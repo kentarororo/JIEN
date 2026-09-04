@@ -18,6 +18,11 @@ test('planned workouts are local-first and use the same synced workout UUID when
   assert.match(repository, /savePlannedWorkout[\s\S]*withExclusiveTransaction[\s\S]*enqueueUpsert\(db, 'workouts'/);
   assert.match(repository, /completePlannedWorkout[\s\S]*WHERE id = \? AND status = 'planned'/);
   assert.match(repository, /workout_id: plannedWorkoutId/);
+  assert.match(repository, /saveWorkout[\s\S]*clearRecoveryDraft\(db, input\.recoveryDraftKey\)/);
+  assert.match(repository, /updateWorkout[\s\S]*clearRecoveryDraft\(db, input\.recoveryDraftKey\)/);
+  assert.match(repository, /completePlannedWorkout[\s\S]*clearRecoveryDraft\(db, input\.recoveryDraftKey\)/);
+  assert.match(repository, /reschedulePlannedWorkout[\s\S]*withExclusiveTransaction[\s\S]*enqueueUpsert\(transaction, 'workouts'/);
+  assert.match(repository, /UPDATE workouts SET performed_on = \?, scheduled_at = \?/);
 });
 
 test('calendar, start flow, and reminders all invalidate stale plans', () => {

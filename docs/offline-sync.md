@@ -57,7 +57,9 @@ SQLite persistence is unchanged. See `web-tester-runtime.md` for startup and tea
 
 Planned workouts use the same `workouts` queue row as completed sessions. Their
 versioned `plan_json` contains the previous-set snapshot and separate deterministic
-progression cues needed to start offline. Completing a plan updates that same UUID
+progression cues needed to start offline. Optional split order, session index,
+available-time band, and missed-session preference travel in the same JSON snapshot,
+so programme continuity does not need a second sync entity. Completing a plan updates that same UUID
 to `completed` and inserts observed sets in one SQLite transaction; skipping or
 deleting it writes a status change or tombstone through the same queue.
 
@@ -163,8 +165,15 @@ older than five minutes are safely reclaimed after an interrupted app session.
 
 ## In-progress core-loop recovery
 
-On authenticated web builds, workout and meal forms keep a small, account-scoped
-recovery draft so a mobile-browser refresh does not discard an unfinished log. Meal
+Workout drafts are stored in the device's SQLite `app_settings` table on web and
+native. They are scoped to the cloud owner when one exists and otherwise to the
+local device, plus the logging route context. Version 2 retains entered values,
+set kinds, explicit completion state, and the optional rest-timer deadline; it never
+turns target rows into performed sets. Timestamp-conditional writes prevent an older
+asynchronous effect from replacing a newer draft during interruption or unmount.
+
+Meal forms keep a small account-scoped recovery draft in browser storage so a refresh
+does not discard an unfinished log. Meal
 drafts include editable portions, macros, and AI provenance, but never raw photo
 bytes, auth material, or search state. A queued photo continues to use the separate
 IndexedDB payload store described above. Recovery keys include the signed-in user

@@ -59,6 +59,63 @@ test('routine starters adapt to saved equipment without inventing targets', asyn
   await expectNoHorizontalOverflow(page);
 });
 
+test('active workout restores performed state, set kind, and rest timer after interruption', async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'edge-desktop', 'One real browser integration owns the active-draft recovery contract.');
+  await prepareIsolatedJienContext(context, page);
+  await fixJienClock(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('button', { name: /Log workout/ }).first().click();
+  await page.getByLabel('Find exercise for exercise 1').fill('Goblet Squat');
+  await page.getByRole('button', { name: /^Goblet Squat .*Choose$/ }).click();
+  await page.getByRole('button', { name: '1 min', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Load (kg)', exact: true }).first().fill('20');
+  await page.getByRole('textbox', { name: 'Reps', exact: true }).first().fill('10');
+  await page.getByRole('radio', { name: 'Warm-up', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Mark set complete', exact: true }).first().click();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+
+  await page.waitForTimeout(400);
+  await page.reload();
+  await expect(page.getByText('Unfinished workout restored', { exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Load (kg)', exact: true }).first()).toHaveValue('20');
+  await expect(page.getByRole('textbox', { name: 'Reps', exact: true }).first()).toHaveValue('10');
+  await expect(page.getByRole('textbox', { name: 'RPE', exact: true }).first()).toHaveValue('');
+  await expect(page.getByRole('radio', { name: 'Warm-up', exact: true }).first()).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('button', { name: 'Undo completed set', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('button', { name: 'Undo completed set', exact: true }).first().click();
+  await expect(page.getByRole('button', { name: 'Mark set complete', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
+});
+
+test('programme planning persists split order and available time without auto-logging work', async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'edge-desktop', 'One browser integration owns the programme metadata contract.');
+  await prepareIsolatedJienContext(context, page);
+  await fixJienClock(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('tab', { name: 'Train' }).click();
+  await page.getByRole('button', { name: 'Plan workout' }).click();
+  await page.getByRole('button', { name: 'Push · Pull · Legs', exact: true }).click();
+  await page.getByRole('button', { name: '30 min', exact: true }).click();
+  await page.getByRole('button', { name: 'Use Push session', exact: true }).click();
+  await expect(page.getByText('3 selected', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save planned workout', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Push session', exact: true })).toBeVisible();
+  await expect(page.getByText('Push · Pull · Legs · session 1 · 30 minutes', { exact: true })).toBeVisible();
+  await expect(page.getByText('3 exercises', { exact: true })).toBeVisible();
+  await page.clock.setFixedTime(new Date('2026-09-02T04:00:00.000Z'));
+  await page.reload();
+  await expect(page.getByText('This planned time has passed', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Move to tomorrow', exact: true }).click();
+  await expect(page.getByText('This planned time has passed', { exact: true })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+});
+
 test('isolated daily loop persists records and hands SQLite to a newer tab', async ({ context, page }, testInfo) => {
   const capturesVisualBaselines = testInfo.project.name === 'edge-desktop';
   const pageErrors: string[] = [];
@@ -89,9 +146,10 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
     await loads.nth(index).fill('20');
     await reps.nth(index).fill('10');
   }
+  await expect(page.getByText('This session’s muscle coverage')).toHaveCount(0);
+  await page.getByRole('button', { name: /Complete sets for Goblet Squat/ }).click();
   await expect(page.getByText('This session’s muscle coverage')).toBeVisible();
   await expect(page.getByText('Quadriceps · 3 set credits')).toBeVisible();
-  await page.getByRole('button', { name: /Complete sets for Goblet Squat/ }).click();
   await page.getByRole('button', { name: 'Save completed workout' }).click();
   await expect(page.getByRole('heading', { name: 'Workout', exact: true })).toBeVisible();
 
