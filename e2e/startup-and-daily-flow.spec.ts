@@ -137,6 +137,46 @@ test('active workout restores performed state, set kind, and rest timer after in
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
 });
 
+test('completed workout choice builds an inspectable editable next plan', async ({ context, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'edge-desktop', 'One real browser integration owns the post-session planning contract.');
+  await prepareIsolatedJienContext(context, page);
+  await fixJienClock(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('button', { name: /Log workout/ }).first().click();
+  await page.getByLabel('Session name').fill('Post-session QA');
+  await page.getByLabel('Find exercise for exercise 1').fill('Goblet Squat');
+  await page.getByRole('button', { name: /^Goblet Squat .*Choose$/ }).click();
+  const loads = page.getByRole('textbox', { name: 'Load (kg)', exact: true });
+  const reps = page.getByRole('textbox', { name: 'Reps', exact: true });
+  for (let index = 0; index < await loads.count(); index += 1) {
+    await loads.nth(index).fill('20');
+    await reps.nth(index).fill('10');
+  }
+  await page.getByRole('button', { name: /Complete sets for Goblet Squat/ }).click();
+  await page.getByRole('button', { name: 'Save completed workout' }).click();
+
+  const buildPlan = page.getByRole('button', { name: 'Build next workout plan', exact: true });
+  await expect(buildPlan).toBeDisabled();
+  const easeOff = page.getByRole('radio', { name: /^Ease off\./ });
+  await easeOff.focus();
+  await easeOff.press('Space');
+  await expect(easeOff).toHaveAttribute('aria-checked', 'true');
+  await expect(buildPlan).toBeEnabled();
+  await buildPlan.click();
+
+  await expect(page.getByText('Ease off plan', { exact: true })).toBeVisible();
+  await expect(page.getByText('Exercises, loads and reps match the completed session. One working set was removed where possible.', { exact: true })).toBeVisible();
+  await expect(page.getByText('20 kg × 10', { exact: true })).toHaveCount(2);
+  await expect(page.getByText('One working set was removed. Load and reps are unchanged.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'No set time', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: 'Save workout plan', exact: true }).click();
+
+  await expect(page.getByText(/^Ease off · Keep the same exercises/)).toBeVisible();
+  await expect(page.getByText('20 kg × 10', { exact: true })).toHaveCount(2);
+  await expectNoHorizontalOverflow(page);
+});
+
 test('programme planning supports flexible starts and opt-in scheduling without auto-logging work', async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== 'edge-desktop', 'One browser integration owns the programme metadata contract.');
   await prepareIsolatedJienContext(context, page);

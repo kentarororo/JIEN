@@ -49,6 +49,11 @@ numeric targets or chooses a workout without an explicit user action.
   minutes, and save it with no set time. Date/time scheduling, reminders, and
   missed-session handling are opt-in. Starting always records the actual start date
   and time without converting a suggestion into observed work.
+- Completed workouts now close the feedback loop with an explicit Progress, Repeat,
+  or Ease off choice. Each choice opens an editable, unscheduled local plan; the
+  stored snapshot explains the choice, deterministic cues remain separate from
+  targets, and completed history is immutable. Ease off removes one working set
+  where possible instead of inventing a recovery percentage or automatic deload.
 - Physical iPhone and Android validation in addition to browser emulation.
 - Production authentication, offline/online reconciliation, and multi-device restore.
   Device-local sync health now records the last attempt and last successful restore

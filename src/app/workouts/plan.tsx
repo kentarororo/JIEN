@@ -17,6 +17,7 @@ import {
   type Exercise,
   type LoadUnit,
   type PlannedWorkoutExercise,
+  type SessionApproach,
   type TrainingSplitId,
   type WorkoutDetail,
 } from '@/lib/db';
@@ -26,6 +27,7 @@ import {
   hasStoredJointConsideration,
   rebuildPlannedWorkoutProgression,
 } from '@/lib/planning/workout-plan';
+import { applySessionApproach, isSessionApproach, sessionApproachTitle } from '@/lib/planning/session-approach';
 import {
   ROUTINE_STARTERS,
   TRAINING_SPLITS,
@@ -64,6 +66,8 @@ export default function PlanWorkoutScreen() {
     splitId?: TrainingSplitId;
     sessionIndex?: string;
     availableMinutes?: string;
+    sourceWorkoutId?: string;
+    sessionApproach?: string;
   }>();
   const { width } = useWindowDimensions();
   const compact = width < 640;
@@ -98,15 +102,19 @@ export default function PlanWorkoutScreen() {
   const [sessionIndex, setSessionIndex] = useState(() => Math.max(0, Math.trunc(Number(params.sessionIndex) || 0)));
   const [availableMinutes, setAvailableMinutes] = useState<30 | 45 | 60 | 90>(() => parseSessionMinutes(params.availableMinutes));
   const [missedSessionPolicy, setMissedSessionPolicy] = useState<'reschedule' | 'skip'>('reschedule');
+  const [sessionApproach, setSessionApproach] = useState<SessionApproach | undefined>(() => (
+    isSessionApproach(params.sessionApproach) ? params.sessionApproach : undefined
+  ));
 
   const load = useCallback(async () => {
     setLoadingError(null);
     try {
-      const [exercises, profile, recent, existingPlan, volumeSets] = await Promise.all([
+      const [exercises, profile, recent, existingPlan, sourceWorkout, volumeSets] = await Promise.all([
         listExercises(db),
         getUserProfile(db),
         listRecentWorkouts(db, 1),
         params.planWorkoutId ? getWorkoutDetail(db, params.planWorkoutId) : Promise.resolve(null),
+        params.sourceWorkoutId ? getWorkoutDetail(db, params.sourceWorkoutId) : Promise.resolve(null),
         listVolumeHistory(db),
       ]);
       const shouldHoldProgression = hasStoredJointConsideration(profile?.injuryFlags);
@@ -119,6 +127,8 @@ export default function PlanWorkoutScreen() {
       setJointProgressionChoice(savedJointChoice);
       setLatestWorkout(recent[0] ? await getWorkoutDetail(db, recent[0].id) : null);
       if (existingPlan?.status === 'planned' && existingPlan.plan) {
+        const savedApproach = existingPlan.plan.sessionApproach;
+        setSessionApproach(savedApproach);
         setTitle(existingPlan.title);
         setDate(existingPlan.performedOn);
         setTime(existingPlan.scheduledAt ? formatClock(existingPlan.scheduledAt) : '18:00');
@@ -128,6 +138,7 @@ export default function PlanWorkoutScreen() {
           currentPlan?.exercises ?? existingPlan.plan.exercises,
           exercises,
           shouldHoldProgression && savedJointChoice === 'hold',
+          savedApproach,
         ));
         if (existingPlan.plan.programContext) {
           setSplitId(existingPlan.plan.programContext.splitId);
@@ -135,11 +146,24 @@ export default function PlanWorkoutScreen() {
           setAvailableMinutes(existingPlan.plan.programContext.availableMinutes);
           setMissedSessionPolicy(existingPlan.plan.programContext.missedSessionPolicy);
         }
+      } else if (sourceWorkout?.status === 'completed' && isSessionApproach(params.sessionApproach)) {
+        const sourcePlan = buildPlanFromCompletedWorkout(
+          sourceWorkout,
+          exercises,
+          profile?.preferredLoadUnit ?? 'kg',
+          shouldHoldProgression,
+          params.sessionApproach,
+        );
+        if (!sourcePlan.length) throw new Error('That workout has no completed working sets to plan from.');
+        setSessionApproach(params.sessionApproach);
+        setTitle(sourceWorkout.title);
+        setPlanned(sourcePlan);
+        setDraftReason(sessionApproachDraftReason(params.sessionApproach));
       }
     } catch (cause) {
       setLoadingError(cause instanceof Error ? cause.message : 'Could not prepare workout planning.');
     }
-  }, [db, params.planWorkoutId]);
+  }, [db, params.planWorkoutId, params.sessionApproach, params.sourceWorkoutId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -151,6 +175,7 @@ export default function PlanWorkoutScreen() {
       current,
       catalog ?? [],
       hasJointConsideration && choice === 'hold',
+      sessionApproach,
     ));
   };
 
@@ -173,12 +198,13 @@ export default function PlanWorkoutScreen() {
     setFormError(null);
     try {
       const history = (await getRecentExerciseSessionSets(db, exercise.id))[0] ?? [];
-      const next = buildPlannedWorkoutExercise({
+      const base = buildPlannedWorkoutExercise({
         exercise,
         history,
         preferredLoadUnit: preferredUnit,
         jointFlag: jointProgressionHold,
       });
+      const next = sessionApproach ? applySessionApproach(base, sessionApproach) : base;
       setPlanned((current) => replacing != null && current[replacing]
         ? current.map((item, index) => index === replacing ? next : item)
         : [...current, next]);
@@ -212,6 +238,7 @@ export default function PlanWorkoutScreen() {
       }));
       setTitle(latestWorkout.title);
       setPlanned(next.filter((item): item is PlannedWorkoutExercise => item != null));
+      setSessionApproach('progress');
       setReplacementIndex(null);
       setDraftReason(null);
     } catch (cause) {
@@ -232,12 +259,15 @@ export default function PlanWorkoutScreen() {
       if (exercises.length < 2) {
         throw new Error('This routine needs more exercises for the equipment saved in your profile. Add exercises individually or update your equipment.');
       }
-      const next = await Promise.all(exercises.map(async (exercise) => buildPlannedWorkoutExercise({
-        exercise,
-        history: (await getRecentExerciseSessionSets(db, exercise.id))[0] ?? [],
-        preferredLoadUnit: preferredUnit,
-        jointFlag: jointProgressionHold,
-      })));
+      const next = await Promise.all(exercises.map(async (exercise) => {
+        const base = buildPlannedWorkoutExercise({
+          exercise,
+          history: (await getRecentExerciseSessionSets(db, exercise.id))[0] ?? [],
+          preferredLoadUnit: preferredUnit,
+          jointFlag: jointProgressionHold,
+        });
+        return sessionApproach ? applySessionApproach(base, sessionApproach) : base;
+      }));
       setTitle(starter.sessionTitle);
       setPlanned(next);
       setReplacementIndex(null);
@@ -288,6 +318,7 @@ export default function PlanWorkoutScreen() {
         performedOn,
         scheduledAt,
         exercises: planned,
+        sessionApproach,
         jointProgressionChoice: hasJointConsideration ? jointProgressionChoice : undefined,
         programContext: splitId ? {
           splitId,
@@ -444,7 +475,7 @@ export default function PlanWorkoutScreen() {
 
       {planned.length ? (
         <Card>
-          <AppText style={styles.cardTitle}>Targets start from your latest matching sets</AppText>
+          <AppText style={styles.cardTitle}>{sessionApproach ? `${sessionApproachTitle(sessionApproach)} plan` : 'Targets start from your latest matching sets'}</AppText>
           {draftReason ? <AppText style={{ color: colors.accent }}>{draftReason}</AppText> : null}
           <AppText style={{ color: colors.textMuted }}>Optional progression cues never overwrite the loads and reps you logged.</AppText>
         </Card>
@@ -639,4 +670,33 @@ function movementPatternLabel(value: string): string {
 function parseSessionMinutes(value: string | undefined): 30 | 45 | 60 | 90 {
   const parsed = Number(value);
   return parsed === 30 || parsed === 45 || parsed === 90 ? parsed : 60;
+}
+
+function buildPlanFromCompletedWorkout(
+  workout: WorkoutDetail,
+  catalog: Exercise[],
+  preferredLoadUnit: LoadUnit,
+  jointFlag: boolean,
+  approach: SessionApproach,
+): PlannedWorkoutExercise[] {
+  const exerciseIds = [...new Set(
+    workout.sets.filter((set) => set.kind === 'working').map((set) => set.exerciseId),
+  )];
+  return exerciseIds.flatMap((exerciseId) => {
+    const exercise = catalog.find((candidate) => candidate.id === exerciseId);
+    if (!exercise) return [];
+    const base = buildPlannedWorkoutExercise({
+      exercise,
+      history: workout.sets.filter((set) => set.exerciseId === exerciseId),
+      preferredLoadUnit,
+      jointFlag,
+    });
+    return [applySessionApproach(base, approach)];
+  });
+}
+
+function sessionApproachDraftReason(approach: SessionApproach): string {
+  if (approach === 'progress') return 'Completed values stay as targets. Eligible rep or load changes remain optional cues.';
+  if (approach === 'repeat') return 'Exercises, sets, loads and reps match the completed session. Increase cues are off.';
+  return 'Exercises, loads and reps match the completed session. One working set was removed where possible.';
 }

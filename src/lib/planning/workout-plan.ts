@@ -3,12 +3,14 @@ import type {
   LoadUnit,
   PlannedWorkoutExercise,
   PlannedWorkoutPlan,
+  SessionApproach,
   WorkoutSet,
 } from '../db/types.ts';
 import {
   buildSetProgressionPlan,
   STORED_JOINT_CONSIDERATION_HOLD_REASON,
 } from '../progression/index.ts';
+import { applySessionApproachProgression, isSessionApproach } from './session-approach.ts';
 
 const DEFAULT_WORKING_SETS = 3;
 
@@ -50,6 +52,7 @@ export function rebuildPlannedWorkoutProgression(
   planned: PlannedWorkoutExercise[],
   catalog: Exercise[],
   jointFlag: boolean,
+  sessionApproach: SessionApproach = 'progress',
 ): PlannedWorkoutExercise[] {
   return planned.map((item) => {
     const exercise = catalog.find((candidate) => candidate.id === item.exerciseId);
@@ -70,7 +73,7 @@ export function rebuildPlannedWorkoutProgression(
         : exercise.loadIncrement,
       jointFlag,
     });
-    return { ...item, progression };
+    return applySessionApproachProgression({ ...item, progression }, sessionApproach);
   });
 }
 
@@ -127,6 +130,7 @@ export function parsePlannedWorkoutPlan(value: unknown): PlannedWorkoutPlan | nu
   if (parsed.jointProgressionChoice !== undefined
     && parsed.jointProgressionChoice !== 'hold'
     && parsed.jointProgressionChoice !== 'continue') return null;
+  if (parsed.sessionApproach !== undefined && !isSessionApproach(parsed.sessionApproach)) return null;
   const programContext = parseProgramContext(parsed.programContext);
   if (parsed.programContext !== undefined && programContext == null) return null;
   const exercises = parsed.exercises.map(parseExercise);
@@ -134,6 +138,7 @@ export function parsePlannedWorkoutPlan(value: unknown): PlannedWorkoutPlan | nu
     ? {
         version: 1,
         exercises,
+        ...(parsed.sessionApproach === undefined ? {} : { sessionApproach: parsed.sessionApproach }),
         ...(parsed.jointProgressionChoice === undefined ? {} : { jointProgressionChoice: parsed.jointProgressionChoice }),
         ...(programContext ? { programContext } : {}),
       }

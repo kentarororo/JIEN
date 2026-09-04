@@ -3,10 +3,12 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, ChoiceCard, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { deleteWorkout, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, reschedulePlannedWorkout, skipPlannedWorkout } from '@/lib/db';
 import { applyStoredJointConsiderationHold, hasStoredJointConsideration } from '@/lib/planning/workout-plan';
+import { SESSION_APPROACHES, sessionApproachBody, sessionApproachTitle } from '@/lib/planning/session-approach';
+import type { SessionApproach } from '@/lib/db';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
@@ -21,6 +23,7 @@ export default function WorkoutDetailScreen() {
   const [confirmSkip, setConfirmSkip] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [nextApproach, setNextApproach] = useState<SessionApproach | null>(null);
   const loader = useCallback(async () => {
     const [detail, progress, profile] = await Promise.all([
       getWorkoutDetail(db, id),
@@ -108,7 +111,7 @@ export default function WorkoutDetailScreen() {
         <Card style={[styles.progress, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
           <AppText style={[styles.kicker, { color: colors.accent }]}>WORKOUT PLAN</AppText>
           <AppText style={styles.progressValue}>{detail.plan?.exercises.length ?? 0} exercises</AppText>
-          <AppText style={{ color: colors.textMuted }}>Previous completed values are the starting point. Green cues are optional and remain separate until you choose them.</AppText>
+          <AppText style={{ color: colors.textMuted }}>{detail.plan?.sessionApproach ? `${sessionApproachTitle(detail.plan.sessionApproach)} · ${sessionApproachBody(detail.plan.sessionApproach)}` : 'Previous completed values are the starting point. Green cues are optional and remain separate until you choose them.'}</AppText>
           {detail.plan?.programContext ? <AppText style={{ color: colors.textMuted }}>{formatSplit(detail.plan.programContext.splitId)} · session {detail.plan.programContext.sessionIndex + 1} · {detail.plan.programContext.availableMinutes} minutes</AppText> : null}
         </Card>
         {missed ? (
@@ -240,12 +243,35 @@ export default function WorkoutDetailScreen() {
       {detail.notes ? <><SectionHeading title="Notes" /><Card><AppText>{detail.notes}</AppText></Card></> : null}
       <Card style={[styles.nextSession, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.flex}>
-          <AppText style={styles.progressName}>Repeat this workout</AppText>
-          <AppText style={{ color: colors.textMuted }}>Start with these set values. Optional progression suggestions appear under the relevant set without changing the template.</AppText>
+          <AppText style={styles.progressName}>Plan the next time you run this session</AppText>
+          <AppText style={{ color: colors.textMuted }}>Choose how the completed work should become your next editable plan. This workout will not change.</AppText>
+        </View>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Next workout approach" style={styles.approachChoices}>
+          {SESSION_APPROACHES.map((approach) => (
+            <ChoiceCard
+              key={approach.id}
+              title={approach.title}
+              body={approach.body}
+              selected={nextApproach === approach.id}
+              onPress={() => setNextApproach(approach.id)}
+            />
+          ))}
         </View>
         <View style={styles.actions}>
+          <Button
+            label="Build next workout plan"
+            disabled={nextApproach == null}
+            onPress={() => nextApproach && router.replace({
+              pathname: '/workouts/plan',
+              params: {
+                source: 'completed',
+                sourceWorkoutId: detail.id,
+                sessionApproach: nextApproach,
+              },
+            } as never)}
+          />
           <Button label="Edit this workout" onPress={() => router.replace({ pathname: '/workouts/new', params: { editWorkoutId: detail.id } })} variant="secondary" />
-          <Button label="Use as template" onPress={() => router.replace({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} />
+          <Button label="Log from these values" onPress={() => router.replace({ pathname: '/workouts/new', params: { templateWorkoutId: detail.id } })} variant="secondary" />
           {detail.plan?.programContext ? (
             <Button
               label="Plan next programme session"
@@ -299,6 +325,7 @@ const styles = StyleSheet.create({
   plannedSet: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   planReason: { padding: spacing.sm, borderRadius: radii.control },
   nextSession: { padding: spacing.lg },
+  approachChoices: { gap: spacing.sm },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 });
 

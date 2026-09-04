@@ -178,6 +178,11 @@ coverage loop. The existing planner scenario stops before saving/scheduling.
    Use fresh effort feedback; expose why a recommendation changed and let the user
    hold or decline it. A versioned local deterministic policy remains the numeric
    authority; AI explains it. This needs a separate policy/schema review.
+
+   Status: the first explicit feedback slice is implemented. A completed session can
+   become an editable Progress, Repeat, or Ease off plan without changing history;
+   broader fresh-effort questions and multi-week deload policy still require the
+   separate policy review above.
 4. **Then: exercise confidence and equipment precision.** Add reviewed setup cues,
    licensed/owned demonstrations, useful aliases and gym-specific load steps.
    Choose catalogue additions from unsuccessful searches and custom-exercise use,

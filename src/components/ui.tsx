@@ -241,17 +241,31 @@ export function ChoiceCard({
   onPress: () => void;
 }) {
   const { colors } = useJienTheme();
+  const [focused, setFocused] = useState(false);
+  const webRadioKeyboardProps = Platform.OS === 'web' ? {
+    onKeyDown: (event: { nativeEvent: { key: string }; preventDefault: () => void }) => {
+      if (event.nativeEvent.key !== ' ' && event.nativeEvent.key !== 'Spacebar') return;
+      event.preventDefault();
+      onPress();
+    },
+  } : {};
   return (
     <Pressable
+      {...webRadioKeyboardProps}
       accessibilityRole="radio"
-      accessibilityState={{ selected }}
+      accessibilityLabel={body ? `${title}. ${body}` : title}
+      aria-checked={selected}
+      accessibilityState={{ checked: selected }}
       onPress={onPress}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={({ pressed }) => [
         styles.choice,
         {
           backgroundColor: selected ? colors.accentSoft : colors.surface,
-          borderColor: selected ? colors.accent : colors.border,
+          borderColor: selected || focused ? colors.accent : colors.border,
         },
+        focused && styles.focusedControl,
         pressed && styles.pressed,
       ]}
     >

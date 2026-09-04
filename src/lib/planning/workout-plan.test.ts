@@ -9,6 +9,7 @@ import {
   parsePlannedWorkoutPlan,
   rebuildPlannedWorkoutProgression,
 } from './workout-plan.ts';
+import { applySessionApproach } from './session-approach.ts';
 
 const exercise: Exercise = {
   id: 'exercise-1',
@@ -126,6 +127,8 @@ test('planned workout parsing rejects malformed provider or sync content', () =>
     missedSessionPolicy: 'reschedule',
   });
   assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], jointProgressionChoice: 'always' }), null);
+  assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], sessionApproach: 'ease_off' })?.sessionApproach, 'ease_off');
+  assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], sessionApproach: 'max_out' }), null);
   assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [validExercise], programContext: {
     splitId: 'push_pull_legs', sessionIndex: -1, availableMinutes: 45, missedSessionPolicy: 'reschedule',
   } }), null);
@@ -134,4 +137,46 @@ test('planned workout parsing rejects malformed provider or sync content', () =>
   } }), null);
   assert.equal(parsePlannedWorkoutPlan('{bad json'), null);
   assert.equal(parsePlannedWorkoutPlan({ version: 1, exercises: [{ ...validExercise, sets: [{ loadValue: -1, loadUnit: 'kg', reps: 8 }] }] }), null);
+});
+
+test('post-session approaches preserve history and make their plan effect explicit', () => {
+  const base = buildPlannedWorkoutExercise({
+    exercise,
+    history: [set(12, 40, 8), set(12, 40, 8), set(12, 40, 8)],
+    preferredLoadUnit: 'kg',
+  });
+
+  const progress = applySessionApproach(base, 'progress');
+  assert.deepEqual(progress.sets, base.sets);
+  assert.equal(progress.progression.action, 'add_load');
+
+  const repeat = applySessionApproach(base, 'repeat');
+  assert.deepEqual(repeat.sets, base.sets);
+  assert.equal(repeat.progression.action, 'hold');
+  assert.deepEqual(repeat.progression.cues, []);
+  assert.match(repeat.progression.reason, /no increase/i);
+
+  const easier = applySessionApproach(base, 'ease_off');
+  assert.equal(easier.sets.length, 2);
+  assert.deepEqual(easier.sets, base.sets.slice(0, 2));
+  assert.equal(easier.progression.action, 'hold');
+  assert.deepEqual(easier.progression.cues, []);
+  assert.match(easier.progression.reason, /one working set was removed/i);
+
+  assert.equal(base.sets.length, 3);
+  assert.equal(base.progression.action, 'add_load');
+  const rebuilt = rebuildPlannedWorkoutProgression([easier], [exercise], false, 'ease_off');
+  assert.equal(rebuilt[0]?.sets.length, 2, 'recalculation must not remove another set');
+  assert.deepEqual(rebuilt[0]?.progression.cues, []);
+});
+
+test('ease off never removes the only working set', () => {
+  const base = buildPlannedWorkoutExercise({
+    exercise,
+    history: [set(10, 40, 8)],
+    preferredLoadUnit: 'kg',
+  });
+  const easier = applySessionApproach(base, 'ease_off');
+  assert.equal(easier.sets.length, 1);
+  assert.match(easier.progression.reason, /has one working set/i);
 });

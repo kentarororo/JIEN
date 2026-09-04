@@ -37,6 +37,16 @@ With two prior sessions the midpoint is used; with one, that session is the temp
 baseline; with none, the current session establishes it. See
 [training-advisory-engine.md](training-advisory-engine.md).
 
+After a completed session, the user can turn that exact workout into an editable
+next-session plan in one of three explicit ways. **Progress** keeps the completed
+sets as targets and retains eligible deterministic rep or load cues. **Repeat**
+keeps the same exercises, sets, loads and reps but removes increase cues. **Ease
+off** keeps the same exercises, loads and reps while removing one working set per
+exercise when more than one exists. It never removes the only working set. The
+choice and resulting targets are stored in the planned-workout snapshot; the
+completed workout remains unchanged. Ease off is a user-selected volume reduction,
+not an inferred recovery score or an automatic deload.
+
 AI receives the same bounded four-week body-part summary alongside recent recovery,
 each logged nutrition day's macro totals, logged-day averages, and the current macro
 target. This makes cross-domain explanations possible without treating an unlogged

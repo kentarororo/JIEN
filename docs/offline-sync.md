@@ -65,7 +65,9 @@ Planned workouts use the same `workouts` queue row as completed sessions. Their
 versioned `plan_json` contains the previous-set snapshot and separate deterministic
 progression cues needed to start offline. Optional split order, session index,
 available-time band, and missed-session preference travel in the same JSON snapshot,
-so programme continuity does not need a second sync entity. Completing a plan updates that same UUID
+so programme continuity does not need a second sync entity. A post-session Progress,
+Repeat, or Ease off choice also travels in this snapshot alongside its already-derived
+targets, keeping the decision explainable and available offline. Completing a plan updates that same UUID
 to `completed` and inserts observed sets in one SQLite transaction; skipping or
 deleting it writes a status change or tombstone through the same queue.
 

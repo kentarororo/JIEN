@@ -257,6 +257,7 @@ export async function savePlannedWorkout(
   const plan = {
     version: 1 as const,
     exercises: input.exercises,
+    ...(input.sessionApproach ? { sessionApproach: input.sessionApproach } : {}),
     ...(input.jointProgressionChoice ? { jointProgressionChoice: input.jointProgressionChoice } : {}),
     ...(input.programContext ? { programContext: input.programContext } : {}),
   };

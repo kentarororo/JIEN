@@ -18,6 +18,7 @@ test('planned workouts are local-first and use the same synced workout UUID when
   assert.match(remoteMigration, /alter table public\.workouts/);
   assert.match(remoteMigration, /workouts_upcoming_plan_idx/);
   assert.match(repository, /savePlannedWorkout[\s\S]*withExclusiveTransaction[\s\S]*enqueueUpsert\(db, 'workouts'/);
+  assert.match(repository, /input\.sessionApproach[\s\S]*sessionApproach: input\.sessionApproach/);
   assert.match(repository, /completePlannedWorkout[\s\S]*WHERE id = \? AND status = 'planned'/);
   assert.match(repository, /workout_id: plannedWorkoutId/);
   assert.match(repository, /saveWorkout[\s\S]*clearRecoveryDraft\(db, input\.recoveryDraftKey\)/);
@@ -30,6 +31,17 @@ test('planned workouts are local-first and use the same synced workout UUID when
   assert.match(repository, /listPlannedWorkoutsForDate[\s\S]*w\.scheduled_at IS NOT NULL/);
   assert.match(repository, /savePlannedWorkout[\s\S]*const updated = await db\.runAsync[\s\S]*updated\.changes !== 1[\s\S]*enqueueUpsert\(db, 'workouts'/);
   assert.match(repository, /skipPlannedWorkout[\s\S]*status = 'planned' AND deleted_at IS NULL[\s\S]*updated\.changes !== 1[\s\S]*enqueueUpsert\(db, 'workouts'/);
+});
+
+test('completed-workout choices flow into an editable local plan', () => {
+  const detail = read('../../app/workouts/[id].tsx');
+  const planner = read('../../app/workouts/plan.tsx');
+  assert.match(detail, /SESSION_APPROACHES\.map/);
+  assert.match(detail, /sourceWorkoutId: detail\.id/);
+  assert.match(detail, /sessionApproach: nextApproach/);
+  assert.match(planner, /getWorkoutDetail\(db, params\.sourceWorkoutId\)/);
+  assert.match(planner, /buildPlanFromCompletedWorkout/);
+  assert.match(planner, /sessionApproach,/);
 });
 
 test('calendar, start flow, and reminders all invalidate stale plans', () => {

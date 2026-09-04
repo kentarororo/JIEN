@@ -181,9 +181,12 @@ export type PlannedWorkoutExercise = {
   };
 };
 
+export type SessionApproach = 'progress' | 'repeat' | 'ease_off';
+
 export type PlannedWorkoutPlan = {
   version: 1;
   exercises: PlannedWorkoutExercise[];
+  sessionApproach?: SessionApproach;
   jointProgressionChoice?: 'hold' | 'continue';
   programContext?: TrainingProgramContext;
 };
@@ -204,6 +207,7 @@ export type SavePlannedWorkoutInput = {
   scheduledAt: string | null;
   notes?: string;
   exercises: PlannedWorkoutExercise[];
+  sessionApproach?: SessionApproach;
   jointProgressionChoice?: 'hold' | 'continue';
   programContext?: TrainingProgramContext;
 };
