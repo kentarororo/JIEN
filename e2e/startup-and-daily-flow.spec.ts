@@ -37,6 +37,52 @@ test('mobile startup exposes touch-sized account controls without overflow', asy
   expect(undersizedTargets).toEqual([]);
 });
 
+test('flexible workout timing stays clear and touch-sized across supported layouts', async ({ context, page }, testInfo) => {
+  await prepareIsolatedJienContext(context, page);
+  if (testInfo.project.name !== 'ios-webkit') await fixJienClock(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('tab', { name: 'Train', exact: true }).click();
+  await page.getByRole('button', { name: 'Plan workout' }).click();
+  await expect(page.getByRole('heading', { name: 'Plan workout', exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'No set time', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('No date or time is set.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Exact date')).toHaveCount(0);
+  await expect(page.getByLabel('Exact time')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('radio', { name: 'Set date and time', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Set date and time', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByLabel('Exact date')).toBeVisible();
+  await expect(page.getByLabel('Exact time')).toBeVisible();
+  await expect(page.getByText('The session appears on that calendar day and can trigger a reminder.', { exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  const undersizedTargets = await page.locator('[role="button"], [role="tab"], [role="radio"]').evaluateAll((targets) => targets
+    .filter((target) => {
+      const rect = target.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44);
+    })
+    .map((target) => target.getAttribute('aria-label') ?? target.textContent?.trim() ?? 'unnamed'));
+  expect(undersizedTargets).toEqual([]);
+
+  await page.getByRole('radio', { name: 'No set time', exact: true }).click();
+  await expect(page.getByLabel('Exact date')).toHaveCount(0);
+  await expect(page.getByLabel('Exact time')).toHaveCount(0);
+
+  if (testInfo.project.name === 'edge-desktop') {
+    const scheduledTiming = page.getByRole('radio', { name: 'Set date and time', exact: true });
+    await scheduledTiming.focus();
+    await expect(scheduledTiming).toHaveCSS('border-width', '2px');
+    await scheduledTiming.press('Space');
+    await expect(scheduledTiming).toHaveAttribute('aria-checked', 'true');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+    await page.getByRole('heading', { name: 'Plan workout', exact: true }).scrollIntoViewIfNeeded();
+    await expectNoHorizontalOverflow(page);
+  }
+});
+
 test('routine starters adapt to saved equipment without inventing targets', async ({ context, page }, testInfo) => {
   await prepareIsolatedJienContext(context, page);
   if (testInfo.project.name !== 'ios-webkit') await fixJienClock(page);

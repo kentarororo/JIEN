@@ -154,6 +154,18 @@ export default function PlanWorkoutScreen() {
     ));
   };
 
+  const useScheduledTiming = () => {
+    try {
+      if (new Date(localTimestampForDateAndTime(date, time)).getTime() <= Date.now()) {
+        setDate(tomorrowKey());
+      }
+    } catch {
+      // Keep edited values visible so the save error can identify the invalid field.
+    }
+    setScheduleMode('scheduled');
+    setShowScheduleEditor(true);
+  };
+
   const addExercise = async (exercise: Exercise) => {
     const replacing = replacementIndex;
     if (planned.some((item, index) => item.exerciseId === exercise.id && index !== replacing)) return;
@@ -385,17 +397,13 @@ export default function PlanWorkoutScreen() {
         <View style={styles.rowWrap}>
           <View style={styles.flex}>
             <AppText style={styles.cardTitle}>{title.trim() || 'Untitled workout'}</AppText>
-            <AppText style={{ color: colors.textMuted }}>{scheduleMode === 'scheduled' ? `${formatPlanDate(date)} at ${formatPlanTime(time)}` : 'Start this plan whenever it fits.'}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{scheduleMode === 'scheduled' ? `${formatPlanDate(date)} at ${formatPlanTime(time)}` : 'No date or time is set.'}</AppText>
           </View>
           <Button label={showScheduleEditor ? 'Done' : 'Edit details'} onPress={() => setShowScheduleEditor((value) => !value)} expanded={showScheduleEditor} variant="secondary" />
         </View>
         <View accessibilityRole="radiogroup" style={styles.pills}>
           <Pill label="No set time" active={scheduleMode === 'flexible'} onPress={() => setScheduleMode('flexible')} accessibilityRole="radio" />
-          <Pill label="Set date and time" active={scheduleMode === 'scheduled'} onPress={() => {
-            if (date < toLocalDateKey()) setDate(tomorrowKey());
-            setScheduleMode('scheduled');
-            setShowScheduleEditor(true);
-          }} accessibilityRole="radio" />
+          <Pill label="Set date and time" active={scheduleMode === 'scheduled'} onPress={useScheduledTiming} accessibilityRole="radio" />
         </View>
         <AppText style={{ color: colors.textMuted }}>{scheduleMode === 'scheduled' ? 'The session appears on that calendar day and can trigger a reminder.' : 'The workout records the actual date and time when you start it. No reminder or missed-session action is created.'}</AppText>
         {showScheduleEditor ? (

@@ -276,12 +276,15 @@ export async function savePlannedWorkout(
   };
   await withExclusiveTransaction(db, async (db) => {
     if (existing) {
-      await db.runAsync(
+      const updated = await db.runAsync(
         `UPDATE workouts SET title = ?, performed_on = ?, scheduled_at = ?, notes = ?,
           plan_json = ?, updated_at = ?, client_updated_at = ?
          WHERE id = ? AND status = 'planned' AND deleted_at IS NULL`,
         [payload.title, input.performedOn, input.scheduledAt, payload.notes, JSON.stringify(plan), now, now, id],
       );
+      if (updated.changes !== 1) {
+        throw new Error('This planned workout changed before it could be saved.');
+      }
     } else {
       await db.runAsync(
         `INSERT INTO workouts (
@@ -597,7 +600,7 @@ export async function completePlannedWorkout(
   if (!Number.isFinite(startedAt.getTime()) || startedAt.getTime() > Date.now() + 60_000) {
     throw new Error('Completed workouts must use the current time or earlier.');
   }
-  const completedAt = input.startedAt;
+  const completedAt = new Date(Math.max(Date.now(), startedAt.getTime())).toISOString();
   const performedOn = toLocalDateKey(startedAt);
   const workoutPayload = {
     id: plannedWorkoutId,
@@ -694,11 +697,14 @@ export async function skipPlannedWorkout(db: SQLiteDatabase, workoutId: string):
   if (!workout) return;
   const now = new Date().toISOString();
   await withExclusiveTransaction(db, async (db) => {
-    await db.runAsync(
+    const updated = await db.runAsync(
       `UPDATE workouts SET status = 'skipped', updated_at = ?, client_updated_at = ?
-       WHERE id = ? AND status = 'planned'`,
+       WHERE id = ? AND status = 'planned' AND deleted_at IS NULL`,
       [now, now, workoutId],
     );
+    if (updated.changes !== 1) {
+      throw new Error('This planned workout changed before it could be skipped.');
+    }
     await enqueueUpsert(db, 'workouts', workoutId, {
       ...workout,
       status: 'skipped',

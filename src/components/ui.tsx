@@ -3,6 +3,7 @@ import type { ComponentProps, PropsWithChildren, ReactNode, Ref } from 'react';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -156,11 +157,19 @@ export function Pill({
   const { colors } = useJienTheme();
   const [focused, setFocused] = useState(false);
   const content = <AppText style={[styles.pillLabel, { color: active ? colors.textOnAccent : colors.text }]}>{label}</AppText>;
+  const webRadioKeyboardProps = Platform.OS === 'web' && accessibilityRole === 'radio' && onPress ? {
+    onKeyDown: (event: { nativeEvent: { key: string }; preventDefault: () => void }) => {
+      if (event.nativeEvent.key !== ' ' && event.nativeEvent.key !== 'Spacebar') return;
+      event.preventDefault();
+      onPress();
+    },
+  } : {};
   if (!onPress) {
     return <View style={[styles.pill, { backgroundColor: active ? colors.accent : colors.surfaceMuted, borderColor: 'transparent' }]}>{content}</View>;
   }
   return (
     <Pressable
+      {...webRadioKeyboardProps}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
       aria-checked={accessibilityRole === 'radio' ? active : undefined}
