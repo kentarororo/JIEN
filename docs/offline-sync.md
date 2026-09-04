@@ -8,6 +8,12 @@ wellness measurement or check-in, user-authored AI message, or notification
 preference write and its `sync_queue` upsert is committed in the same SQLite
 transaction. UI success for manual logging never waits for the network.
 
+Workout plans are flexible by default: `scheduled_at` stays null until the user opts
+into a calendar time. These plans sync normally but do not enter calendar or reminder
+queries. Starting one captures its absolute start time in the SQLite recovery draft;
+completion uses that time for the workout's local reporting day before its completed
+sets are queued.
+
 Client-generated UUIDs make retries idempotent. One queue row is retained per
 `(table_name, entity_id)`, so a newer local edit replaces an older queued payload.
 Parents are pushed before children. Transient failures use bounded exponential

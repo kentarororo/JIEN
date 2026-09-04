@@ -23,6 +23,9 @@ test('planned workouts are local-first and use the same synced workout UUID when
   assert.match(repository, /completePlannedWorkout[\s\S]*clearRecoveryDraft\(db, input\.recoveryDraftKey\)/);
   assert.match(repository, /reschedulePlannedWorkout[\s\S]*withExclusiveTransaction[\s\S]*enqueueUpsert\(transaction, 'workouts'/);
   assert.match(repository, /UPDATE workouts SET performed_on = \?, scheduled_at = \?/);
+  assert.match(repository, /if \(input\.scheduledAt != null\)/);
+  assert.match(repository, /CASE WHEN w\.scheduled_at IS NULL THEN 0 ELSE 1 END/);
+  assert.match(repository, /listPlannedWorkoutsForDate[\s\S]*w\.scheduled_at IS NOT NULL/);
 });
 
 test('calendar, start flow, and reminders all invalidate stale plans', () => {
@@ -33,6 +36,8 @@ test('calendar, start flow, and reminders all invalidate stale plans', () => {
   assert.match(calendar, /listPlannedWorkoutsForDate/);
   assert.match(calendar, /pathname: '\/workouts\/plan'/);
   assert.match(logger, /completePlannedWorkout/);
+  assert.match(logger, /planWorkoutId \? new Date\(\)\.toISOString\(\) : null/);
+  assert.match(logger, /\(editWorkoutId \|\| planWorkoutId\) && editStartedAt/);
   assert.match(runtime, /subscribeToQueuedLocalWrites/);
   assert.match(notifications, /reconcileWorkoutPlanNotification/);
   assert.match(notifications, /cancelWorkoutPlanNotification/);

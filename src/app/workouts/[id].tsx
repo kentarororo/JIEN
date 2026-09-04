@@ -103,10 +103,10 @@ export default function WorkoutDetailScreen() {
       <Screen contentContainerStyle={styles.screenContent}>
         <ScreenHeading
           title={detail.title}
-          eyebrow={`Planned · ${formatShortDate(detail.scheduledAt ?? detail.performedOn)}${detail.scheduledAt ? ` · ${formatTime(detail.scheduledAt)}` : ''}`}
+          eyebrow={detail.scheduledAt ? `Planned · ${formatShortDate(detail.scheduledAt)} · ${formatTime(detail.scheduledAt)}` : 'Planned · No set time'}
         />
         <Card style={[styles.progress, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-          <AppText style={[styles.kicker, { color: colors.accent }]}>UPCOMING SESSION</AppText>
+          <AppText style={[styles.kicker, { color: colors.accent }]}>WORKOUT PLAN</AppText>
           <AppText style={styles.progressValue}>{detail.plan?.exercises.length ?? 0} exercises</AppText>
           <AppText style={{ color: colors.textMuted }}>Previous completed values are the starting point. Green cues are optional and remain separate until you choose them.</AppText>
           {detail.plan?.programContext ? <AppText style={{ color: colors.textMuted }}>{formatSplit(detail.plan.programContext.splitId)} · session {detail.plan.programContext.sessionIndex + 1} · {detail.plan.programContext.availableMinutes} minutes</AppText> : null}
@@ -146,11 +146,11 @@ export default function WorkoutDetailScreen() {
         ))}
         <Card style={{ backgroundColor: colors.surfaceMuted }}>
           <AppText style={styles.progressName}>Start this plan</AppText>
-          <AppText style={{ color: colors.textMuted }}>Starting opens the normal set logger with these exact values. Completing it replaces this plan on the calendar.</AppText>
+          <AppText style={{ color: colors.textMuted }}>Starting opens the normal set logger with these exact values. The workout records the date and time you actually start.</AppText>
           <View style={styles.actions}>
             <Button label="Start workout" onPress={() => router.replace({ pathname: '/workouts/new', params: { planWorkoutId: detail.id } })} />
-            <Button label="Edit or reschedule" onPress={() => router.replace({ pathname: '/workouts/plan', params: { planWorkoutId: detail.id } } as never)} variant="secondary" />
-            <Button label="Back to calendar" onPress={() => router.replace('/today')} variant="secondary" />
+            <Button label="Edit plan" onPress={() => router.replace({ pathname: '/workouts/plan', params: { planWorkoutId: detail.id } } as never)} variant="secondary" />
+            <Button label={detail.scheduledAt ? 'Back to calendar' : 'Back to training'} onPress={() => router.replace(detail.scheduledAt ? '/today' : '/train')} variant="secondary" />
           </View>
         </Card>
         <Card style={confirmSkip ? { backgroundColor: colors.warningSoft, borderColor: colors.warning } : undefined}>

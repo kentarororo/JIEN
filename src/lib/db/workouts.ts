@@ -107,7 +107,8 @@ export async function listUpcomingPlannedWorkouts(
     `${WORKOUT_SUMMARY_SELECT}
      WHERE w.status = 'planned' AND w.deleted_at IS NULL
      GROUP BY w.id
-     ORDER BY w.scheduled_at ASC, w.performed_on ASC
+     ORDER BY CASE WHEN w.scheduled_at IS NULL THEN 0 ELSE 1 END,
+       w.scheduled_at ASC, w.performed_on ASC
      LIMIT ?`,
     [limit],
   );
@@ -149,7 +150,8 @@ export async function listPlannedWorkoutsForDate(
 ): Promise<WorkoutSummary[]> {
   const rows = await db.getAllAsync<WorkoutSummaryRow>(
     `${WORKOUT_SUMMARY_SELECT}
-     WHERE w.performed_on = ? AND w.status = 'planned' AND w.deleted_at IS NULL
+     WHERE w.performed_on = ? AND w.status = 'planned'
+       AND w.scheduled_at IS NOT NULL AND w.deleted_at IS NULL
      GROUP BY w.id
      ORDER BY w.scheduled_at ASC, w.created_at ASC`,
     [date],
@@ -233,12 +235,14 @@ export async function savePlannedWorkout(
   if (new Set(input.exercises.map((exercise) => exercise.exerciseId)).size !== input.exercises.length) {
     throw new Error('Each exercise can appear once in a planned session.');
   }
-  const scheduled = new Date(input.scheduledAt);
-  if (!Number.isFinite(scheduled.getTime()) || scheduled.getTime() <= Date.now()) {
-    throw new Error('Choose a planned time in the future.');
-  }
-  if (toLocalDateKey(scheduled) !== input.performedOn) {
-    throw new Error('The planned date and time do not match.');
+  if (input.scheduledAt != null) {
+    const scheduled = new Date(input.scheduledAt);
+    if (!Number.isFinite(scheduled.getTime()) || scheduled.getTime() <= Date.now()) {
+      throw new Error('Choose a planned time in the future.');
+    }
+    if (toLocalDateKey(scheduled) !== input.performedOn) {
+      throw new Error('The planned date and time do not match.');
+    }
   }
 
   const id = input.id ?? Crypto.randomUUID();

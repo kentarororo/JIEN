@@ -71,11 +71,11 @@ export default function TrainScreen() {
       {trainingView === 'overview' ? <>
       {data ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'advisory' } } as never)} onLog={() => router.push('/workouts/new')} /> : null}
       {data?.planned.length ? <>
-        <SectionHeading title="Upcoming" detail={`${data.planned.length} planned session${data.planned.length === 1 ? '' : 's'}`} />
+        <SectionHeading title="Workout plans" detail={`${data.planned.length} saved session${data.planned.length === 1 ? '' : 's'}`} />
         <View style={styles.list}>{data.planned.map((workout) => (
           <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
             <Pressable><Card style={{ backgroundColor: colors.accentSoft, borderColor: colors.accent }}>
-              <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? `${formatShortDate(workout.scheduledAt)} · ${formatTime(workout.scheduledAt)}` : formatShortDate(workout.performedOn)}</AppText></View>
+              <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? `${formatShortDate(workout.scheduledAt)} · ${formatTime(workout.scheduledAt)}` : 'No set time'}</AppText></View>
               <View style={styles.upcomingFooter}><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Open plan ›</AppText></View>
             </Card></Pressable>
           </Link>

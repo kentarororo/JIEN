@@ -32,8 +32,9 @@ The muscle advisory must lead to an explainable, editable workout draft:
 6. Allow exercise ordering and swaps without changing completed records.
 7. Keep every draft local until the user explicitly saves it.
 
-Acceptance requires a tested path from Training focus to planner draft, scheduled
-workout, completed workout, and refreshed muscle coverage. No AI output supplies
+Acceptance requires tested paths from Training focus to a flexible planner draft or
+an explicitly scheduled workout, then to a completed workout and refreshed muscle
+coverage. No AI output supplies
 numeric targets or chooses a workout without an explicit user action.
 
 ## Current milestone — Alpha 2.3 production hardening
@@ -45,8 +46,9 @@ numeric targets or chooses a workout without an explicit user action.
   SQLite drafts retain those fields across interruption on web and native.
 - Programme continuity is explicit rather than autonomous: a user can choose
   Push/Pull/Legs, Upper/Lower, or Full body order, fit a starter to 30–90 available
-  minutes, choose how a missed plan should be handled, and start the next session
-  without converting a suggestion into observed work.
+  minutes, and save it with no set time. Date/time scheduling, reminders, and
+  missed-session handling are opt-in. Starting always records the actual start date
+  and time without converting a suggestion into observed work.
 - Physical iPhone and Android validation in addition to browser emulation.
 - Production authentication, offline/online reconciliation, and multi-device restore.
   Device-local sync health now records the last attempt and last successful restore

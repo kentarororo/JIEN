@@ -93,6 +93,10 @@ test('Workout planning keeps repeat, scheduling, catalog, and save in one progre
   assert.match(workoutPlan, /Repeat latest session/);
   assert.match(workoutPlan, /showScheduleEditor/);
   assert.match(workoutPlan, /expanded=\{showScheduleEditor\}/);
+  assert.match(workoutPlan, /scheduleMode === 'flexible'/);
+  assert.match(workoutPlan, /label="No set time"/);
+  assert.match(workoutPlan, /label="Set date and time"/);
+  assert.match(workoutPlan, /scheduledAt = scheduleMode === 'scheduled'[^\n]+: null/);
   assert.match(workoutPlan, /Quick date/);
   assert.match(workoutPlan, /Exact date/);
   assert.match(workoutPlan, /results\.slice\(0, catalogLimit\)/);

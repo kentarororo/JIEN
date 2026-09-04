@@ -201,7 +201,7 @@ export type SavePlannedWorkoutInput = {
   id?: string;
   title: string;
   performedOn: string;
-  scheduledAt: string;
+  scheduledAt: string | null;
   notes?: string;
   exercises: PlannedWorkoutExercise[];
   jointProgressionChoice?: 'hold' | 'continue';

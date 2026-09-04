@@ -91,7 +91,7 @@ test('active workout restores performed state, set kind, and rest timer after in
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
 });
 
-test('programme planning persists split order and available time without auto-logging work', async ({ context, page }, testInfo) => {
+test('programme planning supports flexible starts and opt-in scheduling without auto-logging work', async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== 'edge-desktop', 'One browser integration owns the programme metadata contract.');
   await prepareIsolatedJienContext(context, page);
   await fixJienClock(page);
@@ -103,11 +103,30 @@ test('programme planning persists split order and available time without auto-lo
   await page.getByRole('button', { name: '30 min', exact: true }).click();
   await page.getByRole('button', { name: 'Use Push session', exact: true }).click();
   await expect(page.getByText('3 selected', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Save planned workout', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'No set time', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: 'Save workout plan', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Push session', exact: true })).toBeVisible();
+  await expect(page.getByText('Planned · No set time', { exact: true })).toBeVisible();
   await expect(page.getByText('Push · Pull · Legs · session 1 · 30 minutes', { exact: true })).toBeVisible();
   await expect(page.getByText('3 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('This planned time has passed', { exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Back to training', exact: true }).click();
+  await expect(page.getByText('Workout plans', { exact: true })).toBeVisible();
+  await expect(page.getByText('No set time', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Today', exact: true }).click();
+  await page.getByRole('button', { name: 'Open day', exact: true }).click();
+  await expect(page.getByText('Planned workouts', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('tab', { name: 'Train', exact: true }).click();
+  await page.getByText('Push session', { exact: true }).click();
+  await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
+  await page.getByRole('radio', { name: 'Set date and time', exact: true }).click();
+  await page.getByRole('button', { name: 'Tomorrow', exact: true }).click();
+  await page.getByRole('button', { name: 'Update workout plan', exact: true }).click();
+  await expect(page.getByText('Planned · No set time', { exact: true })).toHaveCount(0);
+
   await page.clock.setFixedTime(new Date('2026-09-02T04:00:00.000Z'));
   await page.reload();
   await expect(page.getByText('This planned time has passed', { exact: true })).toBeVisible();

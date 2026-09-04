@@ -147,7 +147,9 @@ export default function NewWorkoutScreen() {
       else if (profile) setUnit(profile.preferredLoadUnit);
       if (template) {
         setTitle(template.title);
-        setEditStartedAt(editWorkoutId ? template.completedAt : null);
+        setEditStartedAt(editWorkoutId
+          ? template.completedAt
+          : planWorkoutId ? new Date().toISOString() : null);
         setBlocks(template.status === 'planned'
           ? blocksFromPlan(template)
           : editWorkoutId ? blocksFromEdit(template) : blocksFromTemplate(template));
@@ -614,9 +616,9 @@ export default function NewWorkoutScreen() {
       ))) {
         throw new Error('Use a non-negative load, whole-number reps, and optional RPE from 1–10.');
       }
-      const startedAt = editWorkoutId && editStartedAt
+      const startedAt = (editWorkoutId || planWorkoutId) && editStartedAt
         ? editStartedAt
-        : planWorkoutId ? new Date().toISOString() : date ? localTimestampForDate(date) : new Date().toISOString();
+        : date ? localTimestampForDate(date) : new Date().toISOString();
       const recoveryDraftKey = draftOwnerUserId
         ? workoutDraftStorageKey(draftOwnerUserId, draftContext)
         : undefined;

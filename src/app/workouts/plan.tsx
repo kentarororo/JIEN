@@ -82,6 +82,7 @@ export default function PlanWorkoutScreen() {
   const [title, setTitle] = useState('Next training session');
   const [date, setDate] = useState(params.date ?? tomorrowKey());
   const [time, setTime] = useState('18:00');
+  const [scheduleMode, setScheduleMode] = useState<'flexible' | 'scheduled'>(() => params.date ? 'scheduled' : 'flexible');
   const [query, setQuery] = useState('');
   const [browseAll, setBrowseAll] = useState(false);
   const [catalogLimit, setCatalogLimit] = useState(24);
@@ -121,6 +122,7 @@ export default function PlanWorkoutScreen() {
         setTitle(existingPlan.title);
         setDate(existingPlan.performedOn);
         setTime(existingPlan.scheduledAt ? formatClock(existingPlan.scheduledAt) : '18:00');
+        setScheduleMode(existingPlan.scheduledAt ? 'scheduled' : 'flexible');
         const currentPlan = applyStoredJointConsiderationHold(existingPlan.plan, shouldHoldProgression);
         setPlanned(rebuildPlannedWorkoutProgression(
           currentPlan?.exercises ?? existingPlan.plan.exercises,
@@ -265,12 +267,13 @@ export default function PlanWorkoutScreen() {
     setSaving(true);
     setFormError(null);
     try {
-      if (date < toLocalDateKey()) throw new Error('Choose today or a future calendar day.');
-      const scheduledAt = localTimestampForDateAndTime(date, time);
+      if (scheduleMode === 'scheduled' && date < toLocalDateKey()) throw new Error('Choose today or a future calendar day.');
+      const scheduledAt = scheduleMode === 'scheduled' ? localTimestampForDateAndTime(date, time) : null;
+      const performedOn = scheduleMode === 'scheduled' ? date : toLocalDateKey();
       const id = await savePlannedWorkout(db, {
         id: planIdRef.current,
         title,
-        performedOn: date,
+        performedOn,
         scheduledAt,
         exercises: planned,
         jointProgressionChoice: hasJointConsideration ? jointProgressionChoice : undefined,
@@ -377,43 +380,56 @@ export default function PlanWorkoutScreen() {
         ) : null}
       </Card>
 
-      <SectionHeading title="Schedule" detail={`${formatPlanDate(date)} · ${formatPlanTime(time)}`} />
+      <SectionHeading title="Timing" detail={scheduleMode === 'scheduled' ? `${formatPlanDate(date)} · ${formatPlanTime(time)}` : 'No set time'} />
       <Card>
         <View style={styles.rowWrap}>
           <View style={styles.flex}>
             <AppText style={styles.cardTitle}>{title.trim() || 'Untitled workout'}</AppText>
-            <AppText style={{ color: colors.textMuted }}>{formatPlanDate(date)} at {formatPlanTime(time)}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{scheduleMode === 'scheduled' ? `${formatPlanDate(date)} at ${formatPlanTime(time)}` : 'Start this plan whenever it fits.'}</AppText>
           </View>
-          <Button label={showScheduleEditor ? 'Done' : 'Edit schedule'} onPress={() => setShowScheduleEditor((value) => !value)} expanded={showScheduleEditor} variant="secondary" />
+          <Button label={showScheduleEditor ? 'Done' : 'Edit details'} onPress={() => setShowScheduleEditor((value) => !value)} expanded={showScheduleEditor} variant="secondary" />
         </View>
+        <View accessibilityRole="radiogroup" style={styles.pills}>
+          <Pill label="No set time" active={scheduleMode === 'flexible'} onPress={() => setScheduleMode('flexible')} accessibilityRole="radio" />
+          <Pill label="Set date and time" active={scheduleMode === 'scheduled'} onPress={() => {
+            if (date < toLocalDateKey()) setDate(tomorrowKey());
+            setScheduleMode('scheduled');
+            setShowScheduleEditor(true);
+          }} accessibilityRole="radio" />
+        </View>
+        <AppText style={{ color: colors.textMuted }}>{scheduleMode === 'scheduled' ? 'The session appears on that calendar day and can trigger a reminder.' : 'The workout records the actual date and time when you start it. No reminder or missed-session action is created.'}</AppText>
         {showScheduleEditor ? (
           <View style={styles.scheduleEditor}>
             <Field label="Session name" value={title} onChangeText={setTitle} />
-            <View>
-              <AppText style={styles.label}>Quick date</AppText>
-              <View style={styles.pills}>
-                {[
-                  { label: 'Today', value: futureDateKey(0) },
-                  { label: 'Tomorrow', value: futureDateKey(1) },
-                  { label: 'In two days', value: futureDateKey(2) },
-                ].map((option) => <Pill key={option.value} label={option.label} active={date === option.value} onPress={() => setDate(option.value)} />)}
-              </View>
-            </View>
-            <View>
-              <AppText style={styles.label}>Quick time</AppText>
-              <View style={styles.pills}>
-                {[
-                  { label: 'Morning · 07:00', value: '07:00' },
-                  { label: 'Lunch · 12:00', value: '12:00' },
-                  { label: 'Evening · 18:00', value: '18:00' },
-                  { label: 'Late · 20:00', value: '20:00' },
-                ].map((option) => <Pill key={option.value} label={option.label} active={time === option.value} onPress={() => setTime(option.value)} />)}
-              </View>
-            </View>
-            <View style={[styles.scheduleFields, !compact && styles.scheduleFieldsWide]}>
-              <Field label="Exact date" hint="YYYY-MM-DD" value={date} onChangeText={setDate} containerStyle={styles.dateField} />
-              <Field label="Exact time" hint="24-hour time" value={time} onChangeText={setTime} keyboardType="numbers-and-punctuation" containerStyle={styles.timeField} />
-            </View>
+            {scheduleMode === 'scheduled' ? (
+              <>
+                <View>
+                  <AppText style={styles.label}>Quick date</AppText>
+                  <View style={styles.pills}>
+                    {[
+                      { label: 'Today', value: futureDateKey(0) },
+                      { label: 'Tomorrow', value: futureDateKey(1) },
+                      { label: 'In two days', value: futureDateKey(2) },
+                    ].map((option) => <Pill key={option.value} label={option.label} active={date === option.value} onPress={() => setDate(option.value)} />)}
+                  </View>
+                </View>
+                <View>
+                  <AppText style={styles.label}>Quick time</AppText>
+                  <View style={styles.pills}>
+                    {[
+                      { label: 'Morning · 07:00', value: '07:00' },
+                      { label: 'Lunch · 12:00', value: '12:00' },
+                      { label: 'Evening · 18:00', value: '18:00' },
+                      { label: 'Late · 20:00', value: '20:00' },
+                    ].map((option) => <Pill key={option.value} label={option.label} active={time === option.value} onPress={() => setTime(option.value)} />)}
+                  </View>
+                </View>
+                <View style={[styles.scheduleFields, !compact && styles.scheduleFieldsWide]}>
+                  <Field label="Exact date" hint="YYYY-MM-DD" value={date} onChangeText={setDate} containerStyle={styles.dateField} />
+                  <Field label="Exact time" hint="24-hour time" value={time} onChangeText={setTime} keyboardType="numbers-and-punctuation" containerStyle={styles.timeField} />
+                </View>
+              </>
+            ) : null}
           </View>
         ) : null}
       </Card>
@@ -544,7 +560,7 @@ export default function PlanWorkoutScreen() {
       </View>
 
       {!planned.length ? <StatePanel title="Add exercises" body="Choose them individually or repeat your latest session. Previous loads appear only when they exist." /> : null}
-      <Button label={params.planWorkoutId ? 'Update planned workout' : 'Save planned workout'} onPress={() => void save()} busy={saving} disabled={!planned.length} />
+      <Button label={params.planWorkoutId ? 'Update workout plan' : 'Save workout plan'} onPress={() => void save()} busy={saving} disabled={!planned.length} />
     </Screen>
   );
 }

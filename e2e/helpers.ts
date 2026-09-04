@@ -4,6 +4,7 @@ export const QA_USER_ID = '90000000-0000-4000-8000-000000000001';
 const SUPABASE_ORIGIN = 'https://jien-e2e.supabase.co';
 const AUTH_STORAGE_KEY = 'sb-jien-e2e-auth-token';
 const FIXED_NOW = new Date('2026-08-31T04:00:00.000Z');
+const FIXTURE_SESSION_EXPIRES_AT = Math.floor(new Date('2036-08-31T04:00:00.000Z').getTime() / 1000);
 
 function unsignedJwt(payload: Record<string, unknown>): string {
   const encode = (value: Record<string, unknown>) => Buffer
@@ -13,7 +14,7 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 }
 
 export function qaSession() {
-  const expiresAt = Math.floor(FIXED_NOW.getTime() / 1000) + 86_400;
+  const expiresAt = FIXTURE_SESSION_EXPIRES_AT;
   return {
     access_token: unsignedJwt({
       aud: 'authenticated',
@@ -23,7 +24,7 @@ export function qaSession() {
       sub: QA_USER_ID,
     }),
     expires_at: expiresAt,
-    expires_in: 86_400,
+    expires_in: expiresAt - Math.floor(FIXED_NOW.getTime() / 1000),
     refresh_token: 'jien-e2e-refresh-token',
     token_type: 'bearer',
     user: {
@@ -46,7 +47,11 @@ export async function prepareIsolatedJienContext(context: BrowserContext, page: 
     if (url.pathname.startsWith('/auth/v1/token')) {
       await route.fulfill({
         status: 200,
-        headers: { 'Access-Control-Allow-Origin': '*' },
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-supabase-api-version',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        },
         contentType: 'application/json',
         body: JSON.stringify(session),
       });
@@ -55,7 +60,12 @@ export async function prepareIsolatedJienContext(context: BrowserContext, page: 
     if (url.pathname.startsWith('/rest/v1/')) {
       await route.fulfill({
         status: 200,
-        headers: { 'Content-Range': '0-0/0', 'Access-Control-Allow-Origin': '*' },
+        headers: {
+          'Content-Range': '0-0/0',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'authorization, apikey, content-type, prefer, range, x-client-info, x-supabase-api-version',
+          'Access-Control-Allow-Methods': 'DELETE, GET, HEAD, OPTIONS, PATCH, POST',
+        },
         contentType: 'application/json',
         body: '[]',
       });
