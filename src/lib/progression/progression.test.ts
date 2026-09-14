@@ -17,6 +17,53 @@ import {
   suggestDoubleProgression,
 } from './index.ts';
 import { filterWorkoutHistory, groupWorkoutHistoryByMonth, summarizeExerciseHistory } from '../training/history.ts';
+import { summarizeTrainingMuscleContext } from '../../../supabase/functions/_shared/training-context.ts';
+import { trainingSetSql } from '../../../supabase/functions/_shared/training-set-policy.ts';
+
+test('mixed set accounting agrees across muscle guidance and Edge context without mixing drop baselines', () => {
+  const sets = (['working', 'failure', 'drop', 'warmup'] as const).map((kind) => ({
+    kind, reps: 10, loadValue: 20, loadUnit: 'kg' as const, rpe: null,
+    completedAt: '2026-09-14T10:00:00.000Z', movementPattern: 'horizontal_push',
+    primaryMuscleGroup: 'chest', secondaryMuscleGroups: ['triceps'],
+  }));
+  const weekly = aggregateWeeklyVolume(sets)[0]!;
+  assert.equal(weekly.totalKg, 600);
+  assert.equal(weekly.muscleGroupSets.chest, 3);
+  assert.equal(weekly.muscleGroupSets.triceps, 1.5);
+  assert.deepEqual(calculateRecentExerciseBaseline([sets]), { volumeKg: 400, sessionCount: 1 });
+  const now = new Date('2026-09-15T12:00:00.000Z');
+  const local = buildMuscleGroupAdvisory(sets, now);
+  const remote = summarizeTrainingMuscleContext(
+    [{ id: 'w', performed_on: '2026-09-14' }],
+    sets.map((set) => ({ workout_id: 'w', exercise_id: 'press', kind: set.kind,
+      reps: set.reps, load_value: set.loadValue, load_unit: set.loadUnit,
+      primary_muscle_group: set.primaryMuscleGroup, secondary_muscle_groups: set.secondaryMuscleGroups })),
+    [], now,
+  );
+  assert.equal(local.coverage.find((group) => group.muscleGroup === 'chest')?.currentSetCredits, 3);
+  assert.deepEqual(remote.advisory.coverage.map((group) => [group.muscleGroup, group.currentSetCredits]),
+    local.coverage.map((group) => [group.muscleGroup, group.currentSetCredits]));
+  assert.throws(() => trainingSetSql('s.kind); DELETE FROM workout_sets'), /Invalid/);
+});
+
+test('failure counts as completed work but never earns an increase, even with missing or contradictory effort', () => {
+  for (const rpe of [null, 8, 10]) {
+    const failure = { reps: 12, loadValue: 40, loadUnit: 'kg' as const, kind: 'failure' as const, rpe };
+    const input = { sets: [failure], repMin: 8, repMax: 12, loadIncrement: 2.5 };
+    assert.equal(suggestDoubleProgression(input).action, 'hold');
+    assert.deepEqual(buildSetProgressionPlan(input).cues, []);
+    assert.match(buildSetProgressionPlan(input).reason, /Completed reps count/);
+    const feedback = buildCompletedExerciseVolumeFeedback({
+      ...input, currentSets: [failure],
+      baselineSessions: [[{ ...failure, kind: 'working', reps: 10, rpe: 8 }]],
+    });
+    assert.equal(feedback.currentVolumeKg, 480);
+    assert.equal(feedback.changePercent, 20);
+    assert.equal(feedback.status, 'hold');
+    assert.deepEqual(feedback.cues, []);
+    assert.equal(failure.rpe, rpe, 'derived guidance never overwrites observed effort');
+  }
+});
 
 test('bodybuilding taxonomy includes specific traps, trunk, hip and lower-leg groups', () => {
   const groups = new Set<string>(MUSCLE_GROUP_OPTIONS.map((option) => option.value));

@@ -12,6 +12,18 @@ import {
 
 const owner = 'c42da174-94bc-4b52-9df9-6476353e127a';
 
+test('failure targets reset effort and completion while completed drops and failure still count', () => {
+  assert.deepEqual(prefillWorkoutSetFromHistory(
+    { load: '', reps: '', rpe: '', kind: 'working', completed: false },
+    { load: '40', reps: '10', kind: 'failure' },
+  ), { load: '40', reps: '10', rpe: '', kind: 'working', completed: false });
+  const summary = summarizeWorkoutDraft([{ sets: (['working', 'failure', 'drop', 'warmup'] as const).map((kind) => ({
+    kind, load: '20', reps: '10', rpe: '', completed: true,
+  })) }]);
+  assert.equal(summary.work, 600);
+  assert.equal(summary.completedSetCount, 4);
+});
+
 test('workout recovery drafts are account and route scoped', () => {
   const value = JSON.stringify({
     version: 1, ownerUserId: owner, workoutId: 'workout-1', context: 'new:2026-08-20',

@@ -8,6 +8,57 @@ import {
   qaSession,
 } from './helpers';
 
+test('failure and drop work survives save and plans start with fresh effort', async ({ context, page }, testInfo) => {
+  await prepareIsolatedJienContext(context, page);
+  if (testInfo.project.name !== 'ios-webkit') await fixJienClock(page);
+  await completeOnboarding(page);
+  await page.getByRole('button', { name: /Log workout/ }).first().click();
+  await page.getByLabel('Session name').fill('Accounting QA');
+  await page.getByLabel('Find exercise for exercise 1').fill('Goblet Squat');
+  await page.getByRole('button', { name: /^Goblet Squat .*Choose$/ }).click();
+  const loads = page.getByRole('textbox', { name: 'Load (kg)', exact: true });
+  const reps = page.getByRole('textbox', { name: 'Reps', exact: true });
+  for (let index = 0; index < 3; index += 1) {
+    await loads.nth(index).fill('20');
+    await reps.nth(index).fill('10');
+  }
+  await page.getByRole('radio', { name: 'Failure', exact: true }).nth(0).click();
+  await page.getByRole('radio', { name: 'Drop', exact: true }).nth(1).click();
+  await page.getByRole('radio', { name: 'Warm-up', exact: true }).nth(2).click();
+  await page.getByRole('button', { name: /Complete sets for Goblet Squat/ }).click();
+  await page.getByRole('button', { name: 'Save completed workout' }).click();
+  await expect(page.getByText('400', { exact: true })).toBeVisible();
+  await expect(page.getByText('To failure · RPE —', { exact: true })).toBeVisible();
+  await expect(page.getByText('Drop · RPE —', { exact: true })).toBeVisible();
+  await expect(page.getByText('Warm-up · RPE —', { exact: true })).toBeVisible();
+  await expect(page.getByText('Suggested: Repeat', { exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.reload();
+  await expect(page.getByText('400', { exact: true })).toBeVisible();
+  const completedUrl = page.url();
+  await page.getByRole('button', { name: 'Log from these values', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Working', exact: true }).first()).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: 'Drop', exact: true }).nth(1)).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('textbox', { name: 'RPE', exact: true }).first()).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Undo completed set', exact: true })).toHaveCount(0);
+  await page.goto(completedUrl);
+  await expect(page.getByText('To failure · RPE —', { exact: true })).toBeVisible();
+  await page.getByRole('radio', { name: /^Progress\./ }).click();
+  await page.getByRole('button', { name: 'Build next workout plan', exact: true }).click();
+  await expect(page.getByText('20 kg × 10', { exact: true })).toHaveCount(1);
+  await expect(page.getByText(/Completed reps count toward your training/)).toBeVisible();
+  await page.getByRole('button', { name: 'Save workout plan', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start workout', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText(/Completed reps count toward your training/)).toBeVisible();
+  await page.getByRole('button', { name: 'Start workout', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'RPE', exact: true }).first()).toHaveValue('');
+  await expect(page.getByRole('radio', { name: 'Working', exact: true }).first()).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('button', { name: 'Undo completed set', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Mark set complete', exact: true })).toHaveCount(1);
+  await expectNoHorizontalOverflow(page);
+});
+
 test('signed-out startup remains usable at every supported width and theme', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'edge-desktop', 'The desktop project owns the full responsive-width matrix.');
   await fixJienClock(page);
@@ -138,9 +189,10 @@ test('active workout restores performed state, set kind, and rest timer after in
 });
 
 test('completed workout choice builds an inspectable editable next plan', async ({ context, page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'edge-desktop', 'One real browser integration owns the post-session planning contract.');
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
   await prepareIsolatedJienContext(context, page);
-  await fixJienClock(page);
+  if (testInfo.project.name !== 'ios-webkit') await fixJienClock(page);
   await completeOnboarding(page);
 
   await page.getByRole('button', { name: /Log workout/ }).first().click();
@@ -158,11 +210,30 @@ test('completed workout choice builds an inspectable editable next plan', async 
 
   const buildPlan = page.getByRole('button', { name: 'Build next workout plan', exact: true });
   await expect(buildPlan).toBeDisabled();
+  const completedUrl = page.url();
+  await expect(page.getByText('Suggested: Repeat', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Some main sets have no valid effort rating/)).toBeVisible();
+  const progressChoice = page.getByRole('radio', { name: /^Progress\./ });
+  await progressChoice.click();
+  await page.getByRole('radio', { name: 'Harder than expected', exact: true }).click();
+  await expect(page.getByText('Suggested: Ease off', { exact: true })).toBeVisible();
+  await expect(progressChoice).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('Your choice is still Progress. Changing feedback does not change it.', { exact: true })).toBeVisible();
+  const useRecommendation = page.getByRole('button', { name: 'Use Ease off recommendation', exact: true });
+  await useRecommendation.focus();
+  await useRecommendation.press('Space');
   const easeOff = page.getByRole('radio', { name: /^Ease off\./ });
-  await easeOff.focus();
-  await easeOff.press('Space');
   await expect(easeOff).toHaveAttribute('aria-checked', 'true');
   await expect(buildPlan).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+  if (testInfo.project.name === 'edge-desktop') {
+    await page.getByText('Session check-in (optional)', { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('next-session-review-light.png'), fullPage: true });
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+    await page.getByText('Session check-in (optional)', { exact: true }).scrollIntoViewIfNeeded();
+    await expectNoHorizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath('next-session-review-dark.png'), fullPage: true });
+  }
   await buildPlan.click();
 
   await expect(page.getByText('Ease off plan', { exact: true })).toBeVisible();
@@ -174,7 +245,16 @@ test('completed workout choice builds an inspectable editable next plan', async 
 
   await expect(page.getByText(/^Ease off · Keep the same exercises/)).toBeVisible();
   await expect(page.getByText('20 kg × 10', { exact: true })).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByText(/^Ease off · Keep the same exercises/)).toBeVisible();
+  await expect(page.getByText('20 kg × 10', { exact: true })).toHaveCount(2);
   await expectNoHorizontalOverflow(page);
+  await page.goto(completedUrl);
+  await expect(page.getByText('20 kg × 10', { exact: true })).toHaveCount(3);
+  await expect(page.getByText('RPE —', { exact: true })).toHaveCount(3);
+  await expect(page.getByRole('radio', { name: 'Not sure', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('Suggested: Repeat', { exact: true })).toBeVisible();
+  expect(pageErrors).toEqual([]);
 });
 
 test('programme planning supports flexible starts and opt-in scheduling without auto-logging work', async ({ context, page }, testInfo) => {

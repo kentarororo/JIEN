@@ -1,3 +1,5 @@
+import { countsTowardTraining } from './training-set-policy.ts';
+
 type WorkoutContextRow = { id: string; performed_on: string };
 type SetContextRow = {
   workout_id: string;
@@ -33,7 +35,7 @@ export function summarizeTrainingMuscleContext(
   const familyLastTrainedAt = new Map<string, string>();
 
   for (const set of sets) {
-    if (set.kind !== 'working') continue;
+    if (!countsTowardTraining(set.kind)) continue;
     const performedOn = workoutDates.get(set.workout_id);
     const exerciseTag = exerciseTags.get(set.exercise_id);
     const tags = set.primary_muscle_group

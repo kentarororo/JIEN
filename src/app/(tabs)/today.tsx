@@ -199,7 +199,7 @@ export default function TodayScreen() {
                 : selectedInFuture
                 ? `${selectedPlans.length} planned workout${selectedPlans.length === 1 ? '' : 's'} · completed logs are limited to today or earlier.`
                 : selectedActivity
-                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} working sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${selectedActivity.sleepLogCount} sleep logs · ${Math.round(selectedActivity.caloriesKcal)} kcal`
+                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} training sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${selectedActivity.sleepLogCount} sleep logs · ${Math.round(selectedActivity.caloriesKcal)} kcal`
                   : 'No activity logged'}</AppText>
             </View>
             <Button label="›" accessibilityLabel="Next day" onPress={() => selectDate(shiftLocalDateKey(selectedDate, 1))} variant="quiet" />

@@ -146,6 +146,10 @@ workout rows automatically; the next session remains an explicit planning action
 The optional `sessionApproach` value records an explicit `progress`, `repeat`, or
 `ease_off` choice. Its effect is already materialized in the editable target rows;
 completed rows are never recomputed or changed from that value.
+Each planned set may retain `sourceKind: 'failure'` as historical evidence for
+rebuilding cues. It leaves the original RPE unchanged and never sets today's kind,
+effort, or completion. This optional JSON field needs no SQL migration; old clients
+may discard it when editing a new plan, so keep clients current during rollout.
 Starting a plan captures the absolute start time in its interruption-recovery draft.
 Completing it assigns `performed_on` from that start's local date, stores the start
 time on the same workout row, changes it to `completed`, and writes observed sets
@@ -160,9 +164,9 @@ and completion time are stored as observations. `workout_id + user_id` and
 `exercise_id + user_id` are composite foreign keys. Active rows have a unique
 `(workout_id, sort_order)`.
 
-The client counts `working` sets for default volume calculations. Warm-up, drop,
-and failure sets remain available for history but must be included only by an
-explicit progression rule.
+The shared training-set policy counts working, failure and drop rows in descriptive
+training work and muscle coverage. Working and failure rows enter matching exercise
+baselines; warm-ups and drops do not. Failure holds increase cues without erasing work.
 
 | Column | Type | Notes |
 | --- | --- | --- |

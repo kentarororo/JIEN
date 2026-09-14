@@ -10,6 +10,7 @@ import {
   RECENT_EXERCISE_BASELINE_SESSION_LIMIT,
 } from '@/lib/progression';
 import { parsePlannedWorkoutPlan } from '@/lib/planning/workout-plan';
+import { trainingSetSql, progressionSetSql, countsTowardProgression } from '../../../supabase/functions/_shared/training-set-policy.ts';
 
 import { exerciseRemotePayload } from './exercises';
 import { withExclusiveTransaction } from './exclusive-transaction';
@@ -76,8 +77,8 @@ const WORKOUT_SUMMARY_SELECT = `
     GROUP_CONCAT(DISTINCT e.name) AS exercise_names,
     GROUP_CONCAT(DISTINCT COALESCE(s.primary_muscle_group, e.primary_muscle_group)) AS muscle_groups,
     COALESCE(SUM(CASE
-      WHEN s.kind = 'working' AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
-      WHEN s.kind = 'working' THEN s.load_value * s.reps
+      WHEN ${trainingSetSql('s.kind')} AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
+      WHEN ${trainingSetSql('s.kind')} THEN s.load_value * s.reps
       ELSE 0 END), 0) AS total_volume_kg
   FROM workouts w
   LEFT JOIN workout_sets s ON s.workout_id = w.id AND s.deleted_at IS NULL
@@ -861,7 +862,7 @@ export async function getExerciseHistory(
       s.reps, s.load_value, s.load_unit, s.rpe, s.kind, s.completed_at, s.sort_order
      FROM workout_sets s
      JOIN exercises e ON e.id = s.exercise_id
-     WHERE s.exercise_id = ? AND s.kind = 'working' AND s.deleted_at IS NULL
+     WHERE s.exercise_id = ? AND ${progressionSetSql('s.kind')} AND s.deleted_at IS NULL
      ORDER BY s.completed_at DESC, s.sort_order ASC
      LIMIT ?`,
     [exerciseId, limit],
@@ -913,14 +914,15 @@ export async function getExerciseSessionHistory(
     load_value: number;
     load_unit: LoadUnit;
     rpe: number | null;
+    kind: SetKind;
   }>(
     `SELECT s.id, s.workout_id, w.title AS workout_title, w.performed_on,
       COALESCE(w.completed_at, s.completed_at) AS completed_at,
-      s.reps, s.load_value, s.load_unit, s.rpe
+      s.reps, s.load_value, s.load_unit, s.rpe, s.kind
      FROM workout_sets s
      JOIN workouts w ON w.id = s.workout_id
      WHERE s.exercise_id = ?
-       AND s.kind = 'working'
+       AND ${progressionSetSql('s.kind')}
        AND s.deleted_at IS NULL
        AND w.deleted_at IS NULL
        AND w.status = 'completed'
@@ -928,7 +930,7 @@ export async function getExerciseSessionHistory(
          SELECT recent.id FROM workouts recent
          JOIN workout_sets recent_set ON recent_set.workout_id = recent.id
          WHERE recent_set.exercise_id = ?
-           AND recent_set.kind = 'working'
+           AND ${progressionSetSql('recent_set.kind')}
            AND recent_set.deleted_at IS NULL
            AND recent.deleted_at IS NULL
            AND recent.status = 'completed'
@@ -956,12 +958,13 @@ export async function getExerciseSessionHistory(
       loadValue: row.load_value,
       loadUnit: row.load_unit,
       rpe: row.rpe,
+      kind: row.kind,
     });
     session.volumeKg += calculateSetVolumeKg({
       reps: row.reps,
       loadValue: row.load_value,
       loadUnit: row.load_unit,
-      kind: 'working',
+      kind: row.kind,
     });
     sessions.set(row.workout_id, session);
   }
@@ -986,7 +989,7 @@ export async function getRecentExerciseSessionSets(
   );
   const conditions = [
     's.exercise_id = ?',
-    "s.kind = 'working'",
+    progressionSetSql('s.kind'),
     's.deleted_at IS NULL',
     'w.deleted_at IS NULL',
     "w.status = 'completed'",
@@ -1013,7 +1016,7 @@ export async function getRecentExerciseSessionSets(
   );
   const details = await Promise.all(recent.map((session) => getWorkoutDetail(db, session.workout_id)));
   return details.map((detail) => (
-    detail?.sets.filter((set) => set.exerciseId === exerciseId && set.kind === 'working') ?? []
+    detail?.sets.filter((set) => set.exerciseId === exerciseId && countsTowardProgression(set.kind)) ?? []
   )).filter((sets) => sets.length > 0);
 }
 
@@ -1028,7 +1031,7 @@ export async function getWorkoutProgressComparison(
 
   const grouped = new Map<string, { exerciseName: string; currentVolumeKg: number }>();
   for (const set of workout.sets) {
-    if (set.kind !== 'working') continue;
+    if (!countsTowardProgression(set.kind)) continue;
     const current = grouped.get(set.exerciseId) ?? { exerciseName: set.exerciseName, currentVolumeKg: 0 };
     current.currentVolumeKg += calculateSetVolumeKg(set);
     grouped.set(set.exerciseId, current);

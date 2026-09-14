@@ -2,7 +2,7 @@
 
 JIEN separates two questions that require different measurements:
 
-1. **What should receive attention next?** Use completed working-set credits by
+1. **What should receive attention next?** Use completed training-set credits by
    muscle group across recent calendar weeks.
 2. **How should a specific exercise progress?** Use the latest matching set structure
    for load and rep cues, and its recent three-session median for the volume baseline,
@@ -46,14 +46,14 @@ Primary references:
 
 ## Deterministic advisory model
 
-The engine runs locally over completed working sets:
+The engine runs locally over completed working, failure, and drop rows:
 
 1. Normalize detailed exercise targets into reporting families where the anatomy is
    intentionally pooled: upper chest into chest; middle/lower traps and rhomboids
    into upper back; abs and obliques into core; brachialis into the elbow-flexor
    family. Deltoid heads, lats, upper traps, lower back, hips, and lower-leg groups
    remain distinct where pooling would hide a meaningful training gap.
-2. Count each working set once for its primary family and half for each unique
+2. Count each training row once for its primary family and half for each unique
    assisting family. Warm-ups do not count.
 3. Average each family's set credits across up to four completed ISO calendar weeks.
    Weeks after the first recent log count even when that muscle received zero sets.
@@ -70,7 +70,7 @@ current soreness, joint status, and recovery before repeating recent work.
 ## Exercise progression baseline
 
 The logger reads up to three completed sessions for the exact exercise. It uses their
-median working-set `load × reps` as the comparison baseline, which dampens a single
+median working-and-failure-set `load × reps` as the comparison baseline, which dampens a single
 outlier without making the system slow to reflect current training. A single prior
 session is still useful as a temporary baseline, and the median becomes more stable
 as the second and third matching sessions are logged.

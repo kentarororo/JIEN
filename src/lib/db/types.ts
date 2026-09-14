@@ -154,6 +154,8 @@ export type SaveWorkoutInput = {
 };
 
 export type PlannedWorkoutSet = {
+  /** Historical failure evidence for deriving cues; never copied to today's result. */
+  sourceKind?: 'failure';
   loadValue: number | null;
   loadUnit: LoadUnit;
   reps: number | null;
@@ -228,6 +230,7 @@ export type WorkoutSummary = {
 };
 
 export type ExerciseHistorySet = {
+  kind?: SetKind;
   id: string;
   reps: number;
   loadValue: number;

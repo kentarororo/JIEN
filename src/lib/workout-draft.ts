@@ -1,4 +1,5 @@
 import type { LoadUnit, SetKind } from './db/types';
+import { countsTowardTraining, targetSetKind } from '../../supabase/functions/_shared/training-set-policy.ts';
 
 const DRAFT_VERSION = 2;
 
@@ -86,7 +87,7 @@ export function prefillWorkoutSetFromHistory<T extends WorkoutEntrySet>(
     load: source.load,
     reps: source.reps,
     rpe: '',
-    kind: source.kind ?? 'working',
+    kind: targetSetKind(source.kind),
     completed: false,
   };
 }
@@ -121,7 +122,7 @@ export function summarizeWorkoutDraft(blocks: Array<{ sets: WorkoutEntrySet[] }>
         continue;
       }
       summary.completedSetCount += 1;
-      if ((set.kind ?? 'working') === 'working') summary.work += load * reps;
+      if (countsTowardTraining(set.kind)) summary.work += load * reps;
     }
   }
   return summary;

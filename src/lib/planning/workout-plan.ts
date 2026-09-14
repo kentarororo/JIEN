@@ -11,6 +11,7 @@ import {
   STORED_JOINT_CONSIDERATION_HOLD_REASON,
 } from '../progression/index.ts';
 import { applySessionApproachProgression, isSessionApproach } from './session-approach.ts';
+import { countsTowardProgression } from '../../../supabase/functions/_shared/training-set-policy.ts';
 
 const DEFAULT_WORKING_SETS = 3;
 
@@ -64,7 +65,7 @@ export function rebuildPlannedWorkoutProgression(
         loadUnit: set.loadUnit,
         reps: set.reps,
         rpe: set.rpe ?? null,
-        kind: 'working' as const,
+        kind: set.sourceKind ?? 'working',
       }]),
       repMin: exercise.targetRepMin,
       repMax: exercise.targetRepMax,
@@ -83,7 +84,7 @@ export function buildPlannedWorkoutExercise(input: {
   preferredLoadUnit: LoadUnit;
   jointFlag?: boolean;
 }): PlannedWorkoutExercise {
-  const history = input.history.filter((set) => set.kind === 'working');
+  const history = input.history.filter((set) => countsTowardProgression(set.kind));
   const loadUnit = history[0]?.loadUnit ?? input.preferredLoadUnit;
   const progression = buildSetProgressionPlan({
     sets: history,
@@ -107,6 +108,8 @@ export function buildPlannedWorkoutExercise(input: {
         loadUnit: set.loadUnit,
         reps: set.reps,
         rpe: set.rpe,
+        // Historical effort evidence, not a performed result or prescribed failure.
+        ...(set.kind === 'failure' ? { sourceKind: 'failure' as const } : {}),
       }))
       : Array.from({ length: DEFAULT_WORKING_SETS }, () => ({
         loadValue: null,
@@ -176,12 +179,14 @@ function parseExercise(value: unknown): PlannedWorkoutExercise | null {
       || (set.loadUnit !== 'kg' && set.loadUnit !== 'lb')
       || !isNullableNonNegativeNumber(set.loadValue)
       || !isNullablePositiveInteger(set.reps)
-      || !(set.rpe === undefined || set.rpe === null || (isFiniteNumber(set.rpe) && set.rpe >= 1 && set.rpe <= 10))) return null;
+      || !(set.rpe === undefined || set.rpe === null || (isFiniteNumber(set.rpe) && set.rpe >= 1 && set.rpe <= 10))
+      || !(set.sourceKind === undefined || set.sourceKind === 'failure')) return null;
     return {
       loadValue: set.loadValue,
       loadUnit: set.loadUnit,
       reps: set.reps,
       ...(set.rpe === undefined ? {} : { rpe: set.rpe }),
+      ...(set.sourceKind === 'failure' ? { sourceKind: 'failure' as const } : {}),
     };
   });
   if (sets.some((set) => set == null)) return null;

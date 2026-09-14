@@ -1,15 +1,26 @@
 # Deterministic progression safety
 
-JIEN calculates progression locally from completed working sets. Recorded loads and
+JIEN calculates progression locally from completed working and failure sets. Recorded loads and
 reps are never overwritten by a suggestion.
 
 ## Body-part workload
 
 Every exercise has one primary muscle tag and zero or more assisting-muscle tags.
 Custom exercises use the same controlled list as starter exercises. A completed
-working set contributes `1.0` weighted set to the primary muscle and `0.5` to each
+working, failure, or drop row contributes `1.0` weighted set to the primary muscle and `0.5` to each
 tagged assisting muscle; warm-ups do not contribute. This makes bodyweight work
 visible even when its entered external load is zero.
+
+The shared training-set policy also drives workout totals, Today, Calendar, Wellness,
+and Edge training context. Failure and drop rows are not discarded. Drop rows stay
+out of comparable exercise baselines and rep/load cues: they are not equivalent
+straight-set structures. These credits describe logged exposure, not equal biological
+stimulus; linked drop sequences and separate role/effort fields remain roadmap work.
+Failure counts toward the recent matching baseline but holds increase cues regardless
+of missing or contradictory RPE. This is a conservative product rule, not a claim
+that failure proves readiness, growth, or injury. It never changes recorded RPE.
+Repeating a workout resets failure to an unperformed working target. Plans keep an
+optional `sourceKind: 'failure'` as historical cue evidence, never today's result.
 
 The controlled bodybuilding baseline distinguishes upper, middle, and lower traps;
 rhomboids; lats; spinal erectors; all three deltoid regions; rotator cuff; the major

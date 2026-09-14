@@ -1,4 +1,5 @@
 import type { LoadUnit, SetKind } from '../db/types.ts';
+import { countsTowardTraining, countsTowardProgression, isHighEffort, FAILURE_HOLD_REASON } from '../../../supabase/functions/_shared/training-set-policy.ts';
 
 const POUNDS_TO_KG = 0.45359237;
 
@@ -149,7 +150,7 @@ export function loadToKg(value: number, unit: LoadUnit): number {
 }
 
 export function calculateSetVolumeKg(set: ProgressionSet): number {
-  if ((set.kind ?? 'working') !== 'working') return 0;
+  if (!countsTowardTraining(set.kind)) return 0;
   return loadToKg(set.loadValue, set.loadUnit) * set.reps;
 }
 
@@ -168,7 +169,7 @@ export function calculateRecentExerciseBaseline(
   const volumes = sessions
     .slice(0, RECENT_EXERCISE_BASELINE_SESSION_LIMIT)
     .map((sets) => sets
-      .filter((set) => (set.kind ?? 'working') === 'working')
+      .filter((set) => countsTowardProgression(set.kind))
       .reduce((total, set) => total + calculateSetVolumeKg(set), 0))
     .filter((volume) => Number.isFinite(volume) && volume > 0)
     .sort((a, b) => a - b);
@@ -193,7 +194,7 @@ export function isoWeekKey(value: string): string {
 export function aggregateWeeklyVolume(sets: VolumeSet[]): WeeklyVolume[] {
   const weeks = new Map<string, WeeklyVolume>();
   for (const set of sets) {
-    if ((set.kind ?? 'working') !== 'working') continue;
+    if (!countsTowardTraining(set.kind)) continue;
     const volume = calculateSetVolumeKg(set);
     const week = isoWeekKey(set.completedAt);
     const aggregate = weeks.get(week) ?? {
@@ -283,7 +284,7 @@ export function buildMuscleGroupAdvisory(
   sets: VolumeSet[],
   asOf = new Date(),
 ): MuscleGroupAdvisory {
-  const validSets = sets.filter((set) => (set.kind ?? 'working') === 'working'
+  const validSets = sets.filter((set) => countsTowardTraining(set.kind)
     && Number.isFinite(new Date(set.completedAt).getTime()));
   const currentWeek = isoWeekKey(asOf.toISOString());
   const priorWeeks = previousIsoWeeks(asOf, 4);
@@ -413,7 +414,7 @@ export function suggestDoubleProgression(input: {
   loadIncrement: number;
   jointFlag?: boolean;
 }): ProgressionSuggestion {
-  const workingSets = input.sets.filter((set) => (set.kind ?? 'working') === 'working');
+  const workingSets = input.sets.filter((set) => countsTowardProgression(set.kind));
   if (workingSets.length === 0) {
     return { action: 'start', reason: `Start within ${input.repMin}-${input.repMax} controlled reps.` };
   }
@@ -425,7 +426,10 @@ export function suggestDoubleProgression(input: {
       reason: STORED_JOINT_CONSIDERATION_HOLD_REASON,
     };
   }
-  if (workingSets.some((set) => (set.rpe ?? 0) > 9)) {
+  if (workingSets.some((set) => set.kind === 'failure')) {
+    return { action: 'hold', loadValue, reason: FAILURE_HOLD_REASON };
+  }
+  if (workingSets.some(isHighEffort)) {
     return { action: 'hold', loadValue, reason: 'Hold load because the last effort exceeded RPE 9.' };
   }
 
@@ -476,7 +480,7 @@ export function buildSetProgressionPlan(input: {
   loadIncrement: number;
   jointFlag?: boolean;
 }): SetProgressionPlan {
-  const workingSets = input.sets.filter((set) => (set.kind ?? 'working') === 'working');
+  const workingSets = input.sets.filter((set) => countsTowardProgression(set.kind));
   if (workingSets.length === 0) {
     return {
       action: 'start',
@@ -494,7 +498,10 @@ export function buildSetProgressionPlan(input: {
       cues: [],
     };
   }
-  if (workingSets.some((set) => set.rpe != null && set.rpe > 9)) {
+  if (workingSets.some((set) => set.kind === 'failure')) {
+    return { action: 'hold', reason: FAILURE_HOLD_REASON, cues: [] };
+  }
+  if (workingSets.some(isHighEffort)) {
     return { action: 'hold', reason: 'Repeat the work: at least one set exceeded RPE 9.', cues: [] };
   }
 
@@ -573,7 +580,7 @@ export function buildCompletedExerciseVolumeFeedback(input: {
   const targetPercent = requestedTargetPercent != null && Number.isFinite(requestedTargetPercent) && requestedTargetPercent > 0
     ? requestedTargetPercent
     : 5;
-  const currentSets = input.currentSets.filter((set) => (set.kind ?? 'working') === 'working');
+  const currentSets = input.currentSets.filter((set) => countsTowardProgression(set.kind));
   const currentVolumeKg = currentSets.reduce((total, set) => total + calculateSetVolumeKg(set), 0);
   const baseline = calculateRecentExerciseBaseline(input.baselineSessions ?? []);
   const baselineVolumeKg = baseline.volumeKg;
@@ -615,14 +622,16 @@ export function buildCompletedExerciseVolumeFeedback(input: {
       changePercent: null,
       projectedChangePercent: null,
       cueTiming: null,
-      reason: 'First baseline saved. A comparison appears after you repeat this exercise.',
+      reason: currentSets.some((set) => set.kind === 'failure')
+        ? `First baseline saved. ${FAILURE_HOLD_REASON}`
+        : 'First baseline saved. A comparison appears after you repeat this exercise.',
       cues: [],
     };
   }
 
   const targetVolumeKg = baselineVolumeKg * (1 + targetPercent / 100);
   const changePercent = calculateOverloadChangePercent(currentVolumeKg, baselineVolumeKg);
-  if (input.jointFlag || currentSets.some((set) => set.rpe != null && set.rpe > 9)) {
+  if (input.jointFlag || currentSets.some(isHighEffort)) {
     const hold = buildSetProgressionPlan({
       sets: currentSets,
       repMin: input.repMin,

@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { trainingSetSql } from '../../../supabase/functions/_shared/training-set-policy.ts';
 
 import type { CalendarDayActivity } from './types';
 
@@ -32,10 +33,10 @@ export async function listCalendarActivity(
       `SELECT w.performed_on AS date,
         COUNT(DISTINCT CASE WHEN w.status = 'completed' THEN w.id END) AS workout_count,
         COUNT(DISTINCT CASE WHEN w.status = 'planned' THEN w.id END) AS planned_workout_count,
-        COUNT(CASE WHEN w.status = 'completed' AND s.kind = 'working' THEN 1 END) AS working_set_count,
+        COUNT(CASE WHEN w.status = 'completed' AND ${trainingSetSql('s.kind')} THEN 1 END) AS working_set_count,
         COALESCE(SUM(CASE
-          WHEN w.status = 'completed' AND s.kind = 'working' AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
-          WHEN w.status = 'completed' AND s.kind = 'working' THEN s.load_value * s.reps
+          WHEN w.status = 'completed' AND ${trainingSetSql('s.kind')} AND s.load_unit = 'lb' THEN s.load_value * 0.45359237 * s.reps
+          WHEN w.status = 'completed' AND ${trainingSetSql('s.kind')} THEN s.load_value * s.reps
           ELSE 0 END), 0) AS training_work_kg
        FROM workouts w
        LEFT JOIN workout_sets s ON s.workout_id = w.id AND s.deleted_at IS NULL

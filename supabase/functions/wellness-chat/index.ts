@@ -16,6 +16,7 @@ import {
   resolveSupabaseServerKey,
 } from '../_shared/user-ai.ts';
 import { summarizeTrainingMuscleContext } from '../_shared/training-context.ts';
+import { countsTowardTraining } from '../_shared/training-set-policy.ts';
 import { summarizeLoggedNutrition } from '../_shared/nutrition-context.ts';
 
 const corsHeaders = {
@@ -234,7 +235,7 @@ async function loadLiveContext(client, userId, conversationId, profile) {
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (!contextQueriesSucceeded(setResult, foodResult)) throw new Error('CONTEXT_QUERY_FAILED');
-  const workingSets = (setResult.data ?? []).filter((set) => set.kind === 'working');
+  const workingSets = (setResult.data ?? []).filter((set) => countsTowardTraining(set.kind));
   const exerciseIds = [...new Set(workingSets.map((set) => set.exercise_id))];
   const exerciseResult = exerciseIds.length
     ? await client.from('exercises')
@@ -259,6 +260,7 @@ async function loadLiveContext(client, userId, conversationId, profile) {
       loadUnit: profile.preferred_load_unit,
     },
     training30Days: {
+      setAccounting: 'Working, failure and drop rows count as logged training; warm-ups do not. Failure is high effort, not an automatic increase or growth bonus. Drop-row credits are descriptive, not equivalent straight-set stimulus. Matching exercise baselines include working and failure rows only.',
       workoutCount: workouts.length,
       workingSetCount: workingSets.length,
       volumeKg: round(volumeKg),

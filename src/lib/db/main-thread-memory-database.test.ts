@@ -21,11 +21,17 @@ import { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic
 import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
 import {
   getRecentExerciseSessionSets,
+  getExerciseSessionHistory,
+  getWorkoutDetail,
   getWorkoutProgressComparison,
   listVolumeHistory,
   saveWorkout,
   updateWorkout,
 } from './workouts.ts';
+import { getDashboardSummary } from './dashboard.ts';
+import { getWellnessHubSummary } from './wellness.ts';
+import { listCalendarActivity } from './calendar.ts';
+import { toLocalDateKey } from '../time.ts';
 import { resetLocalAccountData } from './account-data-reset.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
@@ -350,6 +356,43 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.equal(recentComparison?.exercises[0]?.baselineSessionCount, 3);
     assert.equal(recentComparison?.exercises[0]?.baselineVolumeKg, 400);
     assert.equal(recentComparison?.exercises[0]?.changePercent, 10);
+
+    // Exercise real save/outbox/read paths, not mocked SQL or just shared helpers.
+    const mixedId = '55555555-5555-4555-8555-555555555555';
+    const mixedStart = new Date().toISOString();
+    const beforeMixed = await getDashboardSummary(database);
+    const wellnessBeforeMixed = await getWellnessHubSummary(database);
+    await saveWorkout(database, { id: mixedId, title: 'Mixed accounting', startedAt: mixedStart,
+      exercises: [{ exercise: baselineExercise,
+        sets: (['working', 'failure', 'drop', 'warmup'] as const).map((kind) => ({
+          kind, reps: 10, loadValue: 20, loadUnit: 'kg' as const, rpe: null,
+        })),
+      }],
+    });
+    const mixedDetail = await getWorkoutDetail(database, mixedId);
+    assert.equal(mixedDetail?.totalVolumeKg, 600);
+    assert.deepEqual(mixedDetail?.sets.map((set) => set.kind), ['working', 'failure', 'drop', 'warmup']);
+    const dashboard = await getDashboardSummary(database);
+    assert.equal(dashboard.latestWorkout?.id, mixedId);
+    assert.equal(dashboard.latestWorkout?.totalVolumeKg, 600);
+    assert.equal(dashboard.weeklyVolumeKg - beforeMixed.weeklyVolumeKg, 600);
+    assert.equal((await getWellnessHubSummary(database)).trainingVolume7DaysKg - wellnessBeforeMixed.trainingVolume7DaysKg, 600);
+    const date = toLocalDateKey(new Date(mixedStart));
+    const day = (await listCalendarActivity(database, date, date))[0]!;
+    assert.equal(day.trainingWorkKg, 1040); // earlier edited workout 440 + mixed 600
+    assert.equal(day.workingSetCount, 4); // one earlier + three training rows
+    const exerciseHistory = await getExerciseSessionHistory(database, baselineExercise.id);
+    const mixedSession = exerciseHistory?.sessions.find((session) => session.workoutId === mixedId);
+    assert.equal(mixedSession?.volumeKg, 400);
+    assert.deepEqual(mixedSession?.sets.map((set) => set.kind), ['working', 'failure']);
+    const mixedRecent = await getRecentExerciseSessionSets(database, baselineExercise.id);
+    assert.deepEqual(mixedRecent[0]?.map((set) => set.kind), ['working', 'failure']);
+    const failurePayload = await database.getFirstAsync<{ payload_json: string }>(
+      `SELECT q.payload_json FROM sync_queue q JOIN workout_sets s ON s.id = q.entity_id
+       WHERE q.table_name = 'sets' AND s.workout_id = ? AND s.kind = 'failure'`, [mixedId],
+    );
+    assert.equal(JSON.parse(failurePayload!.payload_json).kind, 'failure');
+    assert.equal(JSON.parse(failurePayload!.payload_json).rpe, null);
 
     await database.runAsync(
       'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',

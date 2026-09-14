@@ -1,4 +1,5 @@
 import * as Crypto from 'expo-crypto';
+import { countsTowardTraining, countsTowardProgression, targetSetKind } from '../../../supabase/functions/_shared/training-set-policy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -864,7 +865,7 @@ export default function NewWorkoutScreen() {
             <View style={[styles.completeSets, { borderTopColor: colors.border }]}>
               <View style={styles.completeSetsCopy}>
                 <AppText style={styles.suggestionTitle}>Review completed sets</AppText>
-                <AppText style={{ color: colors.textMuted }}>Marks every valid entered row complete, then compares working sets with the recent matching baseline.</AppText>
+                <AppText style={{ color: colors.textMuted }}>Completes every valid row. Working and failure sets use your recent matching baseline; drop sets count toward training totals.</AppText>
               </View>
               <Button
                 label={setsComplete ? 'Check again' : 'Complete sets'}
@@ -1076,7 +1077,7 @@ function summarizeDraftMuscleCredits(blocks: DraftExercise[], catalog: Exercise[
     const exercise = catalog.find((item) => item.id === block.exerciseId);
     if (!exercise) continue;
     const completedSetCount = block.sets.filter((set) => {
-      if (!set.completed || set.kind !== 'working') return false;
+      if (!set.completed || !countsTowardTraining(set.kind)) return false;
       if (isRowEmpty(set)) return false;
       const load = Number(set.load);
       const reps = Number(set.reps);
@@ -1100,7 +1101,7 @@ function formatSetCredits(value: number): string {
 }
 
 function draftSetsForProgression(sets: DraftSet[], unit: LoadUnit): ProgressionSet[] {
-  return sets.filter((set) => set.completed && set.kind === 'working' && !isRowEmpty(set)).map((set) => ({
+  return sets.filter((set) => set.completed && countsTowardProgression(set.kind) && !isRowEmpty(set)).map((set) => ({
     loadValue: Number(set.load),
     loadUnit: unit,
     reps: Number(set.reps),
@@ -1157,8 +1158,8 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
       historyStatus: 'idle',
       historyRequestId: null,
     };
-    block.sets.push(newSet(String(set.loadValue), String(set.reps), '', undefined, set.kind, false));
-    if (set.kind === 'working') {
+    block.sets.push(newSet(String(set.loadValue), String(set.reps), '', undefined, targetSetKind(set.kind), false));
+    if (countsTowardProgression(set.kind)) {
       block.sourceSets?.push({
         loadValue: set.loadValue,
         loadUnit: set.loadUnit,
@@ -1200,7 +1201,7 @@ function blocksFromPlan(template: WorkoutDetail): DraftExercise[] {
       loadUnit: set.loadUnit,
       reps: set.reps,
       rpe: set.rpe ?? null,
-      kind: 'working' as const,
+      kind: set.sourceKind ?? 'working',
     }]),
     baselineSessions: null,
     historyStatus: 'idle',
@@ -1234,11 +1235,12 @@ function SetKindPicker({ value, onChange }: { value: SetKind; onChange: (kind: S
 }
 
 function workingSetIndexAt(sets: DraftSet[], rowIndex: number): number {
-  if (sets[rowIndex]?.kind !== 'working') return -1;
-  return sets.slice(0, rowIndex).filter((set) => set.kind === 'working').length;
+  if (!sets[rowIndex] || !countsTowardProgression(sets[rowIndex]?.kind)) return -1;
+  return sets.slice(0, rowIndex).filter((set) => countsTowardProgression(set.kind)).length;
 }
 
 function progressionCueForRow(plan: SetProgressionPlan | null, sets: DraftSet[], rowIndex: number): SetProgressionCue | null {
+  if (sets[rowIndex]?.kind === 'failure' || sets.some((set) => set.completed && set.kind === 'failure')) return null;
   const workingSetIndex = workingSetIndexAt(sets, rowIndex);
   if (workingSetIndex < 0) return null;
   return plan?.cues.find((cue) => cue.workingSetIndex === workingSetIndex) ?? null;

@@ -24,7 +24,7 @@ export default function ExerciseHistoryScreen() {
   const chartMaximum = Math.max(1, ...chartSessions.map((session) => session.volumeKg));
   const compact = width < 600;
 
-  if (loading && !data) return <Screen><StatePanel title="Loading exercise history" body="Reading completed working sets from this device." loading /></Screen>;
+  if (loading && !data) return <Screen><StatePanel title="Loading exercise history" body="Reading completed working and failure sets from this device." loading /></Screen>;
   if (error) return <Screen><StatePanel title="Exercise history is unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /></Screen>;
   if (!data) return <Screen><StatePanel title="Exercise not found" body="It may have been removed from this account." actionLabel="Back to training" onAction={() => router.replace('/train')} /></Screen>;
 
@@ -46,8 +46,9 @@ export default function ExerciseHistoryScreen() {
             ? 'A second completed session will create a point-to-point comparison.'
             : `Work performed versus the immediately previous ${data.exerciseName} session.`}</AppText>
           <AppText style={[styles.disclaimer, { color: colors.textMuted }]}>Load × reps is training work—not a strength or muscle-growth score.</AppText>
+          <AppText style={{ color: colors.textMuted }}>This comparison includes working and failure sets. Drop sets remain in workout totals.</AppText>
         </Card>
-      ) : <StatePanel title="No completed history yet" body="Complete this exercise in a workout and its exact working sets will appear here." />}
+      ) : <StatePanel title="No completed history yet" body="Complete working or failure sets for this exercise to start its progression history. Drop sets remain in your workout totals." />}
 
       {summary.chronological.length ? (
         <>
@@ -93,7 +94,7 @@ export default function ExerciseHistoryScreen() {
                     <View key={set.id} style={[styles.setRow, { borderTopColor: colors.border }]}>
                       <AppText style={[styles.setIndex, { color: colors.textMuted }]}>{index + 1}</AppText>
                       <AppText style={styles.setValue}>{formatNumber(set.loadValue)} {set.loadUnit} × {set.reps}</AppText>
-                      <AppText style={{ color: colors.textMuted }}>{set.rpe == null ? 'RPE —' : `RPE ${formatNumber(set.rpe)}`}</AppText>
+                      <AppText style={{ color: colors.textMuted }}>{set.kind === 'failure' ? 'To failure · ' : ''}{set.rpe == null ? 'RPE —' : `RPE ${formatNumber(set.rpe)}`}</AppText>
                     </View>
                   ))}
                 </View>

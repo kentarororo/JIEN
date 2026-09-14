@@ -1,9 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, ChoiceCard, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { NextSessionReview } from '@/components/next-session-review';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { deleteWorkout, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, reschedulePlannedWorkout, skipPlannedWorkout } from '@/lib/db';
 import { applyStoredJointConsiderationHold, hasStoredJointConsideration } from '@/lib/planning/workout-plan';
@@ -24,6 +25,7 @@ export default function WorkoutDetailScreen() {
   const [skipping, setSkipping] = useState(false);
   const [moving, setMoving] = useState(false);
   const [nextApproach, setNextApproach] = useState<SessionApproach | null>(null);
+  useEffect(() => { setNextApproach(null); }, [id]);
   const loader = useCallback(async () => {
     const [detail, progress, profile] = await Promise.all([
       getWorkoutDetail(db, id),
@@ -41,6 +43,7 @@ export default function WorkoutDetailScreen() {
           }
         : detail,
       progress,
+      jointFlag: hasStoredJointConsideration(profile?.injuryFlags),
     };
   }, [db, id]);
   const { data, error, loading, reload } = useScreenData(loader);
@@ -204,6 +207,7 @@ export default function WorkoutDetailScreen() {
       {data?.progress ? (
         <Card style={[styles.progress, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
           <AppText style={[styles.kicker, { color: colors.accent }]}>PROGRESSION</AppText>
+          <AppText style={{ color: colors.textMuted }}>Working and failure sets are compared here. Drop sets count in the total work above; warm-ups do not.</AppText>
           {data.progress.overallChangePercent == null ? (
             <>
               <AppText style={styles.progressValue}>Baseline saved</AppText>
@@ -235,7 +239,7 @@ export default function WorkoutDetailScreen() {
         <View key={exerciseName} style={styles.group}>
           <SectionHeading title={exerciseName} detail={`${sets[0]?.primaryMuscleGroup.replaceAll('_', ' ')} · target ${sets[0]?.targetRepMin}–${sets[0]?.targetRepMax}`} />
           <Card>
-            {sets.map((set, index) => <View key={set.id} style={styles.setRow}><AppText style={styles.setIndex}>{index + 1}</AppText><AppText style={styles.setValue}>{set.loadValue} {set.loadUnit} × {set.reps}</AppText><AppText style={{ color: colors.textMuted }}>{set.rpe ? `RPE ${set.rpe}` : 'RPE —'}</AppText></View>)}
+            {sets.map((set, index) => <View key={set.id} style={styles.setRow}><AppText style={styles.setIndex}>{index + 1}</AppText><AppText style={styles.setValue}>{set.loadValue} {set.loadUnit} × {set.reps}</AppText><AppText style={{ color: colors.textMuted }}>{set.kind === 'failure' ? 'To failure · ' : set.kind === 'drop' ? 'Drop · ' : set.kind === 'warmup' ? 'Warm-up · ' : ''}{set.rpe ? `RPE ${set.rpe}` : 'RPE —'}</AppText></View>)}
             {sets[0]?.exerciseId ? <Button label="View exercise history" onPress={() => router.push({ pathname: '/exercises/[id]', params: { id: sets[0]!.exerciseId } } as never)} variant="quiet" /> : null}
           </Card>
         </View>
@@ -246,6 +250,8 @@ export default function WorkoutDetailScreen() {
           <AppText style={styles.progressName}>Plan the next time you run this session</AppText>
           <AppText style={{ color: colors.textMuted }}>Choose how the completed work should become your next editable plan. This workout will not change.</AppText>
         </View>
+        <NextSessionReview key={detail.id} sets={detail.sets} startedAt={detail.startedAt} completedAt={detail.completedAt}
+          jointFlag={data?.jointFlag ?? false} selected={nextApproach} onSelect={setNextApproach} />
         <View accessibilityRole="radiogroup" accessibilityLabel="Next workout approach" style={styles.approachChoices}>
           {SESSION_APPROACHES.map((approach) => (
             <ChoiceCard

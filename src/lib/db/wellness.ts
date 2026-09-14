@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { trainingSetSql } from '../../../supabase/functions/_shared/training-set-policy.ts';
 
 import { toLocalDateKey } from '@/lib/time';
 import { normalizeSleepInput } from '@/lib/wellness/sleep-record';
@@ -534,10 +535,10 @@ export async function getWellnessHubSummary(db: SQLiteDatabase): Promise<Wellnes
     }>(
       `SELECT
         COUNT(DISTINCT CASE WHEN w.performed_on >= ? THEN w.id END) AS workout_count_7,
-        COALESCE(SUM(CASE WHEN w.performed_on >= ? AND s.kind = 'working'
+        COALESCE(SUM(CASE WHEN w.performed_on >= ? AND ${trainingSetSql('s.kind')}
           THEN s.load_value * CASE WHEN s.load_unit = 'lb' THEN 0.45359237 ELSE 1 END * s.reps
           ELSE 0 END), 0) AS volume_7,
-        COALESCE(SUM(CASE WHEN w.performed_on >= ? AND w.performed_on < ? AND s.kind = 'working'
+        COALESCE(SUM(CASE WHEN w.performed_on >= ? AND w.performed_on < ? AND ${trainingSetSql('s.kind')}
           THEN s.load_value * CASE WHEN s.load_unit = 'lb' THEN 0.45359237 ELSE 1 END * s.reps
           ELSE 0 END), 0) AS volume_previous_7
        FROM workouts w

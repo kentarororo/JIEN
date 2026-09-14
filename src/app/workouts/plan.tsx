@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
+import { countsTowardProgression } from '../../../supabase/functions/_shared/training-set-policy';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -225,7 +226,7 @@ export default function PlanWorkoutScreen() {
     setBusyExerciseId('latest');
     setFormError(null);
     try {
-      const ids = [...new Set(latestWorkout.sets.filter((set) => set.kind === 'working').map((set) => set.exerciseId))];
+      const ids = [...new Set(latestWorkout.sets.filter((set) => countsTowardProgression(set.kind)).map((set) => set.exerciseId))];
       const next = await Promise.all(ids.map(async (exerciseId) => {
         const exercise = catalog.find((item) => item.id === exerciseId);
         if (!exercise) return null;
@@ -680,7 +681,7 @@ function buildPlanFromCompletedWorkout(
   approach: SessionApproach,
 ): PlannedWorkoutExercise[] {
   const exerciseIds = [...new Set(
-    workout.sets.filter((set) => set.kind === 'working').map((set) => set.exerciseId),
+    workout.sets.filter((set) => countsTowardProgression(set.kind)).map((set) => set.exerciseId),
   )];
   return exerciseIds.flatMap((exerciseId) => {
     const exercise = catalog.find((candidate) => candidate.id === exerciseId);
