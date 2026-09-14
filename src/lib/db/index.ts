@@ -51,6 +51,7 @@ export type { MealPhotoQueueSummary, QueuedMealPhotoResult } from './meal-photo-
 export { migrateDatabase } from './migrate';
 export { deleteWorkoutDraft, getWorkoutDraft, getWorkoutDraftOwnerId, saveWorkoutDraft } from './workout-drafts';
 export { getUserProfile, hasCompletedOnboarding, saveUserProfile } from './profile';
+export { getTrainingProgrammeProgress, saveTrainingProgramme } from './training-programme';
 export {
   acknowledgeMedicalDisclaimer,
   deleteSleepLog,

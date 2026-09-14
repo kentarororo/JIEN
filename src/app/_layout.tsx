@@ -58,6 +58,7 @@ function AppNavigator() {
         <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
         <Stack.Screen name="workouts/new" options={{ title: 'Log workout', presentation: 'modal' }} />
         <Stack.Screen name="workouts/plan" options={{ title: 'Plan workout', presentation: 'modal' }} />
+        <Stack.Screen name="workouts/programme" options={{ title: 'Training targets', presentation: 'modal' }} />
         <Stack.Screen name="workouts/[id]" options={{ title: 'Workout' }} />
         <Stack.Screen name="exercises/index" options={{ title: 'Exercise targets', presentation: 'modal' }} />
         <Stack.Screen name="exercises/[id]" options={{ title: 'Exercise history' }} />

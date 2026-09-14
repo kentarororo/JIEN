@@ -1,4 +1,5 @@
 import type { MuscleGroupAdvisory } from '@/lib/progression';
+import type { TrainingProgramme } from '../planning/training-programme';
 
 export type LoadUnit = 'kg' | 'lb';
 export type SetKind = 'working' | 'warmup' | 'drop' | 'failure';
@@ -11,6 +12,7 @@ export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
 export type FitnessGoal = 'composition' | 'strength' | 'both' | 'general_wellness';
 
 export type UserProfile = {
+  trainingProgramme?: TrainingProgramme | null;
   trainingExperience: TrainingExperience;
   availableEquipment: string[];
   injuryFlags: string[];
@@ -23,7 +25,7 @@ export type UserProfile = {
   onboardingCompletedAt: string;
 };
 
-export type SaveUserProfileInput = Omit<UserProfile, 'aiDataConsentedAt' | 'medicalDisclaimerAcknowledgedAt' | 'onboardingCompletedAt'>;
+export type SaveUserProfileInput = Omit<UserProfile, 'trainingProgramme' | 'aiDataConsentedAt' | 'medicalDisclaimerAcknowledgedAt' | 'onboardingCompletedAt'>;
 
 export type SaveBodyMeasurementInput = {
   heightCm: number;

@@ -4,7 +4,7 @@ import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 
-export const LATEST_DATABASE_VERSION = 15;
+export const LATEST_DATABASE_VERSION = 16;
 
 const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -704,6 +704,12 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         );
       }
       await db.execAsync('PRAGMA user_version = 15;');
+    });
+  }
+  if (currentVersion < 16) {
+    await withExclusiveTransaction(db, async (db) => {
+      await addColumnIfMissing(db, 'user_profile', 'training_programme', 'TEXT');
+      await db.execAsync('PRAGMA user_version = 16;');
     });
   }
 }

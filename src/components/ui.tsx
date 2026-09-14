@@ -360,7 +360,8 @@ const styles = StyleSheet.create({
   busyIndicator: { position: 'absolute' },
   pressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.48 },
-  pill: { minHeight: 44, borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  // Reserve focus-ring space so focusing a wrapping chip cannot move it mid-tap.
+  pill: { minHeight: 44, borderWidth: 2, borderRadius: radii.pill, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
   pillLabel: { ...typography.label, fontWeight: '600' },
   focusedControl: { borderWidth: 2 },
   actionCard: { flex: 1, minWidth: 220, minHeight: 84, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

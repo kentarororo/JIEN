@@ -31,6 +31,7 @@ test('builds a complete versioned active-record export with structured JSON valu
   const result = buildCompleteJsonExport(snapshot({
     profile: {
       training_experience: 'intermediate',
+      training_programme: '{"version":1,"goal":"muscle","sessionsPerWeek":3,"targets":[{"muscleGroup":"chest","weeklySetCredits":8}]}',
       available_equipment: '["cable","machine"]',
       injury_flags: '["knee"]',
       goals: '["strength"]',
@@ -64,6 +65,7 @@ test('builds a complete versioned active-record export with structured JSON valu
     description: 'Deleted records and internal sync queue entries are excluded.',
   });
   assert.deepEqual(result.profile.availableEquipment, ['cable', 'machine']);
+  assert.deepEqual(result.profile.trainingProgramme, { version: 1, goal: 'muscle', sessionsPerWeek: 3, targets: [{ muscleGroup: 'chest', weeklySetCredits: 8 }] });
   assert.equal(result.profile.aiDataConsent, true);
   assert.deepEqual(result.exercises[0].secondaryMuscleGroups, ['triceps']);
   assert.equal(result.exercises[0].scope, 'built_in');

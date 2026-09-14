@@ -44,9 +44,28 @@ Feedback is transient to this review; only the chosen approach is saved with the
 plan. It never becomes a recorded RPE, recovery score, or persistent medical status.
 See [next-session-recommendation.md](next-session-recommendation.md) for rules and QA.
 
-This completes the recommendation interaction, not all of Alpha 2.4. Goal/priority
-muscle prescriptions, real time budgets, longitudinal adherence/plateau decisions,
-and structured relevant-joint feedback remain the next programme deliverables.
+This completes the recommendation interaction, not all of Alpha 2.4. The target
+setup below is the next increment; real time budgets, longitudinal adherence/plateau
+decisions and structured relevant-joint feedback remain programme deliverables.
+
+### Alpha 2.4B — chosen training targets (local implementation)
+
+Training now offers a saved intention, flexible weekly session count and up to six
+priority muscles with user-entered set-credit targets. The summary separates chosen
+targets, completed work and the recent full-week average. Routine ranking uses the
+remaining chosen targets and saved equipment; it does not infer adequate training
+from habitual history. Completed failure/drop work counts, planned/draft work does
+not, and edited exercise tags do not rewrite recorded muscle snapshots. Goal labels
+are saved context, not automatic goal-specific prescriptions. The existing same-lift
+progression, explicit approach choice and joint/effort holds are unchanged.
+
+Targets can be edited or removed without changing workouts or saved session plans.
+They use the existing private profile sync/outbox and complete export. This slice
+requires an additive cloud migration before deployment; it is not a production or
+physical-device validation claim. See [training-programme-targets.md](training-programme-targets.md).
+
+Next: replace rough exercise-count time limits with editable set/rest/transition
+estimates, then test adherence, missed sessions and plateaus across multiple workouts.
 
 Explicit follow-ups, not claims of completion:
 

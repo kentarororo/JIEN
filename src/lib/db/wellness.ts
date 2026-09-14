@@ -476,40 +476,43 @@ function buildSleepLogPayload(input: {
 }
 
 export async function acknowledgeMedicalDisclaimer(db: SQLiteDatabase): Promise<string> {
-  const row = await db.getFirstAsync<{
-    training_experience: string;
-    available_equipment: string;
-    injury_flags: string;
-    goals: string;
-    typical_diet_pattern: string;
-    preferred_load_unit: string;
-    ai_data_consent: number;
-    ai_data_consented_at: string | null;
-    onboarding_completed_at: string;
-    medical_disclaimer_acknowledged_at: string | null;
-  }>(`SELECT training_experience, available_equipment, injury_flags, goals,
-      typical_diet_pattern, preferred_load_unit, ai_data_consent,
-      ai_data_consented_at, onboarding_completed_at,
-      medical_disclaimer_acknowledged_at
-    FROM user_profile WHERE id = 'current'`);
-  if (!row) throw new Error('Complete onboarding before using AI guidance.');
-  if (row.medical_disclaimer_acknowledged_at) return row.medical_disclaimer_acknowledged_at;
+  return withExclusiveTransaction(db, async (db) => {
+    const row = await db.getFirstAsync<{
+      training_programme: string | null;
+      client_updated_at: string;
+      training_experience: string;
+      available_equipment: string;
+      injury_flags: string;
+      goals: string;
+      typical_diet_pattern: string;
+      preferred_load_unit: string;
+      ai_data_consent: number;
+      ai_data_consented_at: string | null;
+      onboarding_completed_at: string;
+      medical_disclaimer_acknowledged_at: string | null;
+    }>(`SELECT training_programme, client_updated_at, training_experience, available_equipment, injury_flags, goals,
+        typical_diet_pattern, preferred_load_unit, ai_data_consent,
+        ai_data_consented_at, onboarding_completed_at,
+        medical_disclaimer_acknowledged_at
+      FROM user_profile WHERE id = 'current'`);
+    if (!row) throw new Error('Complete onboarding before using AI guidance.');
+    if (row.medical_disclaimer_acknowledged_at) return row.medical_disclaimer_acknowledged_at;
 
-  const acknowledgedAt = new Date().toISOString();
-  const payload = {
-    training_experience: row.training_experience,
-    available_equipment: JSON.parse(row.available_equipment),
-    injury_flags: JSON.parse(row.injury_flags),
-    goals: JSON.parse(row.goals),
-    typical_diet_pattern: row.typical_diet_pattern,
-    preferred_load_unit: row.preferred_load_unit,
-    ai_data_consent: row.ai_data_consent === 1,
-    ai_data_consented_at: row.ai_data_consented_at,
-    onboarding_completed_at: row.onboarding_completed_at,
-    medical_disclaimer_acknowledged_at: acknowledgedAt,
-    client_updated_at: acknowledgedAt,
-  };
-  await withExclusiveTransaction(db, async (db) => {
+    const acknowledgedAt = new Date(Math.max(Date.now(), Date.parse(row.client_updated_at) + 1 || 0)).toISOString();
+    const payload = {
+      training_programme: row.training_programme == null ? null : JSON.parse(row.training_programme),
+      training_experience: row.training_experience,
+      available_equipment: JSON.parse(row.available_equipment),
+      injury_flags: JSON.parse(row.injury_flags),
+      goals: JSON.parse(row.goals),
+      typical_diet_pattern: row.typical_diet_pattern,
+      preferred_load_unit: row.preferred_load_unit,
+      ai_data_consent: row.ai_data_consent === 1,
+      ai_data_consented_at: row.ai_data_consented_at,
+      onboarding_completed_at: row.onboarding_completed_at,
+      medical_disclaimer_acknowledged_at: acknowledgedAt,
+      client_updated_at: acknowledgedAt,
+    };
     await db.runAsync(
       `UPDATE user_profile
        SET medical_disclaimer_acknowledged_at = ?, updated_at = ?, client_updated_at = ?
@@ -517,8 +520,8 @@ export async function acknowledgeMedicalDisclaimer(db: SQLiteDatabase): Promise<
       [acknowledgedAt, acknowledgedAt, acknowledgedAt],
     );
     await enqueueUpsert(db, 'users', 'current-profile', payload);
+    return acknowledgedAt;
   });
-  return acknowledgedAt;
 }
 
 export async function getWellnessHubSummary(db: SQLiteDatabase): Promise<WellnessHubSummary> {

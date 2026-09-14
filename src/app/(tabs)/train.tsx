@@ -5,6 +5,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
+import { TrainingProgrammeCard } from '@/components/training-programme-card';
+import { getTrainingProgrammeProgress } from '@/lib/db';
 import { getWorkoutProgressComparison, listRecentWorkouts, listUpcomingPlannedWorkouts, listVolumeHistory } from '@/lib/db';
 import { aggregateWeeklyVolume, buildMuscleGroupAdvisory, buildMuscleGroupTrends, muscleGroupLabel, type MuscleGroupAdvisory, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate, formatTime } from '@/lib/time';
@@ -22,11 +24,12 @@ export default function TrainScreen() {
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(12);
   const [showAllHistoryMuscles, setShowAllHistoryMuscles] = useState(false);
   const loader = useCallback(async () => {
-    const [workouts, planned, volumeSets, progress] = await Promise.all([
+    const [workouts, planned, volumeSets, progress, programme] = await Promise.all([
       listRecentWorkouts(db, 100),
       listUpcomingPlannedWorkouts(db),
       listVolumeHistory(db),
       getWorkoutProgressComparison(db),
+      getTrainingProgrammeProgress(db),
     ]);
     const weeks = aggregateWeeklyVolume(volumeSets);
     return {
@@ -36,6 +39,7 @@ export default function TrainScreen() {
       advisory: buildMuscleGroupAdvisory(volumeSets),
       muscleTrends: buildMuscleGroupTrends(weeks),
       progress,
+      programme,
     };
   }, [db]);
   const { data, error, loading, reload } = useScreenData(loader);
@@ -69,7 +73,8 @@ export default function TrainScreen() {
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
       {trainingView === 'overview' ? <>
-      {data ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'advisory' } } as never)} onLog={() => router.push('/workouts/new')} /> : null}
+      {data ? <TrainingProgrammeCard progress={data.programme} onEdit={() => router.push('/workouts/programme' as never)} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'programme_targets' } } as never)} /> : null}
+      {data && !data.programme ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'advisory' } } as never)} onLog={() => router.push('/workouts/new')} /> : null}
       {data?.planned.length ? <>
         <SectionHeading title="Workout plans" detail={`${data.planned.length} saved session${data.planned.length === 1 ? '' : 's'}`} />
         <View style={styles.list}>{data.planned.map((workout) => (
@@ -136,11 +141,11 @@ export default function TrainScreen() {
         <Card>
           <View style={styles.row}><View><AppText style={styles.title}>Load and rep detail</AppText><AppText style={{ color: colors.textMuted }}>{formatWork(data.weeks.at(-1)!.totalKg)} this logged week</AppText></View></View>
           <WeeklyWorkTrend weeks={data.weeks} />
-          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>This is completed working-set load × reps, not a strength or muscle-growth score.</AppText>
+          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>Completed working, failure and drop-set load × reps—not a strength or muscle-growth score.</AppText>
         </Card>
       ) : null}
       {data?.muscleTrends.length ? <>
-        <SectionHeading title="Muscle-group coverage" detail="Completed working-set credits by muscle" />
+        <SectionHeading title="Muscle-group coverage" detail="Completed training-set credits by muscle" />
         <Card>
           <View style={styles.muscleGrid}>
             {(showAllMuscles ? data.muscleTrends : data.muscleTrends.slice(0, 6)).map((trend) => (
@@ -148,7 +153,7 @@ export default function TrainScreen() {
             ))}
           </View>
           {data.muscleTrends.length > 6 ? <Button label={showAllMuscles ? 'Show main areas' : `Show all ${data.muscleTrends.length} areas`} onPress={() => setShowAllMuscles((value) => !value)} variant="quiet" /> : null}
-          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>One primary working set counts as 1.0; each tagged assisting muscle counts as 0.5. Exercise angles stay in the log, while related regions are pooled only in the next-workout focus.</AppText>
+          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>One primary training set counts as 1.0; each tagged assisting muscle counts as 0.5. Working, failure and drop sets count; warm-ups do not. Exercise angles stay in the log, while related regions are pooled for planning.</AppText>
           <Button label="Explain this month" onPress={() => router.push({ pathname: '/wellness', params: { trainingReview: '1' } } as never)} variant="secondary" />
         </Card>
       </> : null}
@@ -260,7 +265,7 @@ function MuscleTrendCard({ trend, recentWeekCount }: { trend: MuscleGroupTrend; 
       </View>
       <View>
         <AppText style={styles.muscleMetric}>{formatSetEquivalents(trend.currentSetEquivalents)}</AppText>
-        <AppText style={{ color: colors.textMuted }}>weighted working sets · {trend.activeWeeks}/{recentWeekCount} weeks</AppText>
+        <AppText style={{ color: colors.textMuted }}>training-set credits · {trend.activeWeeks}/{recentWeekCount} weeks</AppText>
       </View>
       <View style={styles.muscleBars}>
         <View style={styles.muscleBarRow}>

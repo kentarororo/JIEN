@@ -57,6 +57,7 @@ accounts.
 | `available_equipment` | `text[]` | User-authored equipment keys |
 | `injury_flags` | `jsonb` | JSON array; sensitive |
 | `goals` | `fitness_goal[]` | Composition, strength, both, or general wellness |
+| `training_programme` | `jsonb` | Nullable versioned intention, session frequency and user-chosen priority-muscle targets; private, not AI-generated |
 | `typical_diet_pattern` | `text` | Optional onboarding context; sensitive |
 | `ai_data_consent` | `boolean` | Explicit AI processing consent |
 | `ai_data_consented_at` | `timestamptz` | Required while consent is true |
@@ -67,6 +68,19 @@ accounts.
 The profile is deleted automatically when the Auth user is deleted. Revoking AI
 consent does not erase history automatically; it prevents new client-side AI thread
 or message inserts and must prevent new Edge Function provider calls.
+
+Local schema version 16 adds `user_profile.training_programme` as nullable JSON text.
+Apply `supabase/migrations/20260914000100_training_programme.sql` before deploying
+this client: cloud profile reads and writes include the new column. The additive
+migration does not change workouts, set snapshots, authentication, or RLS. Version 1
+stores `goal` (muscle/strength/balanced), `sessionsPerWeek` (1–7), and 1–6 unique
+canonical muscle-family targets (`muscleGroup`, `weeklySetCredits`). Targets accept
+0.5–40 in half-credit steps; these are input bounds, not recommended training doses.
+Unknown versions are not interpreted by the current editor. The raw JSON survives
+unrelated profile writes and exports. A null value explicitly removes the programme.
+Profile/consent/target edits read and enqueue the complete mutable profile inside one
+SQLite transaction, advancing its logical timestamp. Whole-profile last-write-wins
+still applies across devices; this is not field-level conflict merging.
 
 Whole-account deletion is the one user-facing hard-delete path. The authenticated
 `delete-account` Edge Function derives the owner only from the verified bearer token,

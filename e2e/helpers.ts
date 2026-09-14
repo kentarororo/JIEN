@@ -63,7 +63,7 @@ export async function prepareIsolatedJienContext(context: BrowserContext, page: 
         headers: {
           'Content-Range': '0-0/0',
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'authorization, apikey, content-type, prefer, range, x-client-info, x-supabase-api-version',
+          'Access-Control-Allow-Headers': 'authorization, apikey, content-type, accept-profile, content-profile, prefer, range, x-client-info, x-supabase-api-version',
           'Access-Control-Allow-Methods': 'DELETE, GET, HEAD, OPTIONS, PATCH, POST',
         },
         contentType: 'application/json',

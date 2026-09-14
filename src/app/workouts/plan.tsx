@@ -10,6 +10,7 @@ import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel 
 import {
   getRecentExerciseSessionSets,
   getUserProfile,
+  getTrainingProgrammeProgress,
   getWorkoutDetail,
   listExercises,
   listRecentWorkouts,
@@ -81,6 +82,7 @@ export default function PlanWorkoutScreen() {
   const [preferredUnit, setPreferredUnit] = useState<LoadUnit>('kg');
   const [availableEquipment, setAvailableEquipment] = useState<string[]>([]);
   const [advisory, setAdvisory] = useState<MuscleGroupAdvisory | null>(null);
+  const [programme, setProgramme] = useState<Awaited<ReturnType<typeof getTrainingProgrammeProgress>>>(null);
   const [hasJointConsideration, setHasJointConsideration] = useState(false);
   const [jointProgressionChoice, setJointProgressionChoice] = useState<JointProgressionChoice>('hold');
   const [latestWorkout, setLatestWorkout] = useState<WorkoutDetail | null>(null);
@@ -110,13 +112,14 @@ export default function PlanWorkoutScreen() {
   const load = useCallback(async () => {
     setLoadingError(null);
     try {
-      const [exercises, profile, recent, existingPlan, sourceWorkout, volumeSets] = await Promise.all([
+      const [exercises, profile, recent, existingPlan, sourceWorkout, volumeSets, programmeProgress] = await Promise.all([
         listExercises(db),
         getUserProfile(db),
         listRecentWorkouts(db, 1),
         params.planWorkoutId ? getWorkoutDetail(db, params.planWorkoutId) : Promise.resolve(null),
         params.sourceWorkoutId ? getWorkoutDetail(db, params.sourceWorkoutId) : Promise.resolve(null),
         listVolumeHistory(db),
+        getTrainingProgrammeProgress(db),
       ]);
       const shouldHoldProgression = hasStoredJointConsideration(profile?.injuryFlags);
       const savedJointChoice = existingPlan?.plan?.jointProgressionChoice ?? 'hold';
@@ -124,6 +127,7 @@ export default function PlanWorkoutScreen() {
       setPreferredUnit(profile?.preferredLoadUnit ?? 'kg');
       setAvailableEquipment(profile?.availableEquipment ?? []);
       setAdvisory(buildMuscleGroupAdvisory(volumeSets));
+      setProgramme(programmeProgress);
       setHasJointConsideration(shouldHoldProgression);
       setJointProgressionChoice(savedJointChoice);
       setLatestWorkout(recent[0] ? await getWorkoutDetail(db, recent[0].id) : null);
@@ -344,8 +348,8 @@ export default function PlanWorkoutScreen() {
   const routineRecommendations = useMemo(() => rankRoutineStarters({
     catalog: catalog ?? [],
     availableEquipment,
-    focus: advisory?.status === 'focus' ? advisory.focus : [],
-  }), [advisory, availableEquipment, catalog]);
+    focus: programme ? programme.focus : advisory?.status === 'focus' ? advisory.focus : [],
+  }), [advisory, availableEquipment, catalog, programme]);
   const recommendedByStarter = useMemo(() => new Map(
     routineRecommendations.map((item) => [item.starter.id, item]),
   ), [routineRecommendations]);
@@ -353,7 +357,7 @@ export default function PlanWorkoutScreen() {
     ...routineRecommendations.map((item) => item.starter),
     ...ROUTINE_STARTERS.filter((starter) => !recommendedByStarter.has(starter.id)),
   ], [recommendedByStarter, routineRecommendations]);
-  const advisoryRecommendation = params.source === 'advisory' ? routineRecommendations[0] ?? null : null;
+  const advisoryRecommendation = params.source === 'advisory' || params.source === 'programme_targets' ? routineRecommendations[0] ?? null : null;
   const draftMuscleCredits = useMemo(() => summarizePlannedMuscleCredits(
     planned.map((exercise) => ({ exerciseId: exercise.exerciseId, setCount: exercise.sets.length })),
     catalog ?? [],
@@ -372,7 +376,7 @@ export default function PlanWorkoutScreen() {
     <Screen scrollViewRef={scrollRef} contentContainerStyle={styles.screenContent}>
       {!planned.length && advisoryRecommendation ? (
         <Card style={{ backgroundColor: colors.accentSoft, borderColor: colors.accent }}>
-          <AppText style={[styles.kicker, { color: colors.accent }]}>CURRENT MUSCLE FOCUS</AppText>
+          <AppText style={[styles.kicker, { color: colors.accent }]}>{programme ? 'YOUR WEEKLY TARGETS' : 'CURRENT MUSCLE FOCUS'}</AppText>
           <AppText style={styles.cardTitle}>{advisoryRecommendation.starter.label} matches the current gaps</AppText>
           <AppText style={{ color: colors.textMuted }}>{advisoryRecommendation.reason}</AppText>
           <Button label={`Use ${advisoryRecommendation.starter.label} draft`} onPress={() => void useRoutineStarter(advisoryRecommendation.starter)} busy={busyExerciseId === `routine:${advisoryRecommendation.starter.id}`} variant="secondary" />

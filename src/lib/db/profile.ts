@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { parseTrainingProgramme } from '../planning/training-programme.ts';
 
 import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
@@ -6,6 +7,7 @@ import { insertBodyMeasurement } from './wellness';
 import type { FitnessGoal, LoadUnit, SaveBodyMeasurementInput, SaveUserProfileInput, TrainingExperience, UserProfile } from './types';
 
 type ProfileRow = {
+  training_programme: string | null;
   training_experience: TrainingExperience;
   available_equipment: string;
   injury_flags: string;
@@ -20,6 +22,7 @@ type ProfileRow = {
 
 function mapProfile(row: ProfileRow): UserProfile {
   return {
+    trainingProgramme: parseTrainingProgramme(row.training_programme),
     trainingExperience: row.training_experience,
     availableEquipment: JSON.parse(row.available_equipment) as string[],
     injuryFlags: JSON.parse(row.injury_flags) as string[],
@@ -35,7 +38,7 @@ function mapProfile(row: ProfileRow): UserProfile {
 
 export async function getUserProfile(db: SQLiteDatabase): Promise<UserProfile | null> {
   const row = await db.getFirstAsync<ProfileRow>(
-    `SELECT training_experience, available_equipment, injury_flags, goals,
+    `SELECT training_programme, training_experience, available_equipment, injury_flags, goals,
       typical_diet_pattern, preferred_load_unit, ai_data_consent,
       ai_data_consented_at, medical_disclaimer_acknowledged_at, onboarding_completed_at
      FROM user_profile WHERE id = 'current'`,
@@ -59,37 +62,40 @@ export async function saveUserProfile(
   if (input.availableEquipment.length === 0) throw new Error('Choose at least one equipment option.');
   if (!input.typicalDietPattern.trim()) throw new Error('Choose a typical diet pattern.');
 
-  const now = new Date().toISOString();
-  const existing = await db.getFirstAsync<{
-    created_at: string;
-    ai_data_consent: number;
-    ai_data_consented_at: string | null;
-    medical_disclaimer_acknowledged_at: string | null;
-    onboarding_completed_at: string;
-  }>(
-    `SELECT created_at, ai_data_consent, ai_data_consented_at,
-      medical_disclaimer_acknowledged_at, onboarding_completed_at
-     FROM user_profile WHERE id = 'current'`,
-  );
-  const consentedAt = input.aiDataConsent
-    ? existing?.ai_data_consent === 1 ? existing.ai_data_consented_at ?? now : now
-    : null;
-  const onboardingCompletedAt = existing?.onboarding_completed_at ?? now;
-  const payload = {
-    training_experience: input.trainingExperience,
-    available_equipment: input.availableEquipment,
-    injury_flags: input.injuryFlags,
-    goals: input.goals,
-    typical_diet_pattern: input.typicalDietPattern.trim(),
-    preferred_load_unit: input.preferredLoadUnit,
-    ai_data_consent: input.aiDataConsent,
-    ai_data_consented_at: consentedAt,
-    medical_disclaimer_acknowledged_at: existing?.medical_disclaimer_acknowledged_at ?? null,
-    onboarding_completed_at: onboardingCompletedAt,
-    client_updated_at: now,
-  };
+  return withExclusiveTransaction(db, async (db) => {
+    const existing = await db.getFirstAsync<{
+      client_updated_at: string;
+      training_programme: string | null;
+      created_at: string;
+      ai_data_consent: number;
+      ai_data_consented_at: string | null;
+      medical_disclaimer_acknowledged_at: string | null;
+      onboarding_completed_at: string;
+    }>(
+      `SELECT client_updated_at, training_programme, created_at, ai_data_consent, ai_data_consented_at,
+        medical_disclaimer_acknowledged_at, onboarding_completed_at
+       FROM user_profile WHERE id = 'current'`,
+    );
+    const now = new Date(Math.max(Date.now(), Date.parse(existing?.client_updated_at ?? '') + 1 || 0)).toISOString();
+    const consentedAt = input.aiDataConsent
+      ? existing?.ai_data_consent === 1 ? existing.ai_data_consented_at ?? now : now
+      : null;
+    const onboardingCompletedAt = existing?.onboarding_completed_at ?? now;
+    const payload = {
+      training_programme: existing?.training_programme != null ? JSON.parse(existing.training_programme) : null,
+      training_experience: input.trainingExperience,
+      available_equipment: input.availableEquipment,
+      injury_flags: input.injuryFlags,
+      goals: input.goals,
+      typical_diet_pattern: input.typicalDietPattern.trim(),
+      preferred_load_unit: input.preferredLoadUnit,
+      ai_data_consent: input.aiDataConsent,
+      ai_data_consented_at: consentedAt,
+      medical_disclaimer_acknowledged_at: existing?.medical_disclaimer_acknowledged_at ?? null,
+      onboarding_completed_at: onboardingCompletedAt,
+      client_updated_at: now,
+    };
 
-  await withExclusiveTransaction(db, async (db) => {
     await db.runAsync(
       `INSERT INTO user_profile (
         id, training_experience, available_equipment, injury_flags, goals,
@@ -129,13 +135,14 @@ export async function saveUserProfile(
     );
     await enqueueUpsert(db, 'users', 'current-profile', payload);
     if (bodyMeasurement) await insertBodyMeasurement(db, bodyMeasurement, now);
-  });
 
-  return {
-    ...input,
-    typicalDietPattern: input.typicalDietPattern.trim(),
-    aiDataConsentedAt: consentedAt,
-    medicalDisclaimerAcknowledgedAt: existing?.medical_disclaimer_acknowledged_at ?? null,
-    onboardingCompletedAt,
-  };
+    return {
+      ...input,
+      trainingProgramme: parseTrainingProgramme(existing?.training_programme),
+      typicalDietPattern: input.typicalDietPattern.trim(),
+      aiDataConsentedAt: consentedAt,
+      medicalDisclaimerAcknowledgedAt: existing?.medical_disclaimer_acknowledged_at ?? null,
+      onboardingCompletedAt,
+    };
+  });
 }

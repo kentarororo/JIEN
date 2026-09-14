@@ -1,7 +1,58 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { buildProgrammeProgress, parseTrainingProgramme, type ProgrammeHistorySet, type TrainingProgramme } from './training-programme.ts';
 
 import type { Exercise } from '../db/types.ts';
+
+const targetProgramme: TrainingProgramme = { version: 1, goal: 'muscle', sessionsPerWeek: 3,
+  targets: [{ muscleGroup: 'chest', weeklySetCredits: 8 }, { muscleGroup: 'triceps', weeklySetCredits: 5 }] };
+const programmeSet: ProgrammeHistorySet = { workoutId: 'one', performedOn: '2026-09-14', completedAt: '2026-09-14T12:00:00Z',
+  movementPattern: 'horizontal_push', primaryMuscleGroup: 'upper_chest', secondaryMuscleGroups: ['chest', 'triceps', 'triceps'],
+  reps: 10, loadValue: 0, loadUnit: 'kg', kind: 'working' };
+
+test('programme targets validate user-entered choices without inventing prescriptions', () => {
+  assert.deepEqual(parseTrainingProgramme(JSON.stringify(targetProgramme)), targetProgramme);
+  for (const value of [null, 'bad', [], {}, { ...targetProgramme, version: 2 }, { ...targetProgramme, goal: 'magic' },
+    ...[0, 1.5, 8, '3', Infinity].map((sessionsPerWeek) => ({ ...targetProgramme, sessionsPerWeek })),
+    { ...targetProgramme, targets: [] }, { ...targetProgramme, targets: Array(7).fill(targetProgramme.targets[0]) },
+    { ...targetProgramme, targets: [targetProgramme.targets[0], targetProgramme.targets[0]] },
+    ...['upper_chest', 'unknown'].map((muscleGroup) => ({ ...targetProgramme, targets: [{ muscleGroup, weeklySetCredits: 8 }] })),
+    ...[0, 0.25, 40.5, NaN, Infinity, '8'].map((weeklySetCredits) => ({ ...targetProgramme, targets: [{ muscleGroup: 'chest', weeklySetCredits }] })),
+  ]) assert.equal(parseTrainingProgramme(value), null, JSON.stringify(value));
+  for (const weeklySetCredits of [0.5, 8.5, 40]) assert.ok(parseTrainingProgramme({ ...targetProgramme, targets: [{ muscleGroup: 'chest', weeklySetCredits }] }));
+});
+
+test('programme separates chosen targets, habitual history, completed work and the recent-training cue', () => {
+  const now = new Date('2026-09-17T12:00:00Z');
+  const history = [
+    { ...programmeSet, performedOn: '2026-09-07' }, // last week, entered retrospectively
+    programmeSet, { ...programmeSet, kind: 'failure' as const }, { ...programmeSet, kind: 'drop' as const },
+    { ...programmeSet, kind: 'warmup' as const }, { ...programmeSet, performedOn: '2026-09-18' },
+    { ...programmeSet, performedOn: '2026-02-31' }, { ...programmeSet, reps: 0 }, { ...programmeSet, loadValue: -1 },
+  ];
+  const result = buildProgrammeProgress(targetProgramme, history, now);
+  assert.equal(result.baselineWeekCount, 1);
+  assert.deepEqual(result.rows.map((row) => [row.muscleGroup, row.completed, row.usual, row.remaining, row.trainedRecently]),
+    [['chest', 3, 1, 5, false], ['triceps', 1.5, 0.5, 3.5, false]]);
+  assert.equal(result.focus.length, 2);
+  const recent = buildProgrammeProgress(targetProgramme, [{ ...programmeSet, completedAt: now.toISOString() }], now);
+  assert.equal(recent.focus.length, 0, 'recent work suppresses routine highlighting, not credit');
+  assert.equal(recent.rows[0]?.completed, 1);
+  assert.equal(recent.rows[0]?.usual, null, 'missing history is not zero habitual training');
+  const met = buildProgrammeProgress({ ...targetProgramme, targets: [{ muscleGroup: 'chest', weeklySetCredits: 0.5 }] }, [programmeSet], now);
+  assert.equal(met.rows[0]?.remaining, 0);
+  assert.equal(met.focus.length, 0, 'meeting a goal never silently increases it');
+});
+
+test('programme targets use the local calendar week, including Monday just after midnight', () => {
+  const now = new Date(2026, 8, 14, 0, 5);
+  const result = buildProgrammeProgress(targetProgramme, [
+    { ...programmeSet, performedOn: '2026-09-13', completedAt: new Date(2026, 8, 13, 10).toISOString() },
+    { ...programmeSet, performedOn: '2026-09-14', completedAt: now.toISOString() },
+  ], now);
+  assert.equal(result.rows[0]?.completed, 1);
+  assert.equal(result.rows[0]?.usual, 1);
+});
 import { DEFAULT_EXERCISES } from '../db/migrate.ts';
 import {
   ROUTINE_STARTERS,

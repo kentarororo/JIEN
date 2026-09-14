@@ -39,6 +39,7 @@ function mapProfile(row: ExportDatabaseRow | null): JsonObject | null {
   if (!row) return null;
   return {
     trainingExperience: value(row, 'training_experience'),
+    trainingProgramme: decodeExportJson(row.training_programme, null),
     availableEquipment: decodeExportJson(row.available_equipment, []),
     injuryFlags: decodeExportJson(row.injury_flags, []),
     goals: decodeExportJson(row.goals, []),

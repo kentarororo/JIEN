@@ -12,6 +12,13 @@ import * as SQLite from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-
 // @ts-expect-error Expo bundles these JavaScript modules without public declarations.
 import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-constants.js';
 import { migrateDatabase } from './migrate.ts';
+import { getTrainingProgrammeProgress, saveTrainingProgramme } from './training-programme.ts';
+import { getUserProfile, saveUserProfile } from './profile.ts';
+import { applyRemoteProfile } from './cloud-sync.ts';
+import { acknowledgeMedicalDisclaimer } from './wellness.ts';
+import { getCompleteExportSnapshot } from './export.ts';
+import type { SaveUserProfileInput } from './types.ts';
+import type { TrainingProgramme } from '../planning/training-programme.ts';
 import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './exercise-targets.ts';
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
@@ -36,6 +43,24 @@ import { resetLocalAccountData } from './account-data-reset.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
 type WaSQLiteModule = Parameters<typeof SQLite.Factory>[0];
+
+test('exclusive transaction retains repository results with the Expo native void-return contract', async () => {
+  const scoped = {} as SQLiteDatabase;
+  const native = { withExclusiveTransactionAsync: async (task: (tx: SQLiteDatabase) => Promise<void>) => { await task(scoped); } } as SQLiteDatabase;
+  assert.equal(await withExclusiveTransaction(native, async (tx) => { assert.equal(tx, scoped); return 'saved'; }), 'saved');
+  await assert.rejects(withExclusiveTransaction(native, async () => { throw new Error('rejected'); }), /rejected/);
+});
+
+test('exclusive transaction only returns after commit and propagates commit failures', async () => {
+  let committed = false;
+  const native = { withExclusiveTransactionAsync: async (task: (tx: SQLiteDatabase) => Promise<void>) => {
+    await task({} as SQLiteDatabase);
+    committed = true;
+    throw new Error('commit failed');
+  } } as unknown as SQLiteDatabase;
+  await assert.rejects(withExclusiveTransaction(native, async () => 'not saved'), /commit failed/);
+  assert.equal(committed, true);
+});
 type WaSQLiteFactoryType = (options: { wasmBinary: Uint8Array }) => Promise<WaSQLiteModule>;
 
 // Expo generates this file as CommonJS but does not include public declarations
@@ -89,7 +114,46 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 15);
+    assert.equal(version?.user_version, 16);
+    await assert.rejects(saveTrainingProgramme(database, null), /Complete your profile/);
+    const profileInput: SaveUserProfileInput = { trainingExperience: 'intermediate', availableEquipment: ['machines'], injuryFlags: [],
+      goals: ['strength'], typicalDietPattern: 'Varied', preferredLoadUnit: 'kg', aiDataConsent: false };
+    const programme: TrainingProgramme = { version: 1, goal: 'strength', sessionsPerWeek: 3, targets: [{ muscleGroup: 'chest', weeklySetCredits: 8 }] };
+    await saveUserProfile(database, profileInput);
+    await saveTrainingProgramme(database, programme);
+    await saveUserProfile(database, { ...profileInput, preferredLoadUnit: 'lb' });
+    await acknowledgeMedicalDisclaimer(database);
+    assert.deepEqual((await getUserProfile(database))?.trainingProgramme, programme);
+    const queuedProfile = async () => JSON.parse((await database.getFirstAsync<{ payload_json: string }>(
+      `SELECT payload_json FROM sync_queue WHERE table_name = 'users' AND entity_id = 'current-profile'`))!.payload_json);
+    const savedProfilePayload = await queuedProfile();
+    assert.deepEqual(savedProfilePayload.training_programme, programme, 'settings and consent writes must preserve queued targets');
+    assert.equal(savedProfilePayload.preferred_load_unit, 'lb');
+    assert.equal(savedProfilePayload.ai_data_consent, false);
+    assert.ok(savedProfilePayload.medical_disclaimer_acknowledged_at);
+    assert.deepEqual(JSON.parse(String((await getCompleteExportSnapshot(database)).profile?.training_programme)), programme);
+    assert.equal((await getTrainingProgrammeProgress(database))?.completedSessions, 0);
+    assert.equal((await getTrainingProgrammeProgress(database))?.rows[0]?.usual, null);
+    assert.ok((await getTrainingProgrammeProgress(database))?.focus.length);
+    await database.execAsync(`CREATE TEMP TRIGGER reject_programme_queue BEFORE UPDATE ON sync_queue
+      WHEN NEW.table_name = 'users' BEGIN SELECT RAISE(ABORT, 'programme queue rejected'); END;`);
+    await assert.rejects(saveTrainingProgramme(database, null), /programme queue rejected/);
+    assert.deepEqual((await getUserProfile(database))?.trainingProgramme, programme, 'failed outbox write rolls back preferences');
+    assert.deepEqual((await queuedProfile()).training_programme, programme, 'failed outbox write preserves queued targets');
+    await database.execAsync('DROP TRIGGER reject_programme_queue;');
+    await saveTrainingProgramme(database, null);
+    await saveUserProfile(database, profileInput);
+    assert.equal((await queuedProfile()).training_programme, null, 'clear must survive a later queued profile write');
+    assert.equal(await getTrainingProgrammeProgress(database), null);
+    const remoteProfile = { ...savedProfilePayload, created_at: '2026-01-01T00:00:00Z', updated_at: '2030-01-01T00:00:00Z', client_updated_at: '2030-01-01T00:00:00Z' };
+    await applyRemoteProfile(database, remoteProfile);
+    assert.deepEqual((await getUserProfile(database))?.trainingProgramme, programme, 'cloud restore uses the real profile mapper');
+    await applyRemoteProfile(database, { ...remoteProfile, training_programme: null, client_updated_at: '2025-01-01T00:00:00Z' });
+    assert.deepEqual((await getUserProfile(database))?.trainingProgramme, programme, 'older remote profile cannot erase local targets');
+    await saveTrainingProgramme(database, null);
+    assert.ok(Date.parse((await queuedProfile()).client_updated_at) > Date.parse(remoteProfile.client_updated_at), 'a fresh local edit advances the profile clock');
+    await database.runAsync(`DELETE FROM user_profile WHERE id = 'current'`);
+    await database.runAsync(`DELETE FROM sync_queue WHERE table_name = 'users'`);
     assert.equal(exercises?.count, 132);
     assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
@@ -283,6 +347,20 @@ test('main-thread database persists committed work and isolates delayed transact
     const snapshotSet = snapshotHistory.find((set) => set.movementPattern === 'horizontal_push');
     assert.equal(snapshotSet?.primaryMuscleGroup, 'chest', 'exercise edits must not reclassify saved sets');
     assert.deepEqual(snapshotSet?.secondaryMuscleGroups, ['triceps', 'front_delts']);
+    await saveUserProfile(database, profileInput);
+    await saveTrainingProgramme(database, programme);
+    const progressBeforeEdit = await getTrainingProgrammeProgress(database);
+    assert.equal(progressBeforeEdit?.rows[0]?.completed, 1, 'completed sets use their recorded muscle snapshot');
+    assert.equal(progressBeforeEdit?.completedSessions, 1);
+    await database.runAsync(`UPDATE workouts SET status = 'in_progress' WHERE id = '33333333-3333-4333-8333-333333333333'`);
+    assert.equal((await getTrainingProgrammeProgress(database))?.rows[0]?.completed, 0, 'draft or active work is not completed weekly credit');
+    assert.equal((await getTrainingProgrammeProgress(database))?.completedSessions, 0);
+    await database.runAsync(`UPDATE workouts SET status = 'completed' WHERE id = '33333333-3333-4333-8333-333333333333'`);
+    await database.runAsync(`UPDATE workout_sets SET deleted_at = ? WHERE workout_id = '33333333-3333-4333-8333-333333333333'`, [workoutTimestamp]);
+    assert.equal((await getTrainingProgrammeProgress(database))?.rows[0]?.completed, 0, 'deleted sets no longer contribute');
+    await database.runAsync(`UPDATE workout_sets SET deleted_at = NULL WHERE workout_id = '33333333-3333-4333-8333-333333333333'`);
+    await database.runAsync(`DELETE FROM user_profile WHERE id = 'current'`);
+    await database.runAsync(`DELETE FROM sync_queue WHERE table_name = 'users'`);
     const savedSet = await database.getFirstAsync<{ id: string }>(
       'SELECT id FROM workout_sets WHERE workout_id = ?',
       ['33333333-3333-4333-8333-333333333333'],
@@ -650,7 +728,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 15 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 16 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 

@@ -49,7 +49,7 @@ export async function getCompleteExportSnapshot(
       `SELECT value FROM app_settings WHERE key = 'cloud_owner_user_id'`,
     ),
     db.getFirstAsync<ExportDatabaseRow>(
-      `SELECT training_experience, available_equipment, injury_flags, goals,
+      `SELECT training_programme, training_experience, available_equipment, injury_flags, goals,
               typical_diet_pattern, preferred_load_unit, ai_data_consent,
               ai_data_consented_at, medical_disclaimer_acknowledged_at,
               onboarding_completed_at, created_at, updated_at, client_updated_at

@@ -53,6 +53,7 @@ const LOCAL_TABLE: Record<PullTable, string> = {
 };
 
 type RemoteProfile = {
+  training_programme?: Record<string, unknown> | null;
   training_experience: TrainingExperience | null;
   available_equipment: string[] | null;
   injury_flags: unknown;
@@ -101,20 +102,26 @@ async function restoreProfile(db: SQLiteDatabase, userId: string): Promise<boole
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from('users')
-    .select('training_experience,available_equipment,injury_flags,goals,typical_diet_pattern,preferred_load_unit,ai_data_consent,ai_data_consented_at,medical_disclaimer_acknowledged_at,onboarding_completed_at,created_at,updated_at,client_updated_at')
+    .select('training_programme,training_experience,available_equipment,injury_flags,goals,typical_diet_pattern,preferred_load_unit,ai_data_consent,ai_data_consented_at,medical_disclaimer_acknowledged_at,onboarding_completed_at,created_at,updated_at,client_updated_at')
     .eq('id', userId)
     .maybeSingle<RemoteProfile>();
   if (error) throw error;
+  return applyRemoteProfile(db, data);
+}
+
+/** The same guarded restore path is used for initial hydration and reconciliation. */
+export async function applyRemoteProfile(db: SQLiteDatabase, data: RemoteProfile | null): Promise<boolean> {
   if (!isCompleteProfile(data)) return false;
 
   await db.runAsync(
     `INSERT INTO user_profile (
-      id, training_experience, available_equipment, injury_flags, goals,
+      id, training_programme, training_experience, available_equipment, injury_flags, goals,
       typical_diet_pattern, preferred_load_unit, ai_data_consent,
       ai_data_consented_at, medical_disclaimer_acknowledged_at,
       onboarding_completed_at, created_at, updated_at, client_updated_at
-    ) VALUES ('current', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES ('current', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
+      training_programme = excluded.training_programme,
       training_experience = excluded.training_experience,
       available_equipment = excluded.available_equipment,
       injury_flags = excluded.injury_flags,
@@ -130,6 +137,7 @@ async function restoreProfile(db: SQLiteDatabase, userId: string): Promise<boole
       client_updated_at = excluded.client_updated_at
     WHERE julianday(excluded.client_updated_at) >= julianday(user_profile.client_updated_at)`,
     [
+      data.training_programme == null ? null : JSON.stringify(data.training_programme),
       data.training_experience,
       JSON.stringify(data.available_equipment),
       JSON.stringify(Array.isArray(data.injury_flags) ? data.injury_flags : []),
