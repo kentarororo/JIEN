@@ -40,6 +40,10 @@ import { getWellnessHubSummary } from './wellness.ts';
 import { listCalendarActivity } from './calendar.ts';
 import { toLocalDateKey } from '../time.ts';
 import { resetLocalAccountData } from './account-data-reset.ts';
+import { DEFAULT_TIME_BUDGET } from '../planning/session-time.ts';
+import { buildPlannedWorkoutExercise } from '../planning/workout-plan.ts';
+import { listExercises } from './exercises.ts';
+import { savePlannedWorkout, reschedulePlannedWorkout } from './workouts.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
 type WaSQLiteModule = Parameters<typeof SQLite.Factory>[0];
@@ -115,6 +119,29 @@ test('main-thread database persists committed work and isolates delayed transact
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
     assert.equal(version?.user_version, 16);
+    const timeExercise = (await listExercises(database))[0]!;
+    const timePlanInput = { id: 'time-plan-qa', title: 'Time plan QA', performedOn: toLocalDateKey(), scheduledAt: null,
+      exercises: [buildPlannedWorkoutExercise({ exercise: timeExercise, history: [], preferredLoadUnit: 'kg' })],
+      timeBudget: { ...DEFAULT_TIME_BUDGET, restSeconds: 180 } };
+    await savePlannedWorkout(database, timePlanInput);
+    assert.deepEqual((await getWorkoutDetail(database, timePlanInput.id))?.plan?.timeBudget, timePlanInput.timeBudget);
+    const timeQueued = async () => JSON.parse((await database.getFirstAsync<{ payload_json: string }>(
+      `SELECT payload_json FROM sync_queue WHERE entity_id = ? AND table_name = 'workouts'`, [timePlanInput.id]))!.payload_json);
+    assert.deepEqual((await timeQueued()).plan_json.timeBudget, timePlanInput.timeBudget);
+    assert.equal((await getWorkoutDetail(database, timePlanInput.id))?.sets.length, 0, 'estimates never create observed work');
+    const exportedTimePlan = (await getCompleteExportSnapshot(database)).workouts.find((row) => row.id === timePlanInput.id)!;
+    assert.deepEqual(JSON.parse(String(exportedTimePlan.plan_json)).timeBudget, timePlanInput.timeBudget);
+    await reschedulePlannedWorkout(database, timePlanInput.id, new Date(Date.now() + 86400000).toISOString());
+    assert.deepEqual((await timeQueued()).plan_json.timeBudget, timePlanInput.timeBudget, 'rescheduling preserves estimate settings');
+    await assert.rejects(savePlannedWorkout(database, { ...timePlanInput, timeBudget: { ...DEFAULT_TIME_BUDGET, restSeconds: -1 } }), /time estimate/);
+    assert.deepEqual((await timeQueued()).plan_json.timeBudget, timePlanInput.timeBudget, 'invalid edits do not replace queued plans');
+    await database.execAsync(`CREATE TEMP TRIGGER reject_time_plan_queue BEFORE UPDATE ON sync_queue
+      WHEN NEW.entity_id = 'time-plan-qa' BEGIN SELECT RAISE(ABORT, 'time queue rejected'); END;`);
+    await assert.rejects(savePlannedWorkout(database, { ...timePlanInput, timeBudget: DEFAULT_TIME_BUDGET }), /time queue rejected/);
+    assert.deepEqual((await getWorkoutDetail(database, timePlanInput.id))?.plan?.timeBudget, timePlanInput.timeBudget);
+    await database.execAsync('DROP TRIGGER reject_time_plan_queue;');
+    await database.runAsync('DELETE FROM workouts WHERE id = ?', [timePlanInput.id]);
+    await database.runAsync('DELETE FROM sync_queue WHERE entity_id = ?', [timePlanInput.id]);
     await assert.rejects(saveTrainingProgramme(database, null), /Complete your profile/);
     const profileInput: SaveUserProfileInput = { trainingExperience: 'intermediate', availableEquipment: ['machines'], injuryFlags: [],
       goals: ['strength'], typicalDietPattern: 'Varied', preferredLoadUnit: 'kg', aiDataConsent: false };

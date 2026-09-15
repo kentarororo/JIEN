@@ -75,13 +75,6 @@ export function routineStarterForProgram(splitId: TrainingSplitId, sessionIndex:
   return ROUTINE_STARTERS.find((starter) => starter.id === starterId)!;
 }
 
-export function exerciseLimitForSessionMinutes(minutes: 30 | 45 | 60 | 90): number {
-  if (minutes === 30) return 3;
-  if (minutes === 45) return 4;
-  if (minutes === 60) return 5;
-  return 7;
-}
-
 /**
  * Chooses at most one exercise per movement slot. Profile equipment narrows the
  * choices, while the catalogue remains authoritative so archived rows are not

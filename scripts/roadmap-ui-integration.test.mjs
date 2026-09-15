@@ -227,7 +227,10 @@ test('Programme continuity stays explicit, local-first, and adaptable to availab
   const workoutDetail = readFileSync(new URL('../src/app/workouts/[id].tsx', import.meta.url), 'utf8');
   assert.match(workoutPlan, /TRAINING_SPLITS\.map/);
   assert.match(workoutPlan, /routineStarterForProgram\(splitId, sessionIndex\)/);
-  assert.match(workoutPlan, /exerciseLimitForSessionMinutes\(availableMinutes\)/);
+  assert.match(workoutPlan, /previewShorterSession\(planned, timeBudget\)/);
+  assert.doesNotMatch(workoutPlan, /exerciseLimitForSessionMinutes/);
+  assert.match(workoutPlan, /Use shorter plan/);
+  assert.match(workoutPlan, /Undo shorter plan/);
   assert.match(workoutPlan, /missedSessionPolicy/);
   assert.match(workoutRepository, /export async function reschedulePlannedWorkout/);
   assert.match(workoutDetail, /Move to tomorrow/);

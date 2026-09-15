@@ -57,7 +57,6 @@ import { DEFAULT_EXERCISES } from '../db/migrate.ts';
 import {
   ROUTINE_STARTERS,
   TRAINING_SPLITS,
-  exerciseLimitForSessionMinutes,
   rankRoutineStarters,
   repeatedMovementPatterns,
   resolveRoutineStarter,
@@ -97,10 +96,6 @@ test('programme sessions advance deterministically and wrap without losing the s
   assert.equal(routineStarterForProgram('push_pull_legs', 3).id, 'push');
   assert.equal(routineStarterForProgram('upper_lower', 7).id, 'lower');
   assert.equal(routineStarterForProgram('full_body', 12).id, 'full_body');
-});
-
-test('available time maps to a stable, conservative exercise cap', () => {
-  assert.deepEqual([30, 45, 60, 90].map((minutes) => exerciseLimitForSessionMinutes(minutes as 30 | 45 | 60 | 90)), [3, 4, 5, 7]);
 });
 
 test('a routine starter selects one available exercise per movement slot', () => {

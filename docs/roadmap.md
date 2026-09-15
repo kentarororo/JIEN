@@ -64,8 +64,20 @@ They use the existing private profile sync/outbox and complete export. This slic
 requires an additive cloud migration before deployment; it is not a production or
 physical-device validation claim. See [training-programme-targets.md](training-programme-targets.md).
 
-Next: replace rough exercise-count time limits with editable set/rest/transition
-estimates, then test adherence, missed sessions and plateaus across multiple workouts.
+### Alpha 2.4C — time-aware plans (local implementation)
+
+Routine starters now open in full. A duration estimate uses planned set count,
+editable lifting/rest/between-exercise assumptions and a warm-up allowance. Available
+time works for one-off and repeating plans. Over-budget plans can still be saved;
+an explicit shorter option previews removal from the end of the current order,
+with undo before further exercise edits. It never shortens rest or changes loads to
+force a fit. Added sets start blank, and edited counts cannot become a new completed
+progression baseline. Settings persist with the saved plan without a new SQL migration.
+These estimates are not yet calibrated against measured sessions.
+See [time-aware-planning.md](time-aware-planning.md) for scope and verification.
+
+Next: longitudinal adherence, missed sessions, return after a break and plateau
+review across multiple workouts; then structured relevant-joint and effort feedback.
 
 Explicit follow-ups, not claims of completion:
 
@@ -76,8 +88,8 @@ Explicit follow-ups, not claims of completion:
 - The four-week coverage baseline describes habit, not adequate training for a
   goal. Preserve the recent 2–3 matching-session baseline; never compare loads
   across exercises as interchangeable muscle progress.
-- Replace the rough exercise-count time fit with set/rest/transition estimates;
-  validate against actual sessions. The 48-hour cue remains a heuristic, not a
+- Calibrate the editable set/rest/transition estimates against actual sessions.
+  The 48-hour cue remains a heuristic, not a
   recovery diagnosis. Ease off currently removes one main set, not a personalized
   deload. Missing effort must remain visible; it cannot establish readiness.
 - A 5% work comparison is context, not a mandatory weekly/session increase.

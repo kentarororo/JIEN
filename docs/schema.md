@@ -164,6 +164,16 @@ Each planned set may retain `sourceKind: 'failure'` as historical evidence for
 rebuilding cues. It leaves the original RPE unchanged and never sets today's kind,
 effort, or completion. This optional JSON field needs no SQL migration; old clients
 may discard it when editing a new plan, so keep clients current during rollout.
+Optional `timeBudget` version 1 stores available minutes (30/45/60/90), warm-up
+minutes (0–30), seconds per set (10–300), rest between sets (0–600 seconds), and
+between-exercise time (0–600 seconds). These integer bounds validate editable
+scheduling assumptions, not training prescriptions. Estimates derive from planned
+set counts and never populate observed duration, reps, RPE, or rest-timer settings.
+An exercise with manually changed set counts retains `setCountEdited: true`, keeping
+increase cues off when reopening the plan instead of treating fewer target sets as
+a new completed baseline. Both fields live in existing `plan_json`; no new SQL
+migration or RLS change is needed. Legacy plans without them remain readable.
+Older clients can discard these optional fields on editing; keep clients current.
 Starting a plan captures the absolute start time in its interruption-recovery draft.
 Completing it assigns `performed_on` from that start's local date, stores the start
 time on the same workout row, changes it to `completed`, and writes observed sets

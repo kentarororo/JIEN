@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { JointProgressionChoicePanel, type JointProgressionChoice } from '@/components/joint-progression-choice';
+import { WorkoutTimeEditor } from '@/components/workout-time-estimate';
+import { DEFAULT_TIME_BUDGET, parseTimeEstimateFields, previewShorterSession, timeEstimateFields } from '@/lib/planning/session-time';
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import {
   getRecentExerciseSessionSets,
@@ -33,7 +35,6 @@ import { applySessionApproach, isSessionApproach, sessionApproachTitle } from '@
 import {
   ROUTINE_STARTERS,
   TRAINING_SPLITS,
-  exerciseLimitForSessionMinutes,
   rankRoutineStarters,
   repeatedMovementPatterns,
   resolveRoutineStarter,
@@ -104,6 +105,10 @@ export default function PlanWorkoutScreen() {
   const [splitId, setSplitId] = useState<TrainingSplitId | null>(params.splitId ?? null);
   const [sessionIndex, setSessionIndex] = useState(() => Math.max(0, Math.trunc(Number(params.sessionIndex) || 0)));
   const [availableMinutes, setAvailableMinutes] = useState<30 | 45 | 60 | 90>(() => parseSessionMinutes(params.availableMinutes));
+  const [timeFields, setTimeFields] = useState(() => timeEstimateFields(DEFAULT_TIME_BUDGET));
+  const [shortening, setShortening] = useState<{ original: PlannedWorkoutExercise[]; applied: PlannedWorkoutExercise[] } | null>(null);
+  const timeBudget = parseTimeEstimateFields(timeFields, availableMinutes);
+  const shorter = timeBudget ? previewShorterSession(planned, timeBudget) : null;
   const [missedSessionPolicy, setMissedSessionPolicy] = useState<'reschedule' | 'skip'>('reschedule');
   const [sessionApproach, setSessionApproach] = useState<SessionApproach | undefined>(() => (
     isSessionApproach(params.sessionApproach) ? params.sessionApproach : undefined
@@ -150,6 +155,10 @@ export default function PlanWorkoutScreen() {
           setSessionIndex(existingPlan.plan.programContext.sessionIndex);
           setAvailableMinutes(existingPlan.plan.programContext.availableMinutes);
           setMissedSessionPolicy(existingPlan.plan.programContext.missedSessionPolicy);
+        }
+        if (existingPlan.plan.timeBudget) {
+          setTimeFields(timeEstimateFields(existingPlan.plan.timeBudget));
+          setAvailableMinutes(existingPlan.plan.timeBudget.availableMinutes);
         }
       } else if (sourceWorkout?.status === 'completed' && isSessionApproach(params.sessionApproach)) {
         const sourcePlan = buildPlanFromCompletedWorkout(
@@ -259,8 +268,7 @@ export default function PlanWorkoutScreen() {
     setBusyExerciseId(busyId);
     setFormError(null);
     try {
-      const exercises = resolveRoutineStarter(starter, catalog, availableEquipment)
-        .slice(0, exerciseLimitForSessionMinutes(availableMinutes));
+      const exercises = resolveRoutineStarter(starter, catalog, availableEquipment);
       if (exercises.length < 2) {
         throw new Error('This routine needs more exercises for the equipment saved in your profile. Add exercises individually or update your equipment.');
       }
@@ -314,6 +322,7 @@ export default function PlanWorkoutScreen() {
     setSaving(true);
     setFormError(null);
     try {
+      if (!timeBudget) throw new Error('Check the time estimate settings before saving.');
       if (scheduleMode === 'scheduled' && date < toLocalDateKey()) throw new Error('Choose today or a future calendar day.');
       const scheduledAt = scheduleMode === 'scheduled' ? localTimestampForDateAndTime(date, time) : null;
       const performedOn = scheduleMode === 'scheduled' ? date : toLocalDateKey();
@@ -324,6 +333,7 @@ export default function PlanWorkoutScreen() {
         scheduledAt,
         exercises: planned,
         sessionApproach,
+        timeBudget,
         jointProgressionChoice: hasJointConsideration ? jointProgressionChoice : undefined,
         programContext: splitId ? {
           splitId,
@@ -409,10 +419,6 @@ export default function PlanWorkoutScreen() {
         {splitId ? (
           <>
             <View>
-              <AppText style={styles.label}>Time available</AppText>
-              <View style={styles.pills}>{([30, 45, 60, 90] as const).map((minutes) => <Pill key={minutes} label={`${minutes} min`} active={availableMinutes === minutes} onPress={() => setAvailableMinutes(minutes)} />)}</View>
-            </View>
-            <View>
               <AppText style={styles.label}>If this session is missed</AppText>
               <View style={styles.pills}>
                 <Pill label="Move it" active={missedSessionPolicy === 'reschedule'} onPress={() => setMissedSessionPolicy('reschedule')} />
@@ -421,12 +427,28 @@ export default function PlanWorkoutScreen() {
             </View>
             <View style={[styles.notice, { backgroundColor: colors.accentSoft }]}>
               <AppText style={{ color: colors.accent, fontWeight: '700' }}>Next in order: {programStarter?.label}</AppText>
-              <AppText style={{ color: colors.textMuted }}>A starter adds up to {exerciseLimitForSessionMinutes(availableMinutes)} exercises for this time window. You can still add, remove, swap, or reorder them.</AppText>
+              <AppText style={{ color: colors.textMuted }}>The full routine opens for review. Its duration uses the planned sets and your time settings; shortening it is optional.</AppText>
               {!planned.length && programStarter ? <Button label={`Use ${programStarter.label} session`} onPress={() => void useRoutineStarter(programStarter)} busy={busyExerciseId === `routine:${programStarter.id}`} variant="secondary" /> : null}
             </View>
           </>
         ) : null}
       </Card>
+
+      <WorkoutTimeEditor exercises={planned} availableMinutes={availableMinutes} onMinutesChange={setAvailableMinutes} fields={timeFields} onFieldsChange={setTimeFields} budget={timeBudget} />
+      {shorter && shorter.removed.length > 0 ? (
+        <Card>
+          <AppText style={styles.cardTitle}>Shorter option</AppText>
+          {shorter.kept.length ? <>
+            <AppText>Keep the first {shorter.kept.length} exercises. Remove: {shorter.removed.map((exercise) => exercise.exerciseName).join(', ')}.</AppText>
+            <AppText style={{ color: colors.textMuted }}>This uses your current order, not a new muscle-priority ranking. Reorder first to keep your priorities. Loads, reps and rest settings stay unchanged.</AppText>
+            <Button label="Use shorter plan" variant="secondary" disabled={busyExerciseId != null} onPress={() => {
+              setShortening({ original: planned, applied: shorter.kept });
+              setPlanned(shorter.kept); setReplacementIndex(null); setDraftReason(null);
+            }} />
+          </> : <AppText>Even the first exercise exceeds this time estimate. Adjust the set count or available time, or keep the full plan. Nothing has been removed.</AppText>}
+        </Card>
+      ) : null}
+      {shortening && planned === shortening.applied ? <Button label="Undo shorter plan" variant="quiet" onPress={() => { setPlanned(shortening.original); setShortening(null); }} /> : null}
 
       <SectionHeading title="Timing" detail={scheduleMode === 'scheduled' ? `${formatPlanDate(date)} · ${formatPlanTime(time)}` : 'No set time'} />
       <Card>
@@ -596,6 +618,14 @@ export default function PlanWorkoutScreen() {
                 );
               })}
             </View>
+            <View style={styles.exerciseActions}>
+              <Button label="Remove last set" accessibilityLabel={`Remove last planned set for ${exercise.exerciseName}`} disabled={exercise.sets.length <= 1 || busyExerciseId != null} variant="quiet" onPress={() => setPlanned((current) => current.map((item) => item.exerciseId !== exercise.exerciseId ? item : {
+                ...item, setCountEdited: true, sets: item.sets.slice(0, -1), progression: { action: 'hold', reason: 'Set count edited. Review the remaining targets; increase cues are off.', cues: [] },
+              }))} />
+              <Button label="Add set" accessibilityLabel={`Add planned set for ${exercise.exerciseName}`} disabled={exercise.sets.length >= 20 || busyExerciseId != null} variant="quiet" onPress={() => setPlanned((current) => current.map((item) => item.exerciseId !== exercise.exerciseId ? item : {
+                ...item, setCountEdited: true, sets: [...item.sets, { loadValue: null, loadUnit: item.sets[0]?.loadUnit ?? preferredUnit, reps: null }], progression: { action: 'hold', reason: 'Set count edited. Choose targets for added sets; increase cues are off.', cues: [] },
+              }))} />
+            </View>
             <View style={[styles.reason, { backgroundColor: exercise.progression.action === 'hold' ? colors.warningSoft : colors.successSoft }]}>
               <AppText style={{ color: exercise.progression.action === 'hold' ? colors.warning : colors.success, fontWeight: '700' }}>{exercise.progression.reason}</AppText>
             </View>
@@ -604,7 +634,7 @@ export default function PlanWorkoutScreen() {
       </View>
 
       {!planned.length ? <StatePanel title="Add exercises" body="Choose them individually or repeat your latest session. Previous loads appear only when they exist." /> : null}
-      <Button label={params.planWorkoutId ? 'Update workout plan' : 'Save workout plan'} onPress={() => void save()} busy={saving} disabled={!planned.length} />
+      <Button label={params.planWorkoutId ? 'Update workout plan' : 'Save workout plan'} onPress={() => void save()} busy={saving} disabled={!planned.length || !timeBudget || busyExerciseId != null} />
     </Screen>
   );
 }

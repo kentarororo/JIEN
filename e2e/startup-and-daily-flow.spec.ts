@@ -268,6 +268,8 @@ test('programme planning supports flexible starts and opt-in scheduling without 
   await page.getByRole('button', { name: 'Push · Pull · Legs', exact: true }).click();
   await page.getByRole('button', { name: '30 min', exact: true }).click();
   await page.getByRole('button', { name: 'Use Push session', exact: true }).click();
+  await expect(page.getByText('5 selected', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Use shorter plan', exact: true }).click();
   await expect(page.getByText('3 selected', { exact: true })).toBeVisible();
   await expect(page.getByRole('radio', { name: 'No set time', exact: true })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: 'Save workout plan', exact: true }).click();

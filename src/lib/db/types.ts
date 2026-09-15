@@ -165,6 +165,8 @@ export type PlannedWorkoutSet = {
 };
 
 export type PlannedWorkoutExercise = {
+  /** Edited target counts must not become a new completed-history progression baseline. */
+  setCountEdited?: true;
   exerciseId: string;
   exerciseName: string;
   primaryMuscleGroup: string;
@@ -187,12 +189,22 @@ export type PlannedWorkoutExercise = {
 
 export type SessionApproach = 'progress' | 'repeat' | 'ease_off';
 
+export type WorkoutTimeBudget = {
+  version: 1;
+  availableMinutes: 30 | 45 | 60 | 90;
+  warmUpMinutes: number;
+  secondsPerSet: number;
+  restSeconds: number;
+  transitionSeconds: number;
+};
+
 export type PlannedWorkoutPlan = {
   version: 1;
   exercises: PlannedWorkoutExercise[];
   sessionApproach?: SessionApproach;
   jointProgressionChoice?: 'hold' | 'continue';
   programContext?: TrainingProgramContext;
+  timeBudget?: WorkoutTimeBudget;
 };
 
 export type TrainingSplitId = 'push_pull_legs' | 'upper_lower' | 'full_body';
@@ -214,6 +226,7 @@ export type SavePlannedWorkoutInput = {
   sessionApproach?: SessionApproach;
   jointProgressionChoice?: 'hold' | 'continue';
   programContext?: TrainingProgramContext;
+  timeBudget?: WorkoutTimeBudget;
 };
 
 export type WorkoutSummary = {

@@ -261,7 +261,9 @@ export async function savePlannedWorkout(
     ...(input.sessionApproach ? { sessionApproach: input.sessionApproach } : {}),
     ...(input.jointProgressionChoice ? { jointProgressionChoice: input.jointProgressionChoice } : {}),
     ...(input.programContext ? { programContext: input.programContext } : {}),
+    ...(input.timeBudget ? { timeBudget: input.timeBudget } : {}),
   };
+  if (!parsePlannedWorkoutPlan(plan)) throw new Error('Check the planned sets and time estimate settings.');
   const payload = {
     id,
     title: input.title.trim(),

@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, ChoiceCard, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { NextSessionReview } from '@/components/next-session-review';
+import { WorkoutTimeSummary } from '@/components/workout-time-estimate';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { deleteWorkout, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, reschedulePlannedWorkout, skipPlannedWorkout } from '@/lib/db';
 import { applyStoredJointConsiderationHold, hasStoredJointConsideration } from '@/lib/planning/workout-plan';
@@ -117,6 +118,7 @@ export default function WorkoutDetailScreen() {
           <AppText style={{ color: colors.textMuted }}>{detail.plan?.sessionApproach ? `${sessionApproachTitle(detail.plan.sessionApproach)} · ${sessionApproachBody(detail.plan.sessionApproach)}` : 'Previous completed values are the starting point. Green cues are optional and remain separate until you choose them.'}</AppText>
           {detail.plan?.programContext ? <AppText style={{ color: colors.textMuted }}>{formatSplit(detail.plan.programContext.splitId)} · session {detail.plan.programContext.sessionIndex + 1} · {detail.plan.programContext.availableMinutes} minutes</AppText> : null}
         </Card>
+        {detail.plan?.timeBudget ? <Card><WorkoutTimeSummary exercises={detail.plan.exercises} budget={detail.plan.timeBudget} /></Card> : null}
         {missed ? (
           <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
             <AppText style={[styles.progressName, { color: colors.warning }]}>This planned time has passed</AppText>

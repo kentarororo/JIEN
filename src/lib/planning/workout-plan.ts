@@ -12,6 +12,7 @@ import {
 } from '../progression/index.ts';
 import { applySessionApproachProgression, isSessionApproach } from './session-approach.ts';
 import { countsTowardProgression } from '../../../supabase/functions/_shared/training-set-policy.ts';
+import { parseWorkoutTimeBudget } from './session-time.ts';
 
 const DEFAULT_WORKING_SETS = 3;
 
@@ -56,6 +57,10 @@ export function rebuildPlannedWorkoutProgression(
   sessionApproach: SessionApproach = 'progress',
 ): PlannedWorkoutExercise[] {
   return planned.map((item) => {
+    if (item.setCountEdited) return {
+      ...item,
+      progression: { action: 'hold', reason: 'Set count edited. Review the targets; increase cues are off.', cues: [] },
+    };
     const exercise = catalog.find((candidate) => candidate.id === item.exerciseId);
     if (!exercise) return item;
     const loadUnit = item.sets[0]?.loadUnit ?? 'kg';
@@ -137,6 +142,8 @@ export function parsePlannedWorkoutPlan(value: unknown): PlannedWorkoutPlan | nu
   const programContext = parseProgramContext(parsed.programContext);
   if (parsed.programContext !== undefined && programContext == null) return null;
   const exercises = parsed.exercises.map(parseExercise);
+  const timeBudget = parseWorkoutTimeBudget(parsed.timeBudget);
+  if (parsed.timeBudget !== undefined && !timeBudget) return null;
   return exercises.every((exercise): exercise is PlannedWorkoutExercise => exercise != null)
     ? {
         version: 1,
@@ -144,6 +151,7 @@ export function parsePlannedWorkoutPlan(value: unknown): PlannedWorkoutPlan | nu
         ...(parsed.sessionApproach === undefined ? {} : { sessionApproach: parsed.sessionApproach }),
         ...(parsed.jointProgressionChoice === undefined ? {} : { jointProgressionChoice: parsed.jointProgressionChoice }),
         ...(programContext ? { programContext } : {}),
+        ...(timeBudget ? { timeBudget } : {}),
       }
     : null;
 }
@@ -172,6 +180,7 @@ function parseExercise(value: unknown): PlannedWorkoutExercise | null {
     || value.targetRepMax < value.targetRepMin
     || !Array.isArray(value.sets)
     || value.sets.length === 0
+    || (value.setCountEdited !== undefined && value.setCountEdited !== true)
     || !isRecord(value.progression)) return null;
 
   const sets = value.sets.map((set) => {
@@ -216,6 +225,7 @@ function parseExercise(value: unknown): PlannedWorkoutExercise | null {
   if (cues.some((cue) => cue == null)) return null;
 
   return {
+    ...(value.setCountEdited === true ? { setCountEdited: true as const } : {}),
     exerciseId: value.exerciseId,
     exerciseName: value.exerciseName,
     primaryMuscleGroup: value.primaryMuscleGroup,

@@ -11,6 +11,71 @@ import {
 } from './workout-plan.ts';
 import { applySessionApproach } from './session-approach.ts';
 import { recommendNextSession, SESSION_REFERENCE_MAX_AGE_DAYS } from './next-session-recommendation.ts';
+import { DEFAULT_TIME_BUDGET, estimateSessionTime, parseTimeEstimateFields, parseWorkoutTimeBudget, previewShorterSession, timeEstimateFields } from './session-time.ts';
+
+test('duration uses set counts, one warm-up buffer and no final-set rest', () => {
+  const plan = buildPlannedWorkoutExercise({ exercise, history: [], preferredLoadUnit: 'kg' });
+  assert.deepEqual(estimateSessionTime([plan], DEFAULT_TIME_BUDGET), {
+    setCount: 3, workSeconds: 135, restSeconds: 240, transitionSeconds: 0,
+    warmUpSeconds: 300, totalSeconds: 675, totalMinutes: 12, overByMinutes: 0,
+  });
+  const two = estimateSessionTime([plan, plan], DEFAULT_TIME_BUDGET);
+  assert.equal(two.restSeconds, 480);
+  assert.equal(two.transitionSeconds, 120);
+  assert.equal(two.totalSeconds, 1170);
+  assert.equal(estimateSessionTime([], DEFAULT_TIME_BUDGET).totalSeconds, 0);
+  assert.equal(estimateSessionTime([{ ...plan, sets: plan.sets.slice(0, 1) }], DEFAULT_TIME_BUDGET).restSeconds, 0);
+});
+
+test('time fitting previews a prefix, preserves values, and handles impossible and exact fits', () => {
+  const plan = buildPlannedWorkoutExercise({ exercise, history: [set(10, 40, 8), set(10, 40, 8), set(10, 40, 8)], preferredLoadUnit: 'kg' });
+  const full = Array.from({ length: 5 }, (_, index) => ({ ...plan, exerciseId: `e-${index}` }));
+  const before = JSON.stringify(full);
+  const budget = { ...DEFAULT_TIME_BUDGET, availableMinutes: 30 as const };
+  const preview = previewShorterSession(full, budget);
+  assert.equal(preview.kept.length, 3);
+  assert.deepEqual(preview.removed.map((item) => item.exerciseId), ['e-3', 'e-4']);
+  assert.equal(JSON.stringify(full), before);
+  assert.equal(preview.kept[0], full[0]);
+  assert.equal(previewShorterSession(full, { ...budget, warmUpMinutes: 30 }).kept.length, 0);
+  const exact = { ...budget, warmUpMinutes: 0, secondsPerSet: 120, restSeconds: 600 };
+  assert.equal(estimateSessionTime([plan], exact).totalSeconds, 1560);
+  const exactPlan = { ...plan, sets: plan.sets.slice(0, 2) };
+  const exactBudget = { ...budget, warmUpMinutes: 10, secondsPerSet: 300, restSeconds: 600 };
+  assert.equal(estimateSessionTime([exactPlan], exactBudget).totalSeconds, 1800);
+  assert.equal(previewShorterSession([exactPlan], exactBudget).kept.length, 1);
+  assert.equal(previewShorterSession([exactPlan], { ...exactBudget, transitionSeconds: 0 }).kept.length, 1);
+});
+
+test('time settings reject malformed input and survive plan parsing without changing legacy plans', () => {
+  const plan = buildPlannedWorkoutExercise({ exercise, history: [], preferredLoadUnit: 'kg' });
+  const legacy = { version: 1, exercises: [plan] };
+  assert.deepEqual(parsePlannedWorkoutPlan(legacy), legacy);
+  assert.deepEqual(parsePlannedWorkoutPlan(JSON.stringify({ ...legacy, timeBudget: DEFAULT_TIME_BUDGET }))?.timeBudget, DEFAULT_TIME_BUDGET);
+  for (const invalid of [{ ...DEFAULT_TIME_BUDGET, restSeconds: -1 }, { ...DEFAULT_TIME_BUDGET, secondsPerSet: NaN },
+    { ...DEFAULT_TIME_BUDGET, transitionSeconds: 601 }, { ...DEFAULT_TIME_BUDGET, version: 2 },
+    { ...DEFAULT_TIME_BUDGET, warmUpMinutes: 0.5 }, { ...DEFAULT_TIME_BUDGET, availableMinutes: '30' }]) {
+    assert.equal(parseWorkoutTimeBudget(invalid), null);
+    assert.equal(parsePlannedWorkoutPlan({ ...legacy, timeBudget: invalid }), null);
+  }
+  const fields = timeEstimateFields(DEFAULT_TIME_BUDGET);
+  assert.deepEqual(parseTimeEstimateFields(fields, 60), DEFAULT_TIME_BUDGET);
+  for (const bad of ['', ' ', '1.5', '1e2', '-1']) assert.equal(parseTimeEstimateFields({ ...fields, restSeconds: bad }, 60), null);
+  assert.equal(parseTimeEstimateFields({ ...fields, restSeconds: '0' }, 60)?.restSeconds, 0);
+});
+
+test('edited planned set counts cannot become a shorter completed baseline after reload or joint changes', () => {
+  const plan = buildPlannedWorkoutExercise({ exercise, history: [set(12, 40, 8), set(12, 40, 8)], preferredLoadUnit: 'kg' });
+  assert.equal(plan.progression.action, 'add_load');
+  const edited = { ...plan, setCountEdited: true as const, sets: plan.sets.slice(0, 1) };
+  const restored = parsePlannedWorkoutPlan(JSON.stringify({ version: 1, exercises: [edited] }))!;
+  assert.equal(restored.exercises[0]?.setCountEdited, true);
+  for (const joint of [true, false]) {
+    const rebuilt = rebuildPlannedWorkoutProgression(restored.exercises, [exercise], joint, 'progress');
+    assert.equal(rebuilt[0]?.progression.action, 'hold');
+    assert.deepEqual(rebuilt[0]?.progression.cues, []);
+  }
+});
 
 const exercise: Exercise = {
   id: 'exercise-1',
