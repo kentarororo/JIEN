@@ -143,6 +143,12 @@ Deno.serve(async (request) => {
       });
     } catch (cause) {
       if (cause instanceof PhotoProviderError) {
+        // Operational metadata only: never log keys, images, prompts or raw provider bodies.
+        console.warn(JSON.stringify({ event: 'photo_provider_failure', requestId,
+          provider: provider.configuration.provider, model: provider.configuration.model,
+          credentialSource: personalConfiguration ? 'personal' : 'app',
+          code: cause.code, upstreamStatus: cause.upstreamStatus ?? null,
+          upstreamCode: cause.upstreamCode ?? null, retryable: cause.retryable }));
         return failure(
           requestId,
           cause.code,

@@ -316,16 +316,16 @@ export default function PlanWorkoutScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, exerciseBrowserYRef.current - spacing.md), animated: true }));
   };
 
-  const save = async () => {
+  const save = async (startNow = false) => {
     if (submitLockRef.current) return;
     submitLockRef.current = true;
     setSaving(true);
     setFormError(null);
     try {
       if (!timeBudget) throw new Error('Check the time estimate settings before saving.');
-      if (scheduleMode === 'scheduled' && date < toLocalDateKey()) throw new Error('Choose today or a future calendar day.');
-      const scheduledAt = scheduleMode === 'scheduled' ? localTimestampForDateAndTime(date, time) : null;
-      const performedOn = scheduleMode === 'scheduled' ? date : toLocalDateKey();
+      if (!startNow && scheduleMode === 'scheduled' && date < toLocalDateKey()) throw new Error('Choose today or a future calendar day.');
+      const scheduledAt = !startNow && scheduleMode === 'scheduled' ? localTimestampForDateAndTime(date, time) : null;
+      const performedOn = !startNow && scheduleMode === 'scheduled' ? date : toLocalDateKey();
       const id = await savePlannedWorkout(db, {
         id: planIdRef.current,
         title,
@@ -342,7 +342,8 @@ export default function PlanWorkoutScreen() {
           missedSessionPolicy,
         } : undefined,
       });
-      router.replace({ pathname: '/workouts/[id]', params: { id } });
+      router.replace(startNow ? { pathname: '/workouts/new', params: { planWorkoutId: id } }
+        : { pathname: '/workouts/[id]', params: { id } });
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'Could not save this planned session.');
       submitLockRef.current = false;
@@ -634,7 +635,8 @@ export default function PlanWorkoutScreen() {
       </View>
 
       {!planned.length ? <StatePanel title="Add exercises" body="Choose them individually or repeat your latest session. Previous loads appear only when they exist." /> : null}
-      <Button label={params.planWorkoutId ? 'Update workout plan' : 'Save workout plan'} onPress={() => void save()} busy={saving} disabled={!planned.length || !timeBudget || busyExerciseId != null} />
+      <Button label="Start workout now" onPress={() => void save(true)} busy={saving} disabled={!planned.length || !timeBudget || busyExerciseId != null} />
+      <Button label={params.planWorkoutId ? 'Update workout plan' : 'Save workout plan'} onPress={() => void save()} variant="secondary" disabled={saving || !planned.length || !timeBudget || busyExerciseId != null} />
     </Screen>
   );
 }

@@ -16,6 +16,8 @@ import { getTrainingProgrammeProgress, saveTrainingProgramme } from './training-
 import { getUserProfile, saveUserProfile } from './profile.ts';
 import { applyRemoteProfile } from './cloud-sync.ts';
 import { acknowledgeMedicalDisclaimer } from './wellness.ts';
+import { saveCardioSession, listCardioSessions, getCardioSession, deleteCardioSession } from './cardio.ts';
+import { cardioBaseline, parseCardioMetadata, validateCardio } from '../training/cardio.ts';
 import { getCompleteExportSnapshot } from './export.ts';
 import type { SaveUserProfileInput } from './types.ts';
 import type { TrainingProgramme } from '../planning/training-programme.ts';
@@ -47,6 +49,21 @@ import { savePlannedWorkout, reschedulePlannedWorkout } from './workouts.ts';
 import { MainThreadMemoryDatabase, WebDatabaseDurabilityError, type MainThreadSQLiteApi } from './main-thread-memory-database.ts';
 
 type WaSQLiteModule = Parameters<typeof SQLite.Factory>[0];
+
+test('cardio validates observations and compares only matching recent activity durations', () => {
+  const input = { activity: 'run' as const, minutes: 20, distanceKm: null, effort: null };
+  assert.deepEqual(validateCardio(input), input);
+  for (const minutes of [0, -1, NaN, Infinity, 1441]) assert.throws(() => validateCardio({ ...input, minutes }));
+  for (const effort of [0, 11, NaN]) assert.throws(() => validateCardio({ ...input, effort }));
+  for (const distanceKm of [0, -1, Infinity]) assert.throws(() => validateCardio({ ...input, distanceKm }));
+  assert.equal(parseCardioMetadata({ version: 2, ...input }), null);
+  assert.equal(parseCardioMetadata('not json'), null);
+  const sessions = [10, 100, 20, 60].map((minutes, index) => ({ ...input, minutes, id: String(index),
+    loggedAt: `2026-09-${10 + index}T10:00:00Z`, loggedOn: `2026-09-${10 + index}`, notes: '' }));
+  assert.deepEqual(cardioBaseline(sessions, 'run', '2026-09-30'), { count: 3, medianMinutes: 60 });
+  assert.deepEqual(cardioBaseline(sessions, 'run', '2026-09-12', '1'), { count: 2, medianMinutes: 15 });
+  assert.deepEqual(cardioBaseline(sessions, 'cycle', '2026-09-30'), { count: 0, medianMinutes: null });
+});
 
 test('exclusive transaction retains repository results with the Expo native void-return contract', async () => {
   const scoped = {} as SQLiteDatabase;
@@ -119,6 +136,34 @@ test('main-thread database persists committed work and isolates delayed transact
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
     assert.equal(version?.user_version, 16);
+    const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
+    const cardioNow = new Date().toISOString();
+    const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
+    assert.equal((await getCardioSession(database, cardioId))?.minutes, 20);
+    const cardioQueue = async () => JSON.parse((await database.getFirstAsync<{ payload_json: string }>(
+      `SELECT payload_json FROM sync_queue WHERE table_name = 'wellness_logs' AND entity_id = ?`, [cardioId]))!.payload_json);
+    assert.deepEqual((await cardioQueue()).metadata, { version: 1, ...cardioInput });
+    assert.equal((await cardioQueue()).sleep_duration_minutes, null);
+    assert.equal((await listVolumeHistory(database)).length, 0, 'cardio creates no lifting sets');
+    const exportedCardio = (await getCompleteExportSnapshot(database)).wellnessLogs.find((row) => row.id === cardioId);
+    assert.ok(exportedCardio, 'cardio is included in the existing complete export');
+    await saveCardioSession(database, { ...cardioInput, minutes: 25, effort: 6 }, cardioNow, cardioId);
+    assert.equal((await listCardioSessions(database, '2000-01-01', '2099-12-31')).length, 1, 'editing preserves the session UUID');
+    assert.equal((await cardioQueue()).metadata.minutes, 25);
+    await database.runAsync("UPDATE wellness_logs SET metadata = ? WHERE id = ?", [JSON.stringify({ version: 2, ...cardioInput }), cardioId]);
+    assert.equal(await getCardioSession(database, cardioId), null, 'unknown versions are not interpreted');
+    await assert.rejects(saveCardioSession(database, cardioInput, cardioNow, cardioId), /cannot be edited/);
+    await assert.rejects(deleteCardioSession(database, cardioId), /cannot be removed/);
+    await database.runAsync("UPDATE wellness_logs SET metadata = ? WHERE id = ?", [JSON.stringify({ version: 1, ...cardioInput, minutes: 25, effort: 6 }), cardioId]);
+    await database.execAsync(`CREATE TEMP TRIGGER reject_cardio_queue BEFORE UPDATE ON sync_queue
+      WHEN NEW.entity_id = '${cardioId}' BEGIN SELECT RAISE(ABORT, 'cardio queue rejected'); END;`);
+    await assert.rejects(saveCardioSession(database, { ...cardioInput, minutes: 50 }, cardioNow, cardioId), /cardio queue rejected/);
+    assert.equal((await getCardioSession(database, cardioId))?.minutes, 25, 'queue failure rolls back the record');
+    await database.execAsync('DROP TRIGGER reject_cardio_queue;');
+    await deleteCardioSession(database, cardioId);
+    assert.equal(await getCardioSession(database, cardioId), null);
+    assert.ok((await cardioQueue()).deleted_at, 'deletion queues a tombstone');
+    await assert.rejects(saveCardioSession(database, cardioInput, cardioNow, cardioId), /no longer available/);
     const timeExercise = (await listExercises(database))[0]!;
     const timePlanInput = { id: 'time-plan-qa', title: 'Time plan QA', performedOn: toLocalDateKey(), scheduledAt: null,
       exercises: [buildPlannedWorkoutExercise({ exercise: timeExercise, history: [], preferredLoadUnit: 'kg' })],

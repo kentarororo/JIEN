@@ -32,6 +32,8 @@ export class PhotoProviderError extends Error {
     | 'PROVIDER_QUOTA_EXCEEDED' | 'PROVIDER_OUTPUT_INVALID';
   retryable: boolean;
   httpStatus: number;
+  upstreamStatus?: number;
+  upstreamCode?: string;
 
   constructor(
     code: PhotoProviderError['code'],
@@ -144,7 +146,19 @@ export async function requestPhotoEstimate(
     const response = configuration.provider === 'gemini'
       ? await requestGemini(configuration, input, fetchImpl, controller.signal)
       : await requestAnthropic(configuration, input, fetchImpl, controller.signal);
-    if (!response.ok) throw await providerHttpError(response, configuration.provider);
+    if (!response.ok) {
+      const failure = await providerHttpError(response, configuration.provider);
+      failure.upstreamStatus = response.status;
+      const body = await response.json().catch(() => null);
+      const upstreamCode = asRecord(asRecord(body)?.error)?.status;
+      // Only canonical status names, never a provider message or arbitrary body field.
+      if (typeof upstreamCode === 'string' && [
+        'INVALID_ARGUMENT', 'FAILED_PRECONDITION', 'OUT_OF_RANGE', 'UNAUTHENTICATED',
+        'PERMISSION_DENIED', 'NOT_FOUND', 'RESOURCE_EXHAUSTED', 'UNAVAILABLE',
+        'DEADLINE_EXCEEDED', 'INTERNAL', 'UNKNOWN', 'CANCELLED', 'ABORTED',
+      ].includes(upstreamCode)) failure.upstreamCode = upstreamCode;
+      throw failure;
+    }
     const payload = await response.json().catch(() => null);
     const text = configuration.provider === 'gemini'
       ? extractGeminiText(payload)
@@ -203,7 +217,7 @@ function requestGemini(
           ],
         }],
         generationConfig: {
-          maxOutputTokens: 1200,
+          maxOutputTokens: 4096,
           thinkingConfig: { thinkingLevel: 'minimal' },
           responseMimeType: 'application/json',
           responseJsonSchema: photoItemsSchema,
@@ -279,7 +293,9 @@ async function providerHttpError(response: Response, provider: PhotoAiProvider):
   }
   return new PhotoProviderError(
     'PROVIDER_UNAVAILABLE',
-    'The photo service could not analyze this image. Try again.',
+    retryable
+      ? 'The photo service could not analyze this image. Try again.'
+      : `The photo provider rejected this request (HTTP ${status}). Keep the support reference and enter the food manually.`,
     retryable,
     retryable ? 502 : 503,
   );
@@ -290,10 +306,12 @@ function extractGeminiText(value: unknown): string | null {
   const candidates = record?.candidates;
   if (!Array.isArray(candidates)) return null;
   const candidate = asRecord(candidates[0]);
+  // Partial JSON must never become an apparently complete nutrition estimate.
+  if (candidate?.finishReason && candidate.finishReason !== 'STOP') return null;
   const content = asRecord(candidate?.content);
   if (!Array.isArray(content?.parts)) return null;
   const text = content.parts
-    .map((part) => asRecord(part)?.text)
+    .map((part) => { const value = asRecord(part); return value?.thought === true ? null : value?.text; })
     .filter((part): part is string => typeof part === 'string')
     .join('')
     .trim();

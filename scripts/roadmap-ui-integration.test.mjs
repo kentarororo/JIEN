@@ -96,7 +96,8 @@ test('Workout planning keeps repeat, scheduling, catalog, and save in one progre
   assert.match(workoutPlan, /scheduleMode === 'flexible'/);
   assert.match(workoutPlan, /label="No set time"/);
   assert.match(workoutPlan, /label="Set date and time"/);
-  assert.match(workoutPlan, /scheduledAt = scheduleMode === 'scheduled'[^\n]+: null/);
+  assert.match(workoutPlan, /scheduledAt = !startNow && scheduleMode === 'scheduled'[^\n]+: null/);
+  assert.match(workoutPlan, /Start workout now/);
   assert.match(workoutPlan, /Quick date/);
   assert.match(workoutPlan, /Exact date/);
   assert.match(workoutPlan, /results\.slice\(0, catalogLimit\)/);
@@ -166,7 +167,7 @@ test('Workout logging keeps guidance available without delaying set entry', () =
   assert.match(workoutLogger, /const \[showRpeGuide, setShowRpeGuide\] = useState\(false\)/);
   assert.match(workoutLogger, /showRpeGuide \? 'Hide RPE guide' : 'RPE guide'/);
   assert.match(workoutLogger, /expanded=\{showRpeGuide\}/);
-  assert.match(workoutLogger, /\{showRpeGuide \? \(/);
+  assert.match(workoutLogger, /\{showWorkoutOptions && showRpeGuide \? \(/);
   assert.match(workoutLogger, /JointProgressionChoicePanel/);
   assert.match(workoutLogger, /jointProgressionChoice === 'hold'/);
   assert.match(workoutLogger, /chooseJointProgression[\s\S]*historyStatus: 'idle'/, 'changing the session choice rebuilds every visible progression suggestion');

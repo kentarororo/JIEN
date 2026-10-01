@@ -41,6 +41,8 @@ test('workout draft contexts keep edits, plans, templates and dates separate', (
   assert.equal(workoutDraftContext({ editWorkoutId: 'w1' }), 'edit:w1');
   assert.equal(workoutDraftContext({ planWorkoutId: 'p1' }), 'plan:p1');
   assert.equal(workoutDraftContext({ templateWorkoutId: 't1' }), 'template:t1');
+  assert.equal(workoutDraftContext({ templateWorkoutId: 't1', sessionApproach: 'repeat' }), 'template:t1:repeat');
+  assert.notEqual(workoutDraftContext({ templateWorkoutId: 't1', sessionApproach: 'repeat' }), workoutDraftContext({ templateWorkoutId: 't1', sessionApproach: 'ease_off' }));
   assert.equal(workoutDraftContext({ date: '2026-08-20' }), 'new:2026-08-20');
 });
 

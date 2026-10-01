@@ -92,6 +92,7 @@ export default function NewMealScreen() {
   const initialMealTypeRef = useRef(inferred);
   const todayKeyRef = useRef(toLocalDateKey(now));
   const [name, setName] = useState('Meal');
+  const [showMealDetails, setShowMealDetails] = useState(false);
   const [type, setType] = useState<MealType>(inferred);
   const [foods, setFoods] = useState<DraftFood[]>([emptyFood()]);
   const [query, setQuery] = useState('');
@@ -786,15 +787,13 @@ export default function NewMealScreen() {
       {templateLoaded && !draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Saved meal copied. Adjust any portion or macro, then save it as a new log.</AppText></View> : null}
       {templateError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{templateError}</AppText></View> : null}
       {draftWarning ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{draftWarning}</AppText></View> : null}
-      <Field label="Meal name" value={name} onChangeText={setName} placeholder="Dinner" />
-      <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>
-
       <Card style={styles.discoveryCard}>
-        <View style={styles.discoveryHeader}><View style={styles.flex}><AppText style={styles.sectionTitle}>Find food quickly</AppText><AppText style={{ color: colors.textMuted }}>Search local foods instantly, expand online, or use a meal or nutrition-label photo.</AppText></View></View>
+        <View style={styles.discoveryHeader}><View style={styles.flex}><AppText style={styles.sectionTitle}>Add food</AppText><AppText style={{ color: colors.textMuted }}>Search, scan or take a photo. No meal name needed.</AppText></View></View>
         <Field label="Food search" value={query} onChangeText={(value) => { setQuery(value); setNoMatchQuery(null); }} placeholder="Try chicken, rice, yogurt…" returnKeyType="search" onSubmitEditing={() => void runDatabaseSearch()} />
         <View style={styles.toolActions}>
           <Button label="Search food database" onPress={() => void runDatabaseSearch()} busy={searching} variant="secondary" />
           <Button label="Scan barcode" onPress={() => void openCamera('barcode')} variant="secondary" />
+          <Button label="Enter food manually" onPress={beginPrivateFood} variant="quiet" />
           {Platform.OS === 'web' ? (
             <>
               <View style={[styles.webPhotoButton, { backgroundColor: colors.accentSoft, borderColor: colors.accentSoft }]}>
@@ -861,7 +860,16 @@ export default function NewMealScreen() {
         <AppText style={[styles.attribution, { color: colors.textMuted }]}>Sources appear on each result. USDA FoodData Central is public domain; Open Food Facts data is © contributors, ODbL. Review the serving and nutrition before adding.</AppText>
       </Card>
 
-      <Modal visible={cameraMode != null} animationType="slide" transparent onRequestClose={closeCamera}>
+      <Card>
+        <AppText>{name.trim() && name !== 'Meal' ? name : type[0]!.toUpperCase() + type.slice(1)}</AppText>
+        <Button label={showMealDetails ? 'Hide meal details' : 'Meal details (optional)'} expanded={showMealDetails} onPress={() => setShowMealDetails((value) => !value)} variant="quiet" />
+        {showMealDetails ? <>
+          <Field label="Meal name" value={name} onChangeText={setName} placeholder="Optional" />
+          <View style={styles.typeWrap}>{MEAL_TYPES.map((mealType) => <Pill key={mealType} label={mealType[0]!.toUpperCase() + mealType.slice(1)} active={type === mealType} onPress={() => setType(mealType)} />)}</View>
+        </> : null}
+      </Card>
+
+      <Modal visible={cameraMode != null} animationType={Platform.OS === 'web' ? 'none' : 'slide'} transparent onRequestClose={closeCamera}>
         <View style={[styles.cameraOverlay, { backgroundColor: colors.overlay }]}>
           <Card style={[styles.cameraSheet, { backgroundColor: colors.surface }]}>
             <View style={styles.header}><View style={styles.flex}><AppText style={styles.sectionTitle}>{cameraMode === 'barcode' ? 'Center the barcode' : 'Frame the whole meal'}</AppText><AppText style={{ color: colors.textMuted }}>{cameraMode === 'barcode' ? 'Lookup starts automatically as soon as the code locks in.' : 'Good light and a short description improve the estimate.'}</AppText></View><Button label="Cancel" onPress={closeCamera} variant="quiet" /></View>
@@ -893,7 +901,7 @@ export default function NewMealScreen() {
         </View>
       </Modal>
 
-      <Modal visible={photoFlow.selection != null} animationType="slide" transparent onRequestClose={() => {}}>
+      <Modal visible={photoFlow.selection != null} animationType={Platform.OS === 'web' ? 'none' : 'slide'} transparent onRequestClose={() => {}}>
         <View style={[styles.cameraOverlay, { backgroundColor: colors.overlay }]}>
           <Card style={[styles.cameraSheet, { backgroundColor: colors.surface }]}>
             <ScrollView
@@ -907,7 +915,7 @@ export default function NewMealScreen() {
                 <AppText style={{ color: colors.textMuted }}>
                   {photoFlow.phase === 'succeeded'
                     ? 'Analysis is complete. Open the preview to review the editable items.'
-                    : `${photoFlow.selection?.sourceLabel} is ready. Nothing is uploaded until you choose Analyze photo.`}
+                    : `${photoFlow.selection?.sourceLabel ?? 'Photo'} selected. Analysis sends the photo and description to the configured AI provider.`}
                 </AppText>
               </View>
               {photoFlow.phase !== 'succeeded' ? <Button label="Remove photo" onPress={() => dismissPendingPhoto()} variant="quiet" disabled={cameraBusy} /> : null}

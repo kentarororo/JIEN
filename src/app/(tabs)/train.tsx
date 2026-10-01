@@ -73,17 +73,21 @@ export default function TrainScreen() {
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
       {trainingView === 'overview' ? <>
+      <Button label="Log cardio" variant="secondary" onPress={() => router.push('/cardio' as never)} />
       {data ? <TrainingProgrammeCard progress={data.programme} onEdit={() => router.push('/workouts/programme' as never)} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'programme_targets' } } as never)} /> : null}
       {data && !data.programme ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'advisory' } } as never)} onLog={() => router.push('/workouts/new')} /> : null}
       {data?.planned.length ? <>
         <SectionHeading title="Workout plans" detail={`${data.planned.length} saved session${data.planned.length === 1 ? '' : 's'}`} />
         <View style={styles.list}>{data.planned.map((workout) => (
-          <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
+          <View key={workout.id}>
+          <Link href={{ pathname: '/workouts/new', params: { planWorkoutId: workout.id } }} asChild>
             <Pressable><Card style={{ backgroundColor: colors.accentSoft, borderColor: colors.accent }}>
               <View style={styles.row}><AppText style={styles.title}>{workout.title}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? `${formatShortDate(workout.scheduledAt)} · ${formatTime(workout.scheduledAt)}` : 'No set time'}</AppText></View>
-              <View style={styles.upcomingFooter}><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Open plan ›</AppText></View>
+              <View style={styles.upcomingFooter}><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Start / resume ›</AppText></View>
             </Card></Pressable>
           </Link>
+          <Button label={`Review ${workout.title} plan`} variant="quiet" onPress={() => router.push({ pathname: '/workouts/[id]', params: { id: workout.id } })} />
+          </View>
         ))}</View>
       </> : null}
       {data?.progress ? (

@@ -205,9 +205,10 @@ export function workoutDraftContext(input: {
   templateWorkoutId?: string;
   planWorkoutId?: string;
   editWorkoutId?: string;
+  sessionApproach?: string;
 }): string {
   if (input.editWorkoutId) return `edit:${input.editWorkoutId}`;
   if (input.planWorkoutId) return `plan:${input.planWorkoutId}`;
-  if (input.templateWorkoutId) return `template:${input.templateWorkoutId}`;
+  if (input.templateWorkoutId) return `template:${input.templateWorkoutId}${input.sessionApproach ? `:${input.sessionApproach}` : ''}`;
   return `new:${input.date ?? 'today'}`;
 }

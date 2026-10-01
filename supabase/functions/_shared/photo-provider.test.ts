@@ -80,8 +80,40 @@ test('Gemini generateContent sends inline image data and a structured JSON schem
   assert.equal(body.generationConfig.responseMimeType, 'application/json');
   assert.equal(body.generationConfig.responseJsonSchema.properties.items.maxItems, 12);
   assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'minimal');
+  assert.equal(body.generationConfig.maxOutputTokens, 4096);
   assert.equal(Object.hasOwn(body.generationConfig, 'temperature'), false, 'Gemini 3.5 avoids unnecessary sampling parameters');
   assert.equal(parseProviderPhotoItems(text)[0]?.name, 'Chicken rice');
+});
+
+test('photo responses reject truncated JSON and exclude thought parts', async () => {
+  const configuration: PhotoProviderConfiguration = { provider: 'gemini', apiKey: 'secret', model: 'gemini-3.5-flash-lite' };
+  for (const finishReason of ['MAX_TOKENS', 'SAFETY', 'RECITATION']) {
+    await assert.rejects(requestPhotoEstimate(configuration, input, {
+      fetchImpl: async () => new Response(JSON.stringify({ candidates: [{ finishReason, content: { parts: [{ text: providerJson }] } }] })),
+    }), (error: unknown) => error instanceof PhotoProviderError && error.code === 'PROVIDER_OUTPUT_INVALID');
+  }
+  assert.equal(await requestPhotoEstimate(configuration, input, {
+    fetchImpl: async () => new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [
+      { thought: true, text: 'Private intermediate reasoning' }, { text: providerJson },
+    ] } }] })),
+  }), providerJson);
+});
+
+test('unexpected provider rejection retains only its HTTP status for diagnosis and is not retried', async () => {
+  await assert.rejects(requestPhotoEstimate({ provider: 'gemini', apiKey: 'secret', model: 'gemini-3.5-flash-lite' }, input, {
+    fetchImpl: async () => new Response(JSON.stringify({ error: { status: 'FAILED_PRECONDITION', message: 'sensitive provider response' } }), { status: 413 }),
+  }), (error: unknown) => {
+    assert.ok(error instanceof PhotoProviderError);
+    assert.equal(error.upstreamStatus, 413);
+    assert.equal(error.upstreamCode, 'FAILED_PRECONDITION');
+    assert.equal(error.retryable, false);
+    assert.match(error.message, /HTTP 413/);
+    assert.doesNotMatch(error.message, /sensitive|secret/);
+    return true;
+  });
+  await assert.rejects(requestPhotoEstimate({ provider: 'gemini', apiKey: 'secret', model: 'gemini-3.5-flash-lite' }, input, {
+    fetchImpl: async () => new Response(JSON.stringify({ error: { status: 'secret provider detail' } }), { status: 413 }),
+  }), (error: unknown) => error instanceof PhotoProviderError && error.upstreamCode === undefined);
 });
 
 test('Anthropic remains available behind the same normalized adapter contract', async () => {

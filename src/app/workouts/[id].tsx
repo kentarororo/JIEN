@@ -249,8 +249,8 @@ export default function WorkoutDetailScreen() {
       {detail.notes ? <><SectionHeading title="Notes" /><Card><AppText>{detail.notes}</AppText></Card></> : null}
       <Card style={[styles.nextSession, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.flex}>
-          <AppText style={styles.progressName}>Plan the next time you run this session</AppText>
-          <AppText style={{ color: colors.textMuted }}>Choose how the completed work should become your next editable plan. This workout will not change.</AppText>
+          <AppText style={styles.progressName}>Use this session again</AppText>
+          <AppText style={{ color: colors.textMuted }}>Choose an approach, then open editable sets now or save a plan for later. This workout will not change.</AppText>
         </View>
         <NextSessionReview key={detail.id} sets={detail.sets} startedAt={detail.startedAt} completedAt={detail.completedAt}
           jointFlag={data?.jointFlag ?? false} selected={nextApproach} onSelect={setNextApproach} />
@@ -266,8 +266,12 @@ export default function WorkoutDetailScreen() {
           ))}
         </View>
         <View style={styles.actions}>
+          <Button label="Start next workout" disabled={nextApproach == null} onPress={() => nextApproach && router.replace({
+            pathname: '/workouts/new', params: { templateWorkoutId: detail.id, sessionApproach: nextApproach },
+          })} />
           <Button
             label="Build next workout plan"
+            variant="secondary"
             disabled={nextApproach == null}
             onPress={() => nextApproach && router.replace({
               pathname: '/workouts/plan',

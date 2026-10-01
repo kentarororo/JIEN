@@ -19,6 +19,38 @@ import {
 import { filterWorkoutHistory, groupWorkoutHistoryByMonth, summarizeExerciseHistory } from '../training/history.ts';
 import { summarizeTrainingMuscleContext } from '../../../supabase/functions/_shared/training-context.ts';
 import { trainingSetSql } from '../../../supabase/functions/_shared/training-set-policy.ts';
+import { liveSetTarget } from './live-set-target.ts';
+
+test('live targets react to entered values without treating them as completed history', () => {
+  const rows = [{ load: '20', reps: '10', rpe: '', kind: 'working' as const, completed: false },
+    { load: '', reps: '', rpe: '', kind: 'working' as const, completed: false }];
+  const input = { rows, rowIndex: 1, unit: 'kg' as const, history: [], plan: null, allowIncrease: true, jointHold: false };
+  const before = JSON.stringify(rows);
+  assert.equal(liveSetTarget(input)?.targetReps, 10);
+  assert.match(liveSetTarget(input)!.reason, /not a progression baseline/);
+  assert.equal(liveSetTarget({ ...input, rows: [{ ...rows[0]!, load: '25' }, rows[1]!] })?.loadValue, 25);
+  assert.equal(liveSetTarget({ ...input, rows: [rows[0]!, { ...rows[1]!, completed: true }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [rows[0]!, { ...rows[1]!, load: '20', reps: '11' }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [rows[0]!, { ...rows[1]!, kind: 'warmup' }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [rows[0]!, { ...rows[1]!, kind: 'drop' }] }), null);
+  assert.equal(JSON.stringify(rows), before);
+});
+
+test('history-based live targets respect effort, failure, plan choice and different loads on every edit', () => {
+  const history = [{ loadValue: 20, loadUnit: 'kg' as const, reps: 10, rpe: 8, kind: 'working' as const }];
+  const plan = buildSetProgressionPlan({ sets: history, repMin: 8, repMax: 12, loadIncrement: 2.5 });
+  const rows = [{ load: '20', reps: '10', rpe: '', kind: 'working' as const, completed: false }];
+  const input = { rows, rowIndex: 0, unit: 'kg' as const, history, plan, allowIncrease: true, jointHold: false };
+  assert.equal(liveSetTarget(input)?.targetReps, 11);
+  assert.equal(liveSetTarget({ ...input, allowIncrease: false }), null);
+  assert.equal(liveSetTarget({ ...input, jointHold: true }), null);
+  for (const rpe of ['9.5', '10', '0', 'bad']) assert.equal(liveSetTarget({ ...input, rows: [{ ...rows[0]!, rpe }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [{ ...rows[0]!, kind: 'failure' }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [{ ...rows[0]!, load: '50' }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [{ ...rows[0]!, load: 'bad' }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [{ ...rows[0]!, reps: '12' }] }), null);
+  assert.equal(liveSetTarget({ ...input, rows: [{ ...rows[0]!, rpe: '8' }] })?.targetReps, 11);
+});
 
 test('mixed set accounting agrees across muscle guidance and Edge context without mixing drop baselines', () => {
   const sets = (['working', 'failure', 'drop', 'warmup'] as const).map((kind) => ({

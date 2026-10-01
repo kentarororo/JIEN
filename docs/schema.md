@@ -337,6 +337,15 @@ their explicit source value, without changing or pretending to enrich manual dat
 Imported entries are review-only inside JIEN; corrections belong in the connected
 health source so provenance remains accurate.
 
+Manual cardio uses `kind = cardio`, `source = manual`, and versioned `metadata`:
+`{ version: 1, activity, minutes, distanceKm, effort }`. Duration is required;
+distance in canonical kilometres and session effort (1–10) are nullable. The date
+uses `logged_on`/`logged_at`; notes stay in `notes`. No cardio value is placed in
+sleep, body-weight, lifting-set or calorie columns. Unknown metadata versions are
+not interpreted or overwritten. These rows use existing wellness RLS, owner-bound
+sync, export and tombstones, so no SQL migration is needed. This is manual logging,
+not a wearable import, active timer or automatic progression prescription.
+
 ### `ai_conversations`
 
 AI thread metadata only: purpose, title, status, and last-message timestamp. It does

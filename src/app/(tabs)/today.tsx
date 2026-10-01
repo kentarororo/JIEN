@@ -1,6 +1,6 @@
 import { Link, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { ActionCard, AppText, Button, Card, HeroPanel, Pill, ProgressBar, Screen, SectionHeading, StatePanel } from '@/components/ui';
@@ -11,6 +11,8 @@ import { muscleGroupLabel, type MuscleGroupAdvisory } from '@/lib/progression';
 import { formatShortDate, formatTime, shiftLocalDateKey, toLocalDateKey } from '@/lib/time';
 import { formatSleepDuration } from '@/lib/wellness/sleep-record';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
+import { listCardioSessions } from '@/lib/db/cardio';
+import { cardioLabel } from '@/lib/training/cardio';
 
 export default function TodayScreen() {
   const db = useSQLiteContext();
@@ -22,6 +24,18 @@ export default function TodayScreen() {
   const [selectedDate, setSelectedDate] = useState(todayKey);
   const [monthExpanded, setMonthExpanded] = useState(false);
   const [dayWorkspaceOpen, setDayWorkspaceOpen] = useState(false);
+  const [dayDestination, setDayDestination] = useState<Href | null>(null);
+  function openFromDay(destination: Href) {
+    setDayDestination(destination);
+    setDayWorkspaceOpen(false);
+  }
+  useEffect(() => {
+    if (dayWorkspaceOpen || !dayDestination) return;
+    // The unmounted modal restores focus before this effect opens a new input screen.
+    // Navigating during its closing animation lets the old focus trap steal input.
+    setDayDestination(null);
+    router.push(dayDestination);
+  }, [dayDestination, dayWorkspaceOpen, router]);
   const lastDayActivation = useRef<CalendarDayActivation | null>(null);
   const cells = useMemo(() => buildMonthGrid(visibleMonth), [visibleMonth]);
   const weekCells = useMemo(() => {
@@ -41,7 +55,8 @@ export default function TodayScreen() {
       listBodyMeasurementsForDate(db, selectedDate),
       listSleepLogsForDate(db, selectedDate),
     ]);
-    return { summary, activity, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements, selectedSleepLogs, selectedDate };
+    const cardio = await listCardioSessions(db, rangeStart, rangeEnd);
+    return { summary, activity, cardio, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements, selectedSleepLogs, selectedDate };
   }, [cells, db, selectedDate, todayKey]);
   const { data, error, loading, reload } = useScreenData(loader);
 
@@ -59,6 +74,7 @@ export default function TodayScreen() {
   const selectedMeals = data.selectedDate === selectedDate ? data.selectedMeals : [];
   const selectedBodyMeasurements = data.selectedDate === selectedDate ? data.selectedBodyMeasurements : [];
   const selectedSleepLogs = data.selectedDate === selectedDate ? data.selectedSleepLogs : [];
+  const selectedCardio = data.cardio.filter((entry) => entry.loggedOn === selectedDate);
   const selectedDayLoading = loading && data.selectedDate !== selectedDate;
   const compactRecords = width < 700;
   const selectedInFuture = selectedDate > todayKey;
@@ -142,7 +158,7 @@ export default function TodayScreen() {
               <Pressable
                 key={cell.dateKey}
                 accessibilityRole="button"
-                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals, ${day.bodyMeasurementCount} body measurements, ${day.sleepLogCount} sleep logs` : ''}`}
+                accessibilityLabel={`${cell.date.toLocaleDateString()}${day ? `, ${day.workoutCount} completed workouts, ${day.plannedWorkoutCount} planned workouts, ${day.mealCount} meals, ${day.bodyMeasurementCount} body measurements, ${day.sleepLogCount} sleep logs` : ''}${data.cardio.some((entry) => entry.loggedOn === cell.dateKey) ? ', cardio logged' : ''}`}
                 onPress={() => activateDate(cell.dateKey)}
                 style={({ pressed }) => [
                   styles.dayCell,
@@ -156,6 +172,7 @@ export default function TodayScreen() {
                 <View style={styles.dayDots}>
                   {day?.workoutCount ? <View accessibilityLabel="Workout logged" style={[styles.dot, { backgroundColor: colors.success }]} /> : null}
                   {day?.plannedWorkoutCount ? <View accessibilityLabel="Workout planned" style={[styles.dot, { backgroundColor: colors.accent }]} /> : null}
+                  {data.cardio.some((entry) => entry.loggedOn === cell.dateKey) ? <View accessibilityLabel="Cardio logged" style={[styles.dot, { backgroundColor: colors.textMuted }]} /> : null}
                   {day?.mealCount ? <View accessibilityLabel="Food logged" style={[styles.dot, { backgroundColor: colors.wood }]} /> : null}
                   {day?.bodyMeasurementCount ? <View accessibilityLabel="Body measurement logged" style={[styles.dot, { backgroundColor: colors.warning }]} /> : null}
                   {day?.sleepLogCount ? <View accessibilityLabel="Sleep logged" style={[styles.dot, { backgroundColor: colors.textMuted }]} /> : null}
@@ -169,7 +186,7 @@ export default function TodayScreen() {
           <CalendarLegendItem color={colors.accent} label="Planned" />
           <CalendarLegendItem color={colors.wood} label="Food" />
           <CalendarLegendItem color={colors.warning} label="Body" />
-          <CalendarLegendItem color={colors.textMuted} label="Sleep" />
+          <CalendarLegendItem color={colors.textMuted} label="Sleep / cardio" />
         </View>
         <View style={[styles.dayWorkspacePrompt, { borderTopColor: colors.border }]}>
           <View style={styles.flex}>
@@ -180,7 +197,7 @@ export default function TodayScreen() {
         </View>
       </Card>
 
-      <Modal visible={dayWorkspaceOpen} transparent animationType={compactRecords ? 'slide' : 'fade'} onRequestClose={() => setDayWorkspaceOpen(false)}>
+      {dayWorkspaceOpen ? <Modal visible transparent animationType={compactRecords ? 'slide' : 'fade'} onRequestClose={() => setDayWorkspaceOpen(false)}>
         <View style={styles.dayWorkspaceOverlay}>
           <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={() => setDayWorkspaceOpen(false)} style={StyleSheet.absoluteFill} />
           <View role="dialog" accessibilityLabel="Day details" accessibilityViewIsModal style={[styles.dayWorkspaceSheet, compactRecords && styles.dayWorkspaceSheetCompact, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
@@ -199,8 +216,8 @@ export default function TodayScreen() {
                 : selectedInFuture
                 ? `${selectedPlans.length} planned workout${selectedPlans.length === 1 ? '' : 's'} · completed logs are limited to today or earlier.`
                 : selectedActivity
-                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} training sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${selectedActivity.sleepLogCount} sleep logs · ${Math.round(selectedActivity.caloriesKcal)} kcal`
-                  : 'No activity logged'}</AppText>
+                  ? `${selectedActivity.workoutCount} completed · ${selectedActivity.plannedWorkoutCount} planned · ${selectedActivity.workingSetCount} training sets · ${selectedActivity.mealCount} meals · ${selectedActivity.bodyMeasurementCount} body logs · ${selectedActivity.sleepLogCount} sleep logs · ${Math.round(selectedActivity.caloriesKcal)} kcal${selectedCardio.length ? ` · ${selectedCardio.length} cardio` : ''}`
+                  : selectedCardio.length ? `${selectedCardio.length} cardio session${selectedCardio.length === 1 ? '' : 's'}` : 'No activity logged'}</AppText>
             </View>
             <Button label="›" accessibilityLabel="Next day" onPress={() => selectDate(shiftLocalDateKey(selectedDate, 1))} variant="quiet" />
           </View>
@@ -209,34 +226,42 @@ export default function TodayScreen() {
               <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
                 <AppText style={styles.actionGroupTitle}>Training</AppText>
                 <View style={styles.actionGroupButtons}>
-                  <Button icon="barbell-outline" label={selectedWorkouts.length ? 'Log another' : 'Log workout'} onPress={() => router.push({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
-                  <Button icon="calendar-outline" label={selectedPlans.length ? 'Plan another' : 'Plan workout'} onPress={() => router.push({ pathname: '/workouts/plan', params: { date: selectedDate } } as never)} disabled={selectedInPast} variant="quiet" />
+                  <Button icon="barbell-outline" label={selectedWorkouts.length ? 'Log another' : 'Log workout'} onPress={() => openFromDay({ pathname: '/workouts/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
+                  <Button icon="calendar-outline" label={selectedPlans.length ? 'Plan another' : 'Plan workout'} onPress={() => openFromDay({ pathname: '/workouts/plan', params: { date: selectedDate } } as never)} disabled={selectedInPast} variant="quiet" />
+                  <Button label="Log cardio" onPress={() => openFromDay({ pathname: '/cardio', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
                 </View>
               </View>
               <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
                 <AppText style={styles.actionGroupTitle}>Food</AppText>
-                <Button icon="restaurant-outline" label={selectedActivity?.mealCount ? 'Add another meal' : 'Add meal'} onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
+                <Button icon="restaurant-outline" label={selectedActivity?.mealCount ? 'Add another meal' : 'Add meal'} onPress={() => openFromDay({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
               </View>
               <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
                 <AppText style={styles.actionGroupTitle}>Wellness</AppText>
                 <View style={styles.actionGroupButtons}>
-                  <Button icon="body-outline" label={selectedBodyMeasurements.length ? 'Add body entry' : 'Log body'} onPress={() => router.push({ pathname: '/wellness/body', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
-                  <Button icon="moon-outline" label={selectedSleepLogs.length ? 'Add sleep entry' : 'Log sleep'} onPress={() => router.push({ pathname: '/wellness/sleep', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
+                  <Button icon="body-outline" label={selectedBodyMeasurements.length ? 'Add body entry' : 'Log body'} onPress={() => openFromDay({ pathname: '/wellness/body', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
+                  <Button icon="moon-outline" label={selectedSleepLogs.length ? 'Add sleep entry' : 'Log sleep'} onPress={() => openFromDay({ pathname: '/wellness/sleep', params: { date: selectedDate } } as never)} disabled={selectedInFuture} variant="quiet" />
                 </View>
               </View>
             </View>
           </View>
           {selectedDayLoading ? <View accessibilityLiveRegion="polite" style={styles.selectedLoading}><AppText style={{ color: colors.textMuted }}>Loading this day’s records…</AppText></View> : null}
+          {selectedCardio.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Cardio · {selectedCardio.reduce((sum, entry) => sum + entry.minutes, 0)} min</AppText>
+            {selectedCardio.map((entry) => <Button key={entry.id} label={`${cardioLabel(entry.activity)} · ${entry.minutes} min · Review cardio`} variant="secondary"
+              onPress={() => openFromDay({ pathname: '/cardio', params: { id: entry.id } } as never)} />)}
+          </View> : null}
           {selectedPlans.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Planned workouts</AppText>{selectedPlans.map((workout) => (
-            <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
+            <View key={workout.id}>
+            <Link href={{ pathname: '/workouts/new', params: { planWorkoutId: workout.id } }} onPress={(event) => { event.preventDefault(); openFromDay({ pathname: '/workouts/new', params: { planWorkoutId: workout.id } }); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border, backgroundColor: colors.accentSoft }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} target sets</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
-                <AppText style={{ color: colors.accent, fontWeight: '700' }}>{workout.scheduledAt ? formatTime(workout.scheduledAt) : 'Planned'}</AppText>
+                <View><AppText style={{ color: colors.textMuted }}>{workout.scheduledAt ? formatTime(workout.scheduledAt) : 'Planned'}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Start / resume ›</AppText></View>
               </Pressable>
             </Link>
+            <Button label={`Review ${workout.title} plan`} variant="quiet" onPress={() => openFromDay({ pathname: '/workouts/[id]', params: { id: workout.id } })} />
+            </View>
           ))}</View> : null}
           {selectedWorkouts.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged workouts</AppText>{selectedWorkouts.map((workout) => (
-            <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} asChild>
+            <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} onPress={(event) => { event.preventDefault(); openFromDay({ pathname: '/workouts/[id]', params: { id: workout.id } }); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg·reps</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
                 <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
@@ -244,7 +269,7 @@ export default function TodayScreen() {
             </Link>
           ))}</View> : null}
           {selectedMeals.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged meals</AppText>{selectedMeals.map((meal) => (
-            <Link key={meal.id} href={`/meals/${meal.id}` as Href} asChild>
+            <Link key={meal.id} href={`/meals/${meal.id}` as Href} onPress={(event) => { event.preventDefault(); openFromDay(`/meals/${meal.id}` as Href); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.itemCount} item{meal.itemCount === 1 ? '' : 's'} · P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText></View>
                 <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
@@ -258,14 +283,14 @@ export default function TodayScreen() {
             </View>
           ))}</View> : null}
           {selectedSleepLogs.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Sleep</AppText>{selectedSleepLogs.map((sleep) => (
-            <Link key={sleep.id} href={{ pathname: '/wellness/sleep', params: { id: sleep.id, date: sleep.loggedOn } } as never} asChild>
+            <Link key={sleep.id} href={{ pathname: '/wellness/sleep', params: { id: sleep.id, date: sleep.loggedOn } } as never} onPress={(event) => { event.preventDefault(); openFromDay({ pathname: '/wellness/sleep', params: { id: sleep.id, date: sleep.loggedOn } } as never); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{formatSleepDuration(sleep.sleepDurationMinutes)}</AppText><AppText style={{ color: colors.textMuted }}>{sleep.sleepQualityScore == null ? 'Quality not rated' : `Quality ${sleep.sleepQualityScore}/5`}</AppText></View>
                 <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={{ color: colors.textMuted }}>{formatTime(sleep.loggedAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
               </Pressable>
             </Link>
           ))}</View> : null}
-          {!selectedDayLoading && !selectedPlans.length && !selectedWorkouts.length && !selectedMeals.length && !selectedBodyMeasurements.length && !selectedSleepLogs.length ? (
+          {!selectedDayLoading && !selectedCardio.length && !selectedPlans.length && !selectedWorkouts.length && !selectedMeals.length && !selectedBodyMeasurements.length && !selectedSleepLogs.length ? (
             <View style={[styles.emptySelectedDay, { borderColor: colors.border }]}>
               <AppText style={styles.value}>{selectedInFuture ? 'Nothing planned yet' : 'No logs on this day'}</AppText>
               <AppText style={{ color: colors.textMuted }}>{selectedInFuture ? 'Plan a workout above and it will appear here.' : 'Use the workout or meal actions above to add records for this day.'}</AppText>
@@ -275,7 +300,7 @@ export default function TodayScreen() {
             </ScrollView>
           </View>
         </View>
-      </Modal>
+      </Modal> : null}
 
       <SectionHeading title="Next workout" detail="Based on your recent muscle-group pattern" />
       <Card style={[styles.progressCard, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>

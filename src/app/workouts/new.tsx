@@ -40,6 +40,8 @@ import {
 } from '@/lib/progression';
 import { exerciseEquipmentLabel, filterExerciseCatalog } from '@/lib/training/exercise-catalog';
 import { hasStoredJointConsideration } from '@/lib/planning/workout-plan';
+import { liveSetTarget, type LiveSetTarget } from '@/lib/progression/live-set-target';
+import { isSessionApproach } from '@/lib/planning/session-approach';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
 import {
@@ -97,7 +99,7 @@ const isRowEmpty = (set: DraftSet) => !set.load.trim() && !set.reps.trim() && !s
 export default function NewWorkoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { templateWorkoutId, planWorkoutId, editWorkoutId, date } = useLocalSearchParams<{ templateWorkoutId?: string; planWorkoutId?: string; editWorkoutId?: string; date?: string }>();
+  const { templateWorkoutId, planWorkoutId, editWorkoutId, date, sessionApproach } = useLocalSearchParams<{ templateWorkoutId?: string; planWorkoutId?: string; editWorkoutId?: string; date?: string; sessionApproach?: string }>();
   const workoutIdRef = useRef(editWorkoutId ?? planWorkoutId ?? Crypto.randomUUID());
   const submitLockRef = useRef(false);
   const draftPersistenceActiveRef = useRef(true);
@@ -123,6 +125,10 @@ export default function NewWorkoutScreen() {
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [showRpeGuide, setShowRpeGuide] = useState(false);
+  const [showWorkoutOptions, setShowWorkoutOptions] = useState(!planWorkoutId && !templateWorkoutId);
+  const [planIncreaseHold, setPlanIncreaseHold] = useState(false);
+  const [editedCountIds, setEditedCountIds] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState<Record<string, boolean>>({});
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customNotes, setCustomNotes] = useState('');
@@ -147,24 +153,32 @@ export default function NewWorkoutScreen() {
       else if (template?.plan?.exercises[0]?.sets[0]) setUnit(template.plan.exercises[0].sets[0].loadUnit);
       else if (profile) setUnit(profile.preferredLoadUnit);
       if (template) {
+        if (planWorkoutId && (template.status !== 'planned' || !template.plan)) throw new Error('This plan is no longer available to start. Return to Training and open its current record.');
+        const approach = planWorkoutId ? template.plan?.sessionApproach
+          : isSessionApproach(sessionApproach) ? sessionApproach : undefined;
+        setPlanIncreaseHold(approach === 'repeat' || approach === 'ease_off');
+        setEditedCountIds(planWorkoutId ? template.plan?.exercises.filter((item) => item.setCountEdited).map((item) => item.exerciseId) ?? [] : []);
         setTitle(template.title);
         setEditStartedAt(editWorkoutId
           ? template.completedAt
-          : planWorkoutId ? new Date().toISOString() : null);
+          : planWorkoutId ? new Date().toISOString() : templateWorkoutId ? new Date().toISOString() : null);
         setBlocks(template.status === 'planned'
           ? blocksFromPlan(template)
-          : editWorkoutId ? blocksFromEdit(template) : blocksFromTemplate(template));
+          : editWorkoutId ? blocksFromEdit(template) : blocksFromTemplate(template, approach));
       } else {
+        if (planWorkoutId || editWorkoutId || templateWorkoutId) throw new Error('Workout not found. Return to Training and choose another workout.');
         setBlocks((current) => current.length ? current : [newBlock(exercises[0]?.id ?? '')]);
       }
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Could not load exercises.');
     }
-  }, [db, editWorkoutId, planWorkoutId, templateWorkoutId]);
+  }, [db, editWorkoutId, planWorkoutId, templateWorkoutId, sessionApproach]);
 
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
 
-  const draftContext = useMemo(() => workoutDraftContext({ date, templateWorkoutId, planWorkoutId, editWorkoutId }), [date, editWorkoutId, planWorkoutId, templateWorkoutId]);
+  const draftContext = useMemo(() => workoutDraftContext({ date, templateWorkoutId, planWorkoutId, editWorkoutId,
+    sessionApproach: isSessionApproach(sessionApproach) ? sessionApproach : undefined,
+  }), [date, editWorkoutId, planWorkoutId, templateWorkoutId, sessionApproach]);
   const draftSummary = useMemo(() => summarizeWorkoutDraft(blocks), [blocks]);
   const draftMuscleCredits = useMemo(() => summarizeDraftMuscleCredits(blocks, catalog ?? []), [blocks, catalog]);
 
@@ -509,17 +523,17 @@ export default function NewWorkoutScreen() {
     }));
   };
 
-  const applySetCue = (blockKey: string, cue: SetProgressionCue) => {
-    setBlocks((current) => current.map((block) => block.key === blockKey ? {
-      ...block,
-      sets: block.sets.map((set, index) => workingSetIndexAt(block.sets, index) === cue.workingSetIndex ? {
-        ...set,
-        load: String(cue.loadValue),
-        reps: String(cue.targetReps),
-        rpe: '',
-        completed: false,
-      } : set),
-    } : block));
+  const useLiveTarget = (blockKey: string, rowIndex: number) => {
+    if (editWorkoutId) return;
+    setBlocks((current) => current.map((block) => {
+      if (block.key !== blockKey || block.historyStatus !== 'ready') return block;
+      const target = liveSetTarget({ rows: block.sets, rowIndex, unit, history: block.sourceSets ?? [], plan: block.progression,
+        allowIncrease: !editWorkoutId && !planIncreaseHold && !editedCountIds.includes(block.exerciseId), jointHold: jointProgressionHold });
+      if (!target) return block;
+      return { ...block, sets: block.sets.map((set, index) => index === rowIndex ? {
+        ...set, load: String(target.loadValue), reps: String(target.targetReps), rpe: '', completed: false,
+      } : set) };
+    }));
   };
 
   const addExercise = () => {
@@ -617,7 +631,7 @@ export default function NewWorkoutScreen() {
       ))) {
         throw new Error('Use a non-negative load, whole-number reps, and optional RPE from 1–10.');
       }
-      const startedAt = (editWorkoutId || planWorkoutId) && editStartedAt
+      const startedAt = (editWorkoutId || planWorkoutId || templateWorkoutId) && editStartedAt
         ? editStartedAt
         : date ? localTimestampForDate(date) : new Date().toISOString();
       const recoveryDraftKey = draftOwnerUserId
@@ -655,13 +669,14 @@ export default function NewWorkoutScreen() {
     <Screen contentContainerStyle={styles.screenContent}>
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
       {draftRecovered ? <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}><AppText style={{ color: colors.success, fontWeight: '800' }}>Unfinished workout restored</AppText><AppText style={{ color: colors.textMuted }}>Set entries, completion state, set types, and the rest timer were restored from this device.</AppText></Card> : null}
-      <View style={[styles.sessionFields, !compact && styles.sessionFieldsWide]}>
+      {planWorkoutId || templateWorkoutId ? <Button label={showWorkoutOptions ? 'Hide workout options' : 'Workout options'} expanded={showWorkoutOptions} onPress={() => setShowWorkoutOptions((value) => !value)} variant="quiet" /> : null}
+      {showWorkoutOptions ? <View style={[styles.sessionFields, !compact && styles.sessionFieldsWide]}>
         <Field label="Session name" value={title} onChangeText={setTitle} returnKeyType="done" containerStyle={styles.flex} />
         <View style={styles.unitGroup}>
           <AppText style={styles.label}>Load unit</AppText>
           <View style={styles.pills}><Pill label="kg" active={unit === 'kg'} onPress={() => changeUnit('kg')} /><Pill label="lb" active={unit === 'lb'} onPress={() => changeUnit('lb')} /></View>
         </View>
-      </View>
+      </View> : null}
 
       {templateWorkoutId || planWorkoutId || editWorkoutId ? (
         <View style={[styles.templateBanner, { backgroundColor: colors.successSoft }]}>
@@ -681,13 +696,13 @@ export default function NewWorkoutScreen() {
         </Card>
       ) : null}
 
-      <Button
+      {showWorkoutOptions ? <Button
         label={showRpeGuide ? 'Hide RPE guide' : 'RPE guide'}
         onPress={() => setShowRpeGuide((visible) => !visible)}
         expanded={showRpeGuide}
         variant="quiet"
-      />
-      {showRpeGuide ? (
+      /> : null}
+      {showWorkoutOptions && showRpeGuide ? (
         <Card style={styles.rpeGuide}>
           <AppText style={styles.suggestionTitle}>Rate reps in reserve</AppText>
           <AppText style={{ color: colors.textMuted }}>Optional. Estimate clean reps still possible with the same form, not pain or breathlessness.</AppText>
@@ -701,7 +716,7 @@ export default function NewWorkoutScreen() {
         </Card>
       ) : null}
 
-      <Card style={styles.timerCard}>
+      {showWorkoutOptions || restEndsAt != null ? <Card style={styles.timerCard}>
         <View style={styles.timerHeader}>
           <View style={styles.flex}>
             <AppText style={styles.suggestionTitle}>Rest timer</AppText>
@@ -727,7 +742,7 @@ export default function NewWorkoutScreen() {
             />
           ))}
         </View>
-      </Card>
+      </Card> : null}
 
       {formError ? <View accessibilityRole="alert" style={[styles.errorBanner, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
 
@@ -745,6 +760,16 @@ export default function NewWorkoutScreen() {
         const setsComplete = startedSets.length > 0 && startedSets.every((set) => set.completed);
         const completionFeedback = completedFeedbackByKey.get(block.key) ?? null;
         const recentBaseline = calculateRecentExerciseBaseline(block.baselineSessions ?? []);
+        const currentEffortHold = block.sets.some((set) => countsTowardProgression(set.kind) && (set.kind === 'failure'
+          || (set.rpe.trim() && (!Number.isFinite(Number(set.rpe)) || Number(set.rpe) < 1 || Number(set.rpe) > 9))));
+        const pausedReason = jointProgressionHold ? 'Progression paused for your joint consideration.'
+          : currentEffortHold ? 'Progression paused after failure or high/invalid effort. Your entered sets are unchanged.'
+          : editWorkoutId ? 'Editing a completed record. No new progression targets are applied.'
+          : planIncreaseHold || editedCountIds.includes(block.exerciseId) ? 'This plan keeps increase cues off. Set values remain editable.' : null;
+        const targets = block.sets.map((_, rowIndex) => !editWorkoutId && block.historyStatus === 'ready' ? liveSetTarget({
+          rows: block.sets, rowIndex, unit, history: block.sourceSets ?? [], plan: block.progression,
+          allowIncrease: !editWorkoutId && !planIncreaseHold && !editedCountIds.includes(block.exerciseId), jointHold: jointProgressionHold,
+        }) : null);
         return (
           <Card key={block.key} style={styles.exerciseCard}>
             <View style={styles.blockHeader}>
@@ -755,7 +780,8 @@ export default function NewWorkoutScreen() {
               </View>
             </View>
 
-            <View style={styles.pickerSection}>
+            {planWorkoutId || templateWorkoutId ? <Button label={pickerOpen[block.key] ? 'Hide exercise choices' : 'Change exercise'} onPress={() => setPickerOpen((current) => ({ ...current, [block.key]: !current[block.key] }))} variant="quiet" /> : null}
+            {(!planWorkoutId && !templateWorkoutId) || pickerOpen[block.key] ? <View style={styles.pickerSection}>
               <AppText style={styles.pickerLabel}>Common exercises</AppText>
               <View style={styles.catalog}>
                 {commonExercises.map((exercise) => <Pill key={exercise.id} label={exercise.name} active={exercise.id === block.exerciseId} onPress={() => setExercise(block.key, exercise.id)} />)}
@@ -781,14 +807,15 @@ export default function NewWorkoutScreen() {
                   {matchingResults.length > results.length ? <AppText style={[styles.noResult, { color: colors.textMuted }]}>Showing 40 of {matchingResults.length}. Search by name, muscle, or equipment to narrow the list.</AppText> : null}
                 </ScrollView>
               ) : null}
-            </View>
+            </View> : null}
 
             {selected ? <AppText style={[styles.range, { color: colors.textMuted }]}>{muscleGroupLabel(selected.primaryMuscleGroup)} primary{selected.secondaryMuscleGroups.length ? ` · ${selected.secondaryMuscleGroups.map(muscleGroupLabel).join(', ')} assist` : ''} · target {selected.targetRepMin}–{selected.targetRepMax} reps{selected.notes ? ` · ${selected.notes}` : ''}</AppText> : null}
             {block.progression ? (
-              <View style={[styles.suggestion, { backgroundColor: block.progression.action === 'hold' ? colors.warningSoft : colors.successSoft }]}>
+              <View style={[styles.suggestion, { backgroundColor: pausedReason || block.progression.action === 'hold' ? colors.warningSoft : colors.successSoft }]}>
                 <View style={styles.suggestionCopy}>
-                  <AppText style={[styles.suggestionTitle, { color: block.progression.action === 'hold' ? colors.warning : colors.success }]}>{block.progression.action === 'hold' ? 'Repeat before increasing' : 'Progression suggestion'}</AppText>
-                  <AppText style={styles.suggestionText}>{block.progression.reason}</AppText>
+                  <AppText style={[styles.suggestionTitle, { color: pausedReason || block.progression.action === 'hold' ? colors.warning : colors.success }]}>{pausedReason ? 'Review your targets' : block.progression.action === 'hold' ? 'Repeat before increasing' : 'Progression suggestion'}</AppText>
+                  <AppText style={styles.suggestionText}>{pausedReason ?? block.progression.reason}</AppText>
+                  <AppText style={{ color: colors.textMuted }}>Targets update as you enter sets. Tap Use target to copy one; nothing is marked complete.</AppText>
                   {recentBaseline.volumeKg != null ? (
                     <AppText style={{ color: colors.textMuted }}>
                       Recent baseline · {formatDraftWork(recentBaseline.volumeKg)} kg·reps median across {recentBaseline.sessionCount} matching session{recentBaseline.sessionCount === 1 ? '' : 's'}
@@ -831,9 +858,7 @@ export default function NewWorkoutScreen() {
                     ><AppText style={{ color: colors.textMuted }}>×</AppText></Pressable>
                   </View>
                   <SetKindPicker value={set.kind} onChange={(kind) => setSetKind(block.key, set.key, kind)} />
-                  {progressionCueForRow(block.progression, block.sets, setIndex) ? (
-                    <SetCueRow cue={progressionCueForRow(block.progression, block.sets, setIndex)!} onApply={(cue) => applySetCue(block.key, cue)} />
-                  ) : null}
+                  {targets[setIndex] ? <LiveTargetRow target={targets[setIndex]!} onApply={() => useLiveTarget(block.key, setIndex)} /> : null}
                 </View>
               ))}
             </View> : (
@@ -848,9 +873,7 @@ export default function NewWorkoutScreen() {
                     </View>
                     <SetKindPicker value={set.kind} onChange={(kind) => setSetKind(block.key, set.key, kind)} />
                     <Button label={set.completed ? 'Undo completed set' : 'Mark set complete'} onPress={() => toggleSetCompleted(block.key, set.key)} variant={set.completed ? 'quiet' : 'secondary'} />
-                    {progressionCueForRow(block.progression, block.sets, setIndex) ? (
-                      <SetCueRow cue={progressionCueForRow(block.progression, block.sets, setIndex)!} onApply={(cue) => applySetCue(block.key, cue)} />
-                    ) : null}
+                    {targets[setIndex] ? <LiveTargetRow target={targets[setIndex]!} compact onApply={() => useLiveTarget(block.key, setIndex)} /> : null}
                   </View>
                 ))}
               </View>
@@ -1031,8 +1054,9 @@ const styles = StyleSheet.create({
   setDoneLabel: { width: 44, textAlign: 'center', ...typography.caption, fontWeight: '700', opacity: 0.7 },
   setField: { flex: 1, minWidth: 0 },
   compactInput: { textAlign: 'center', paddingHorizontal: spacing.xs },
-  setCue: { marginLeft: 48, paddingLeft: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  setCueCopy: { flex: 1, ...typography.caption, fontWeight: '700' },
+  setCue: { marginLeft: 48, paddingLeft: spacing.xs, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
+  setCueCopy: { flexGrow: 1, flexBasis: 180 },
+  setCueCompact: { marginLeft: 0, paddingLeft: 0, flexDirection: 'column', alignItems: 'stretch' },
   removeColumn: { width: 44 },
   setDone: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
   removeSet: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
@@ -1145,9 +1169,10 @@ function VolumeMetric({ label, value }: { label: string; value: number | null })
   );
 }
 
-function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
+function blocksFromTemplate(template: WorkoutDetail, approach?: string): DraftExercise[] {
   const grouped = new Map<string, DraftExercise>();
   template.sets.forEach((set) => {
+    if (approach && !countsTowardProgression(set.kind)) return;
     const block = grouped.get(set.exerciseId) ?? {
       key: Crypto.randomUUID(),
       exerciseId: set.exerciseId,
@@ -1170,7 +1195,16 @@ function blocksFromTemplate(template: WorkoutDetail): DraftExercise[] {
     }
     grouped.set(set.exerciseId, block);
   });
-  return [...grouped.values()];
+  return [...grouped.values()].map((block) => approach === 'ease_off' && block.sets.length > 1
+    ? { ...block, sets: block.sets.slice(0, -1) } : block);
+}
+
+function LiveTargetRow({ target, onApply, compact = false }: { target: LiveSetTarget; onApply: () => void; compact?: boolean }) {
+  const { colors } = useJienTheme();
+  return <View style={[styles.setCue, compact && styles.setCueCompact]}>
+    <View style={!compact && styles.setCueCopy}><AppText style={{ color: colors.success }}>{target.label}</AppText><AppText style={{ color: colors.textMuted }}>{target.reason}</AppText></View>
+    <Button label="Use target" onPress={onApply} variant="quiet" />
+  </View>;
 }
 
 function blocksFromEdit(template: WorkoutDetail): DraftExercise[] {
@@ -1209,16 +1243,6 @@ function blocksFromPlan(template: WorkoutDetail): DraftExercise[] {
   })) ?? [];
 }
 
-function SetCueRow({ cue, onApply }: { cue: SetProgressionCue; onApply: (cue: SetProgressionCue) => void }) {
-  const { colors } = useJienTheme();
-  return (
-    <View style={styles.setCue}>
-      <AppText style={[styles.setCueCopy, { color: colors.success }]}>{cue.label}</AppText>
-      <Button label="Use" onPress={() => onApply(cue)} variant="quiet" />
-    </View>
-  );
-}
-
 function SetKindPicker({ value, onChange }: { value: SetKind; onChange: (kind: SetKind) => void }) {
   return (
     <View accessibilityRole="radiogroup" style={styles.setKindPicker}>
@@ -1232,18 +1256,6 @@ function SetKindPicker({ value, onChange }: { value: SetKind; onChange: (kind: S
       ))}
     </View>
   );
-}
-
-function workingSetIndexAt(sets: DraftSet[], rowIndex: number): number {
-  if (!sets[rowIndex] || !countsTowardProgression(sets[rowIndex]?.kind)) return -1;
-  return sets.slice(0, rowIndex).filter((set) => countsTowardProgression(set.kind)).length;
-}
-
-function progressionCueForRow(plan: SetProgressionPlan | null, sets: DraftSet[], rowIndex: number): SetProgressionCue | null {
-  if (sets[rowIndex]?.kind === 'failure' || sets.some((set) => set.completed && set.kind === 'failure')) return null;
-  const workingSetIndex = workingSetIndexAt(sets, rowIndex);
-  if (workingSetIndex < 0) return null;
-  return plan?.cues.find((cue) => cue.workingSetIndex === workingSetIndex) ?? null;
 }
 
 function validateDraftSet(set: DraftSet, label: string): string | null {

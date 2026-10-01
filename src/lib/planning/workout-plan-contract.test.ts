@@ -52,8 +52,8 @@ test('calendar, start flow, and reminders all invalidate stale plans', () => {
   assert.match(calendar, /listPlannedWorkoutsForDate/);
   assert.match(calendar, /pathname: '\/workouts\/plan'/);
   assert.match(logger, /completePlannedWorkout/);
-  assert.match(logger, /planWorkoutId \? new Date\(\)\.toISOString\(\) : null/);
-  assert.match(logger, /\(editWorkoutId \|\| planWorkoutId\) && editStartedAt/);
+  assert.match(logger, /planWorkoutId \? new Date\(\)\.toISOString\(\) : templateWorkoutId \? new Date\(\)\.toISOString\(\) : null/);
+  assert.match(logger, /\(editWorkoutId \|\| planWorkoutId \|\| templateWorkoutId\) && editStartedAt/);
   assert.match(runtime, /subscribeToQueuedLocalWrites/);
   assert.match(notifications, /reconcileWorkoutPlanNotification/);
   assert.match(notifications, /cancelWorkoutPlanNotification/);

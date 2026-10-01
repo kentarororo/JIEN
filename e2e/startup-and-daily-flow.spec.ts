@@ -288,11 +288,12 @@ test('programme planning supports flexible starts and opt-in scheduling without 
   await expect(page.getByText('Planned workouts', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('tab', { name: 'Train', exact: true }).click();
-  await page.getByText('Push session', { exact: true }).click();
+  await page.getByRole('button', { name: 'Review Push session plan', exact: true }).click();
   await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
   await page.getByRole('radio', { name: 'Set date and time', exact: true }).click();
   await page.getByRole('button', { name: 'Tomorrow', exact: true }).click();
   await page.getByRole('button', { name: 'Update workout plan', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start workout', exact: true })).toBeVisible();
   await expect(page.getByText('Planned · No set time', { exact: true })).toHaveCount(0);
 
   await page.clock.setFixedTime(new Date('2026-09-02T04:00:00.000Z'));
@@ -342,6 +343,7 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
 
   await page.getByRole('tab', { name: 'Today' }).click();
   await page.getByRole('button', { name: /Add meal/ }).first().click();
+  await page.getByRole('button', { name: 'Meal details (optional)', exact: true }).click();
   await page.getByLabel('Meal name').fill('Browser QA lunch');
   await page.getByRole('textbox', { name: 'Food', exact: true }).fill('Chicken rice');
   await page.getByRole('textbox', { name: 'Calories', exact: true }).fill('650');

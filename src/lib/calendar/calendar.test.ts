@@ -51,7 +51,9 @@ test('the calendar day workspace keeps itemized training and food edit routes da
   const source = todayScreen();
   assert.match(source, /isRepeatedCalendarDayActivation/);
   assert.match(source, /<Button label="Open day"/);
-  assert.match(source, /visible=\{dayWorkspaceOpen\}/);
+  assert.match(source, /dayWorkspaceOpen \? <Modal visible/);
+  assert.match(source, /if \(dayWorkspaceOpen \|\| !dayDestination\) return/);
+  assert.match(source, /router\.push\(dayDestination\)/);
   assert.match(source, /pathname: '\/workouts\/new', params: \{ date: selectedDate \}/);
   assert.match(source, /pathname: '\/meals\/new', params: \{ date: selectedDate \}/);
   assert.match(source, /pathname: '\/workouts\/\[id\]'/);

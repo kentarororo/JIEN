@@ -76,8 +76,37 @@ progression baseline. Settings persist with the saved plan without a new SQL mig
 These estimates are not yet calibrated against measured sessions.
 See [time-aware-planning.md](time-aware-planning.md) for scope and verification.
 
+### Quick-entry refinement — local implementation
+
+Saved plans open directly in the editable set logger from Training and the day
+calendar; a separate review action keeps scheduling and plan management available.
+The planner offers Start workout now, and completed-session choices can start a
+fresh workout without an intermediate planner. Meal entry starts with food search,
+barcode, photo or manual entry; naming and meal type are optional details.
+
+Per-row targets refresh with entered values and current effort. Same-exercise
+history provides progression cues; without history, a first entered working set
+can be reused without claiming an increase. Targets remain opt-in and uncompleted.
+Repeat/ease-off choices, edited plan counts, joint holds and failure/high effort
+retain their safeguards. This refines execution, not the longitudinal advisory
+engine. See [quick-entry.md](quick-entry.md) for scope and release checks.
+
 Next: longitudinal adherence, missed sessions, return after a break and plateau
 review across multiple workouts; then structured relevant-joint and effort feedback.
+
+### Supporting slice — cardio logging and photo reliability
+
+User-requested manual cardio logging is implemented locally: activity and minutes,
+optional distance/effort, calendar review, edit/remove, offline storage and existing
+private sync/export. Duration stays separate from lifting credits and nutrition;
+recent same-activity history is descriptive, not an automatic progression target.
+Live timers, GPS, heart-rate zones and cardio prescriptions are outside this slice.
+
+Production Gemini photo failure was reproduced with one approved synthetic image.
+Provider output validation and safe diagnostics are improved locally; the upstream
+rejection is not yet explained or certified fixed. Deploy/retest is a separate gate,
+not something a mocked browser success proves. See
+[cardio-and-photo-release.md](cardio-and-photo-release.md).
 
 Explicit follow-ups, not claims of completion:
 
@@ -145,7 +174,8 @@ numeric targets or chooses a workout without an explicit user action.
   missed-session handling are opt-in. Starting always records the actual start date
   and time without converting a suggestion into observed work.
 - Completed workouts now close the feedback loop with an explicit Progress, Repeat,
-  or Ease off choice. Each choice opens an editable, unscheduled local plan; the
+  or Ease off choice. Each choice can start an editable workout immediately or open
+  an unscheduled local plan for later; the
   stored snapshot explains the choice, deterministic cues remain separate from
   targets, and completed history is immutable. Ease off removes one working set
   where possible instead of inventing a recovery percentage or automatic deload.
