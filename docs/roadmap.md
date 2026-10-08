@@ -96,6 +96,16 @@ review across multiple workouts; then structured relevant-joint and effort feedb
 
 ### Supporting slice — cardio logging and photo reliability
 
+October 8 refinement: Log cardio joins Log workout in the main Training actions,
+outside the Overview/History switch. The private food library now has a local-first
+account-sync implementation, optional brand/barcode, local barcode lookup and legacy
+shortcut migration. Explicit community sharing exposes product details to all
+signed-in accounts, while meal history remains private. Shared foods are unverified
+and can be withdrawn; server-only moderation can hide entries. Apply
+`20261008000100_private_foods.sql` and verify two-account RLS/RPC access before deployment.
+See [private-food-library.md](private-food-library.md). This advances Alpha 2.5;
+it does not complete recipes, food management or reviewed community submissions.
+
 User-requested manual cardio logging is implemented locally: activity and minutes,
 optional distance/effort, calendar review, edit/remove, offline storage and existing
 private sync/export. Duration stays separate from lifting credits and nutrition;

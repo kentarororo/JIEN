@@ -4,6 +4,9 @@ export type MealDraftFood = {
   key: string;
   catalogId: string | null;
   name: string;
+  brand?: string;
+  barcode?: string;
+  isShared?: boolean;
   quantity: string;
   unit: string;
   calories: string;
@@ -79,6 +82,8 @@ export function mealDraftHasContent(
     || draft.photoAnalyses.length > 0
     || draft.foods.some((food) => Boolean(
       food.name.trim()
+      || food.brand?.trim()
+      || food.barcode?.trim()
       || food.calories.trim()
       || food.protein.trim()
       || food.carbs.trim()
@@ -88,6 +93,8 @@ export function mealDraftHasContent(
 
 export function isBlankMealDraftFood(food: MealDraftFood): boolean {
   return !food.name.trim()
+    && !food.brand?.trim()
+    && !food.barcode?.trim()
     && !food.calories.trim()
     && !food.protein.trim()
     && !food.carbs.trim()
@@ -195,6 +202,9 @@ function parseFood(value: unknown): MealDraftFood | null {
     || !isBoundedString(value.key, 1, 100)
     || !(value.catalogId === null || isBoundedString(value.catalogId, 1, 200))
     || !isBoundedString(value.name, 0, 180)
+    || !(value.brand == null || isBoundedString(value.brand, 0, 160))
+    || !(value.barcode == null || isBoundedString(value.barcode, 0, 32))
+    || !(value.isShared == null || typeof value.isShared === 'boolean')
     || !isBoundedString(value.quantity, 0, 40)
     || !isBoundedString(value.unit, 1, 40)
     || !isBoundedString(value.calories, 0, 40)

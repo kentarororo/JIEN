@@ -21,7 +21,9 @@ export function parseFoodSearchData(value: unknown): FoodSearchData {
 }
 
 export function foodItemsEligibleForDiscoveryCache(items: FoodCatalogItem[]): FoodCatalogItem[] {
-  return items.filter((item) => item.source !== 'fatsecret');
+  // Community discovery is online: withdrawals/moderation must not leave stale public copies.
+  // A selected food's nutrition still belongs in the user's private meal history.
+  return items.filter((item) => item.source !== 'fatsecret' && item.source !== 'community');
 }
 
 function parseFoodSearchItem(value: unknown): FoodCatalogItem {

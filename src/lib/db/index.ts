@@ -25,11 +25,12 @@ export {
   cacheFoodCatalogItems,
   getMealPhotoAnalysisCapability,
   lookupFoodBarcode,
+  lookupLocalFoodBarcode,
   markFoodCatalogItemUsed,
   searchFoodDatabase,
   searchLocalFoodCatalog,
 } from './food-catalog';
-export { savePrivateFood } from './private-food';
+export { savePrivateFood, stopSharingPrivateFood } from './private-food';
 export type { SavePrivateFoodInput } from './private-food';
 export { classifyMealPhotoAnalysisError } from './meal-photo-api';
 export type {

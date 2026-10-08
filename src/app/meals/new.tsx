@@ -19,10 +19,12 @@ import {
   getMealDetail,
   getQueuedMealPhotoResult,
   lookupFoodBarcode,
+  lookupLocalFoodBarcode,
   markFoodCatalogItemUsed,
   queueMealPhotoAnalysis,
   saveMeal,
   savePrivateFood,
+  stopSharingPrivateFood,
   searchFoodDatabase,
   searchLocalFoodCatalog,
   type FoodCatalogItem,
@@ -273,7 +275,7 @@ export default function NewMealScreen() {
     return () => { active = false; };
   }, [appliedPhotoRequestIds, db, draftReady, photoJob]);
 
-  const update = (key: string, field: 'name', value: string) => {
+  const update = (key: string, field: 'name' | 'brand' | 'barcode', value: string) => {
     setFormError(null);
     setFoods((current) => current.map((food) => food.key === key ? { ...food, [field]: value } : food));
   };
@@ -367,9 +369,9 @@ export default function NewMealScreen() {
     }
   };
 
-  const beginPrivateFood = () => {
+  const beginPrivateFood = (barcode = '') => {
     const seedName = (noMatchQuery ?? query).trim();
-    const nextFood = { ...emptyFood(), name: seedName };
+    const nextFood = { ...emptyFood(), name: seedName, barcode };
     setFoods((current) => {
       const blankIndex = current.findIndex(isBlankFood);
       if (blankIndex < 0) return [...current, nextFood];
@@ -378,20 +380,30 @@ export default function NewMealScreen() {
     setQuery('');
     setResults([]);
     setNoMatchQuery(null);
-    setToolMessage('Add the serving and label values below, then save it to your private foods for one-tap reuse.');
+    setToolMessage('Add the serving and label values below. Save privately or share the food with the community.');
     setTimeout(() => {
       screenRef.current?.scrollTo({ y: Math.max(0, mealItemsYRef.current - spacing.md), animated: true });
     }, 80);
   };
 
-  const saveFoodForReuse = async (food: DraftFood) => {
+  const saveFoodForReuse = async (food: DraftFood, isShared?: boolean) => {
     if (savingPrivateFoodKey) return;
     setSavingPrivateFoodKey(food.key);
     setFormError(null);
     try {
+      if (isShared === false && food.catalogId) {
+        await stopSharingPrivateFood(db, food.catalogId);
+        setFoods((current) => current.map((draft) => draft.catalogId === food.catalogId
+          ? { ...draft, isShared: false, sourceLabel: 'Private food' } : draft));
+        setToolMessage(`${food.name} is private on this device. Removal from community search is queued for sync; previously saved meal entries are unchanged.`);
+        return;
+      }
       const item = await savePrivateFood(db, {
         id: food.catalogId,
         name: food.name,
+        brand: food.brand,
+        barcode: food.barcode,
+        isShared,
         servingQuantity: Number(food.quantity),
         servingUnit: food.unit,
         caloriesKcal: Number(food.calories),
@@ -404,10 +416,13 @@ export default function NewMealScreen() {
         ...draft,
         catalogId: item.id,
         name: item.name,
+        brand: item.brand ?? '',
+        barcode: item.barcode ?? '',
+        isShared: item.isShared,
         quantity: String(item.servingQuantity),
         unit: item.servingUnit,
         source: draft.source,
-        sourceLabel: food.catalogId?.startsWith('custom-') || !food.sourceLabel
+        sourceLabel: item.isShared ? 'Your community food · unverified' : food.catalogId?.startsWith('custom-') || !food.sourceLabel
           ? 'Private food'
           : `Private food · ${food.sourceLabel}`,
         confidence: draft.source === 'ai_photo' ? draft.confidence : null,
@@ -421,7 +436,9 @@ export default function NewMealScreen() {
           fibreG: item.fibreG ?? 0,
         },
       } : draft));
-      setToolMessage(`${item.name} ${food.catalogId?.startsWith('custom-') ? 'updated' : 'saved'} in your private foods on this device.`);
+      setToolMessage(item.isShared
+        ? `${item.name} saved on this device. Community sharing is queued for account sync; it becomes searchable by other accounts after sync succeeds. Your meal history stays private.`
+        : `${item.name} saved to your private foods on this device and queued for account sync. It is not shared with other users.`);
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'This private food could not be saved.');
     } finally {
@@ -485,7 +502,8 @@ export default function NewMealScreen() {
     setCameraBusy(true);
     if (!fromCamera) setToolMessage(null);
     try {
-      const items = await lookupFoodBarcode(value);
+      const localItems = await lookupLocalFoodBarcode(db, value);
+      const items = localItems.length ? localItems : await lookupFoodBarcode(value);
       if (!items[0]) throw new Error('No food matched that barcode. Try another angle or enter it manually.');
       await addCatalogFood(items[0]);
       try {
@@ -494,7 +512,7 @@ export default function NewMealScreen() {
         // The matched product is already in the draft; caching is only an optimization.
       }
       setBarcodeValue('');
-      setToolMessage(`${items[0].name} added from Open Food Facts. Review the serving and macros.`);
+      setToolMessage(`${items[0].name} added from ${sourceName(items[0].source)}. Review the serving and macros.`);
       setBarcodeStatus(`${items[0].name} added.`);
       return true;
     } catch (cause) {
@@ -793,7 +811,7 @@ export default function NewMealScreen() {
         <View style={styles.toolActions}>
           <Button label="Search food database" onPress={() => void runDatabaseSearch()} busy={searching} variant="secondary" />
           <Button label="Scan barcode" onPress={() => void openCamera('barcode')} variant="secondary" />
-          <Button label="Enter food manually" onPress={beginPrivateFood} variant="quiet" />
+          <Button label="Enter food manually" onPress={() => beginPrivateFood()} variant="quiet" />
           {Platform.OS === 'web' ? (
             <>
               <View style={[styles.webPhotoButton, { backgroundColor: colors.accentSoft, borderColor: colors.accentSoft }]}>
@@ -831,6 +849,7 @@ export default function NewMealScreen() {
           <Field label="Barcode number" value={barcodeValue} onChangeText={setBarcodeValue} placeholder="Enter if camera scanning is unavailable" keyboardType="number-pad" returnKeyType="search" onSubmitEditing={() => void lookupBarcode()} containerStyle={styles.flex} />
           <Button label="Look up barcode" onPress={() => void lookupBarcode()} busy={cameraBusy} variant="secondary" />
         </View>
+        {barcodeValue.trim() ? <Button label="Create food with this barcode" variant="quiet" onPress={() => beginPrivateFood(barcodeValue)} /> : null}
 
         {results.length ? (
           <View style={styles.results}>
@@ -854,7 +873,7 @@ export default function NewMealScreen() {
               <AppText style={styles.resultHeadingTitle}>Create private food for “{noMatchQuery}”</AppText>
               <AppText style={{ color: colors.textMuted }}>Enter its serving and nutrition label once, then reuse it from local search.</AppText>
             </View>
-            <Button label="Create private food" onPress={beginPrivateFood} variant="quiet" />
+            <Button label="Create private food" onPress={() => beginPrivateFood()} variant="quiet" />
           </View>
         ) : null}
         <AppText style={[styles.attribution, { color: colors.textMuted }]}>Sources appear on each result. USDA FoodData Central is public domain; Open Food Facts data is © contributors, ODbL. Review the serving and nutrition before adding.</AppText>
@@ -1048,21 +1067,31 @@ export default function NewMealScreen() {
             <Field label="Fat (g)" value={food.fat} onChangeText={(value) => updateMacro(food.key, 'fat', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
             <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => updateMacro(food.key, 'fibre', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
           </View>
+          <Field label="Brand (optional)" value={food.brand ?? ''} onChangeText={(value) => update(food.key, 'brand', value)} maxLength={160} placeholder="Brand on the package" />
+          <Field label="Product barcode (optional)" value={food.barcode ?? ''} onChangeText={(value) => update(food.key, 'barcode', value)} maxLength={32} inputMode="numeric" placeholder="8–14 digits" hint="Brand and barcode are retained when you save a reusable food." />
           <View style={[styles.privateFoodAction, { borderColor: colors.border }]}>
             <View style={styles.flex}>
-              <AppText style={styles.resultHeadingTitle}>{food.catalogId?.startsWith('custom-') ? 'Private food saved' : 'Reuse this food'}</AppText>
+              <AppText style={styles.resultHeadingTitle}>{food.isShared ? 'Community sharing selected' : food.catalogId?.startsWith('custom-') ? 'Private food saved' : 'Reuse this food'}</AppText>
               <AppText style={{ color: colors.textMuted }}>{food.catalogId?.startsWith('custom-')
                 ? 'Update the saved serving after changing these values.'
-                : 'Save this serving privately on this device. Your meal can still be saved separately.'}</AppText>
+                : 'Save a reusable food to your account. Save the meal separately.'}</AppText>
             </View>
             <Button
-              label={food.catalogId?.startsWith('custom-') ? 'Update private food' : 'Save as private food'}
+              label={food.isShared ? 'Update community food' : food.catalogId?.startsWith('custom-') ? 'Update private food' : 'Save as private food'}
               onPress={() => void saveFoodForReuse(food)}
               busy={savingPrivateFoodKey === food.key}
               disabled={!isCompletedFood(food) || (savingPrivateFoodKey != null && savingPrivateFoodKey !== food.key)}
               variant="quiet"
             />
           </View>
+          {food.source === 'manual' && (!food.catalogId || food.catalogId.startsWith('custom-')) ? <>
+            <AppText style={{ color: colors.textMuted }}>Community sharing makes the name, brand, barcode, serving and nutrition searchable by all signed-in accounts. Check the package or recipe first; share only details you can publish. Meal dates, notes and photos stay private.</AppText>
+            <Button label={food.isShared ? 'Stop sharing' : 'Share with community'}
+              onPress={() => void saveFoodForReuse(food, !food.isShared)} variant="secondary"
+              busy={savingPrivateFoodKey === food.key}
+              disabled={(!food.isShared && !isCompletedFood(food)) || (savingPrivateFoodKey != null && savingPrivateFoodKey !== food.key)} />
+          </> : null}
+          {food.sourceLabel?.includes('Community') ? <AppText style={{ color: colors.warning }}>Community entry—not verified. Check the serving and nutrition before saving.</AppText> : null}
           {food.source === 'ai_photo' ? <AppText style={[styles.attribution, { color: colors.warning }]}>AI estimate—review before saving. Not medical advice.</AppText> : null}
         </Card>
       ))}
@@ -1098,6 +1127,9 @@ function toDraftFood(item: FoodCatalogItem): DraftFood {
     key: Crypto.randomUUID(),
     catalogId: item.id,
     name: item.name,
+    brand: item.brand ?? '',
+    barcode: item.barcode ?? '',
+    isShared: item.isShared,
     quantity: String(item.servingQuantity),
     unit: item.servingUnit,
     calories: String(roundMacro(item.caloriesKcal)),
@@ -1106,7 +1138,7 @@ function toDraftFood(item: FoodCatalogItem): DraftFood {
     fat: String(roundMacro(item.fatG)),
     fibre: item.fibreG == null ? '' : String(roundMacro(item.fibreG)),
     source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' || item.source === 'custom' ? 'manual' : 'imported',
-    sourceLabel: sourceName(item.source),
+    sourceLabel: item.isShared ? 'Your community food · unverified' : sourceName(item.source),
     confidence: item.confidence,
     referenceQuantity: item.servingQuantity,
     referenceUnit: item.servingUnit,
@@ -1203,6 +1235,7 @@ function MealSummaryMetric({ label, value }: { label: string; value: string }) {
 }
 
 function sourceName(source: FoodCatalogItem['source']): string {
+  if (source === 'community') return 'Community · unverified';
   if (source === 'custom') return 'Private food';
   if (source === 'usda_fdc') return 'USDA FoodData Central';
   if (source === 'open_food_facts') return 'Open Food Facts';

@@ -3,8 +3,9 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
+import { migratePrivateFoods } from './private-food-migration.ts';
 
-export const LATEST_DATABASE_VERSION = 16;
+export const LATEST_DATABASE_VERSION = 17;
 
 const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -710,6 +711,12 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     await withExclusiveTransaction(db, async (db) => {
       await addColumnIfMissing(db, 'user_profile', 'training_programme', 'TEXT');
       await db.execAsync('PRAGMA user_version = 16;');
+    });
+  }
+  if (currentVersion < 17) {
+    await withExclusiveTransaction(db, async (db) => {
+      await migratePrivateFoods(db);
+      await db.execAsync('PRAGMA user_version = 17;');
     });
   }
 }

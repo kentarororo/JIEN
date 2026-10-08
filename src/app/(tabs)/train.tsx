@@ -60,7 +60,11 @@ export default function TrainScreen() {
 
   return (
     <Screen>
-      <ScreenHeading title="Training" action={<Button icon="barbell-outline" label="Log workout" onPress={() => router.push('/workouts/new')} />} />
+      <ScreenHeading title="Training" />
+      <View accessibilityLabel="Log training" style={styles.trainingTools}>
+        <View style={styles.primaryAction}><Button icon="barbell-outline" label="Log workout" accessibilityLabel="Log workout" onPress={() => router.push('/workouts/new')} /></View>
+        <View style={styles.primaryAction}><Button icon="walk-outline" label="Log cardio" accessibilityLabel="Log cardio" onPress={() => router.push('/cardio' as never)} variant="secondary" /></View>
+      </View>
       <View style={styles.trainingTools}>
         <Button icon="calendar-outline" label="Plan workout" onPress={() => router.push('/workouts/plan' as never)} variant="secondary" />
         <Button icon="options-outline" label="Exercise targets" onPress={() => router.push('/exercises' as never)} variant="quiet" />
@@ -73,7 +77,6 @@ export default function TrainScreen() {
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
       {trainingView === 'overview' ? <>
-      <Button label="Log cardio" variant="secondary" onPress={() => router.push('/cardio' as never)} />
       {data ? <TrainingProgrammeCard progress={data.programme} onEdit={() => router.push('/workouts/programme' as never)} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'programme_targets' } } as never)} /> : null}
       {data && !data.programme ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'advisory' } } as never)} onLog={() => router.push('/workouts/new')} /> : null}
       {data?.planned.length ? <>
@@ -205,6 +208,7 @@ export default function TrainScreen() {
 
 const styles = StyleSheet.create({
   trainingTools: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  primaryAction: { flexGrow: 1, flexBasis: 150 },
   viewSwitcher: { alignSelf: 'flex-start', flexDirection: 'row', gap: spacing.xs, borderRadius: radii.pill, padding: spacing.xxs },
   list: { gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: spacing.sm },

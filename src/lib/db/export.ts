@@ -11,6 +11,7 @@ export type CompleteExportSnapshot = {
   workoutSets: ExportDatabaseRow[];
   meals: ExportDatabaseRow[];
   foodItems: ExportDatabaseRow[];
+  privateFoods?: ExportDatabaseRow[];
   nutritionTargets: ExportDatabaseRow[];
   wellnessLogs: ExportDatabaseRow[];
   aiConversations: ExportDatabaseRow[];
@@ -43,6 +44,7 @@ export async function getCompleteExportSnapshot(
     aiConversations,
     aiMessages,
     notificationPreferences,
+    privateFoods,
   ] = await Promise.all([
     db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'),
     db.getFirstAsync<{ value: string }>(
@@ -138,6 +140,9 @@ export async function getCompleteExportSnapshot(
        WHERE deleted_at IS NULL
        ORDER BY type ASC, id ASC`,
     ),
+    db.getAllAsync<ExportDatabaseRow>(`SELECT id, catalog_id, name, brand, barcode, serving_quantity, serving_unit,
+      calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g, is_shared, created_at, updated_at, client_updated_at
+      FROM private_foods WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE, id`),
   ]);
 
   return {
@@ -149,6 +154,7 @@ export async function getCompleteExportSnapshot(
     workoutSets,
     meals,
     foodItems,
+    privateFoods,
     nutritionTargets,
     wellnessLogs,
     aiConversations,

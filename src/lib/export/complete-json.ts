@@ -195,6 +195,15 @@ export function buildCompleteJsonExport(
     workoutSets: [...snapshot.workoutSets].sort(compare('workout_id', 'sort_order', 'id')).map(mapWorkoutSet),
     meals: [...snapshot.meals].sort(compare('eaten_on', 'eaten_at', 'id')).map(mapMeal),
     foodItems: [...snapshot.foodItems].sort(compare('meal_id', 'sort_order', 'id')).map(mapFoodItem),
+    privateFoods: [...(snapshot.privateFoods ?? [])].sort(compare('name', 'id')).map((row) => ({
+      id: value(row, 'id'), catalogId: value(row, 'catalog_id'), name: value(row, 'name'),
+      brand: value(row, 'brand'), barcode: value(row, 'barcode'),
+      isShared: Boolean(row.is_shared),
+      servingQuantity: value(row, 'serving_quantity'), servingUnit: value(row, 'serving_unit'),
+      caloriesKcal: value(row, 'calories_kcal'), proteinG: value(row, 'protein_g'),
+      carbohydrateG: value(row, 'carbohydrate_g'), fatG: value(row, 'fat_g'), fibreG: value(row, 'fibre_g'),
+      createdAt: value(row, 'created_at'), updatedAt: value(row, 'updated_at'), clientUpdatedAt: value(row, 'client_updated_at'),
+    })),
     nutritionTargets: [...snapshot.nutritionTargets].sort(compare('effective_from', 'id')).map(mapNutritionTarget),
     wellnessLogs: [...snapshot.wellnessLogs].sort(compare('logged_at', 'id')).map(mapWellnessLog),
     ai: {

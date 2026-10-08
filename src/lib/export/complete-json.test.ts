@@ -27,6 +27,17 @@ function snapshot(overrides: Partial<CompleteExportSnapshot> = {}): CompleteExpo
   };
 }
 
+test('private food export preserves reusable identity and excludes device internals', () => {
+  const result = buildCompleteJsonExport(snapshot({ privateFoods: [{ id: 'food-1', catalog_id: 'custom-food-1', name: 'Soy drink',
+    brand: 'Local brand', barcode: '0012345678905', serving_quantity: 250, serving_unit: 'ml',
+    last_used_at: 'device-only', secret: 'not exported' }] }));
+  const foods = result.privateFoods as Array<Record<string, unknown>>;
+  assert.equal(foods[0]?.barcode, '0012345678905');
+  assert.equal(foods[0]?.brand, 'Local brand');
+  assert.equal(JSON.stringify(foods).includes('device-only'), false);
+  assert.equal(JSON.stringify(foods).includes('not exported'), false);
+});
+
 test('builds a complete versioned active-record export with structured JSON values', () => {
   const result = buildCompleteJsonExport(snapshot({
     profile: {

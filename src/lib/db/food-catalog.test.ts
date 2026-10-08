@@ -1,8 +1,62 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { normalizePrivateFoodBarcode } from './private-food.ts';
+import { parseCommunityFoods } from './community-food-contract.ts';
 
 import { mapOpenFoodFactsProduct, rankOpenFoodFactsProductsForSingapore } from './open-food-facts.ts';
 import { foodItemsEligibleForDiscoveryCache, parseFoodSearchData } from './food-search-contract.ts';
+
+test('private barcode identity preserves leading zeros and rejects non-numeric identifiers', () => {
+  assert.equal(normalizePrivateFoodBarcode('00 12345678905'), '0012345678905');
+  assert.equal(normalizePrivateFoodBarcode(''), null);
+  for (const value of ['abc12345678', '123', '123456789012345']) assert.throws(() => normalizePrivateFoodBarcode(value));
+});
+
+test('private foods migration grants only owner-scoped read/write and retains account deletion and logical clocks', () => {
+  const sql = readFileSync(new URL('../../../supabase/migrations/20261008000100_private_foods.sql', import.meta.url), 'utf8');
+  assert.match(sql, /id uuid primary key/);
+  assert.match(sql, /references public.users\(id\) on delete cascade/);
+  assert.match(sql, /enable row level security/);
+  assert.match(sql, /force row level security/);
+  assert.match(sql, /revoke all on public.private_foods from public, anon, authenticated/);
+  assert.match(sql, /grant select on public.private_foods to authenticated/);
+  assert.equal((sql.match(/\(select auth.uid\(\)\) = user_id/g) ?? []).length, 4);
+  assert.match(sql, /execute function private.set_updated_at\(\)/);
+  assert.doesNotMatch(sql, /for delete|using \(true\)/);
+});
+
+test('community discovery is an authenticated, allowlisted projection with withdrawal and server moderation', () => {
+  const sql = readFileSync(new URL('../../../supabase/migrations/20261008000100_private_foods.sql', import.meta.url), 'utf8');
+  const projection = sql.slice(sql.indexOf('create function public.search_community_foods'));
+  assert.match(projection, /security definer set search_path = ''/);
+  assert.match(projection, /auth.uid\(\)\) is not null/);
+  assert.match(projection, /f.is_shared and not f.community_hidden and f.deleted_at is null/);
+  assert.match(projection, /revoke all on function public.search_community_foods\(text, text\) from public, anon/);
+  assert.match(projection, /limit 20/);
+  const returns = projection.slice(0, projection.indexOf('language sql'));
+  assert.doesNotMatch(returns, /user_id|catalog_id|created_at|meal|photo|notes/);
+  for (const grant of sql.matchAll(/grant (?:insert|update) \(([^;]+)\) on public.private_foods to authenticated/g)) {
+    assert.doesNotMatch(grant[1]!, /community_hidden/);
+  }
+});
+
+test('community results retain product identity without copying private fields or becoming stale discovery cache', () => {
+  const raw = { id: '90000000-0000-4000-8000-000000000002', name: 'Soy drink', brand: 'SG Brand',
+    barcode: '0012345678905', serving_quantity: 250, serving_unit: 'ml',
+    calories_kcal: 120, protein_g: 10, carbohydrate_g: 12, fat_g: 4, fibre_g: null,
+    user_id: 'must-not-copy', notes: 'private', is_verified: true };
+  const [food] = parseCommunityFoods([raw]);
+  assert.equal(food!.barcode, raw.barcode);
+  assert.equal(food!.source, 'community');
+  assert.equal(food!.confidence, null);
+  assert.equal('user_id' in food!, false);
+  assert.equal('notes' in food!, false);
+  assert.deepEqual(foodItemsEligibleForDiscoveryCache([food!]), []);
+  for (const changed of [{ protein_g: -1 }, { serving_quantity: 0 }, { barcode: '123' }, { id: 'bad' }, { fat_g: Infinity }]) {
+    assert.throws(() => parseCommunityFoods([{ ...raw, ...changed }]));
+  }
+});
 
 test('maps serving nutrition from Open Food Facts', () => {
   const item = mapOpenFoodFactsProduct({

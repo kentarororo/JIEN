@@ -14,7 +14,10 @@ import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } fr
 import { migrateDatabase } from './migrate.ts';
 import { getTrainingProgrammeProgress, saveTrainingProgramme } from './training-programme.ts';
 import { getUserProfile, saveUserProfile } from './profile.ts';
-import { applyRemoteProfile } from './cloud-sync.ts';
+import { applyRemoteProfile, applyRemoteRows } from './cloud-sync.ts';
+import { migratePrivateFoods } from './private-food-migration.ts';
+import { acknowledgeQueuedUpsert } from './sync-queue.ts';
+import { searchLocalFoodCatalog, lookupLocalFoodBarcode } from './food-catalog.ts';
 import { acknowledgeMedicalDisclaimer } from './wellness.ts';
 import { saveCardioSession, listCardioSessions, getCardioSession, deleteCardioSession } from './cardio.ts';
 import { cardioBaseline, parseCardioMetadata, validateCardio } from '../training/cardio.ts';
@@ -25,7 +28,7 @@ import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './ex
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
-import { savePrivateFood } from './private-food.ts';
+import { savePrivateFood, stopSharingPrivateFood } from './private-food.ts';
 import { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
 import {
@@ -135,7 +138,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 16);
+    assert.equal(version?.user_version, 17);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -295,6 +298,8 @@ test('main-thread database persists committed work and isolates delayed transact
     const privateFood = await savePrivateFood(database, {
       id: 'custom-protein-cereal',
       name: '  Protein cereal  ',
+      brand: 'SG Test Brand',
+      barcode: '0012345678905',
       servingQuantity: 55,
       servingUnit: 'g',
       caloriesKcal: 210,
@@ -307,15 +312,26 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.equal(privateFood.name, 'Protein cereal');
     assert.deepEqual(
       await database.getAllAsync(
-        `SELECT id, name, source, calories_kcal AS caloriesKcal
-         FROM food_catalog_cache WHERE name LIKE ? COLLATE NOCASE`,
+        `SELECT catalog_id AS id, name, 'custom' AS source, calories_kcal AS caloriesKcal
+         FROM private_foods WHERE name LIKE ? COLLATE NOCASE`,
         ['%protein cereal%'],
       ),
       [{ id: 'custom-protein-cereal', name: 'Protein cereal', source: 'custom', caloriesKcal: 210 }],
     );
+    assert.equal((await searchLocalFoodCatalog(database, 'SG Test Brand'))[0]?.id, privateFood.id);
+    assert.equal((await lookupLocalFoodBarcode(database, '0012345678905'))[0]?.id, privateFood.id);
+    const foodQueue = async () => JSON.parse((await database.getFirstAsync<{ payload_json: string }>(
+      "SELECT payload_json FROM sync_queue WHERE table_name = 'private_foods' AND payload_json LIKE ?", ['%custom-protein-cereal%']))!.payload_json);
+    const firstFoodPayload = await foodQueue();
+    assert.equal(firstFoodPayload.barcode, '0012345678905');
+    assert.equal(firstFoodPayload.brand, 'SG Test Brand');
+    assert.equal(firstFoodPayload.user_id, undefined, 'owner is bound by authenticated sync, not input');
+    assert.ok((await getCompleteExportSnapshot(database)).privateFoods?.some((row) => row.catalog_id === privateFood.id));
     await savePrivateFood(database, {
       id: privateFood.id,
       name: privateFood.name,
+      brand: privateFood.brand,
+      barcode: privateFood.barcode,
       servingQuantity: 55,
       servingUnit: 'g',
       caloriesKcal: 215,
@@ -327,12 +343,58 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.deepEqual(
       await database.getFirstAsync(
         `SELECT COUNT(*) AS count, MAX(calories_kcal) AS calories_kcal
-         FROM food_catalog_cache WHERE id = ? AND source = 'custom'`,
+         FROM private_foods WHERE catalog_id = ?`,
         [privateFood.id],
       ),
       { count: 1, calories_kcal: 215 },
       'updating a private food must replace its reusable serving instead of creating a duplicate',
     );
+    assert.equal((await foodQueue()).id, firstFoodPayload.id, 'edits retain cloud UUID');
+    assert.ok((await foodQueue()).client_updated_at > firstFoodPayload.client_updated_at);
+    await database.execAsync(`CREATE TEMP TRIGGER reject_private_food_queue BEFORE UPDATE ON sync_queue
+      WHEN NEW.table_name = 'private_foods' BEGIN SELECT RAISE(ABORT, 'food queue rejected'); END;`);
+    await assert.rejects(savePrivateFood(database, { ...privateFood, caloriesKcal: 999 }), /food queue rejected/);
+    assert.equal((await lookupLocalFoodBarcode(database, '0012345678905'))[0]?.caloriesKcal, 215, 'outbox failure rolls back the food');
+    await database.execAsync('DROP TRIGGER reject_private_food_queue;');
+    assert.equal(firstFoodPayload.is_shared, false, 'food saves are private until explicitly shared');
+    const sharedFood = await savePrivateFood(database, { ...privateFood, caloriesKcal: 215, proteinG: 21, isShared: true });
+    assert.equal(sharedFood.isShared, true);
+    assert.equal((await foodQueue()).is_shared, true, 'publication is queued atomically');
+    assert.equal((await searchLocalFoodCatalog(database, 'SG Test Brand'))[0]?.isShared, true);
+    const { isShared: ignoredVisibility, ...foodWithoutVisibility } = sharedFood;
+    await savePrivateFood(database, foodWithoutVisibility);
+    assert.equal((await foodQueue()).is_shared, true, 'ordinary edits preserve visibility');
+    await database.execAsync(`CREATE TEMP TRIGGER reject_food_withdrawal BEFORE UPDATE ON sync_queue
+      WHEN NEW.table_name = 'private_foods' BEGIN SELECT RAISE(ABORT, 'withdrawal queue rejected'); END;`);
+    await assert.rejects(stopSharingPrivateFood(database, sharedFood.id), /withdrawal queue rejected/);
+    assert.equal((await searchLocalFoodCatalog(database, 'SG Test Brand'))[0]?.isShared, true, 'failed withdrawal rolls back visibility');
+    await database.execAsync('DROP TRIGGER reject_food_withdrawal;');
+    const inFlightPublication = (await database.getFirstAsync<{ id: string; payload_json: string }>(
+      "SELECT id, payload_json FROM sync_queue WHERE table_name = 'private_foods'"))!;
+    await stopSharingPrivateFood(database, sharedFood.id);
+    assert.equal(await acknowledgeQueuedUpsert(database, inFlightPublication.id, inFlightPublication.payload_json), false,
+      'an in-flight publication acknowledgement must not delete a newer withdrawal');
+    assert.equal((await foodQueue()).is_shared, false, 'withdrawal supersedes pending publication');
+    assert.equal((await foodQueue()).calories_kcal, 215, 'withdrawal preserves saved nutrition');
+    assert.equal((await foodQueue()).id, firstFoodPayload.id, 'publication never forks identity');
+    assert.equal((await database.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM sync_queue WHERE table_name = 'private_foods'"))?.count, 1);
+    const remoteFood = { ...firstFoodPayload, id: '90000000-0000-4000-8000-000000000111',
+      catalog_id: 'custom-cloud-restored', name: 'Cloud tofu', barcode: '88888888', client_updated_at: '2030-01-01T00:00:00Z' };
+    const foodCursor = { clientUpdatedAt: remoteFood.client_updated_at, id: remoteFood.id };
+    await applyRemoteRows(database, 'private_foods', [remoteFood], foodCursor);
+    assert.equal((await lookupLocalFoodBarcode(database, '88888888'))[0]?.name, 'Cloud tofu');
+    await applyRemoteRows(database, 'private_foods', [{ ...remoteFood, name: 'Old tofu', client_updated_at: '2020-01-01T00:00:00Z' }], foodCursor);
+    assert.equal((await lookupLocalFoodBarcode(database, '88888888'))[0]?.name, 'Cloud tofu', 'stale cloud writes do not replace newer foods');
+    await applyRemoteRows(database, 'private_foods', [{ ...remoteFood, deleted_at: '2031-01-01T00:00:00Z', client_updated_at: '2031-01-01T00:00:00Z' }], foodCursor);
+    assert.deepEqual(await lookupLocalFoodBarcode(database, '88888888'), [], 'cloud tombstones leave discovery');
+    await database.runAsync(`INSERT INTO food_catalog_cache
+      (id,name,serving_quantity,serving_unit,calories_kcal,protein_g,carbohydrate_g,fat_g,source,updated_at)
+      VALUES ('custom-legacy-food','Legacy tofu',100,'g',90,10,3,4,'custom',?)`, [new Date().toISOString()]);
+    await withExclusiveTransaction(database, migratePrivateFoods);
+    await withExclusiveTransaction(database, migratePrivateFoods);
+    assert.equal((await searchLocalFoodCatalog(database, 'Legacy tofu')).length, 1, 'legacy shortcuts backfill once');
+    assert.ok(await database.getFirstAsync("SELECT id FROM food_catalog_cache WHERE id = 'custom-legacy-food'"), 'legacy recovery copy remains');
+    assert.equal((await searchLocalFoodCatalog(database, 'Legacy tofu'))[0]?.isShared, false, 'legacy foods never publish automatically');
 
     await updateExerciseTargetsAtomically(database, '10000000-0000-4000-8000-000000000004', {
       primaryMuscleGroup: 'front delts',
@@ -743,7 +805,7 @@ test('main-thread database persists committed work and isolates delayed transact
     );
     assert.deepEqual(
       await restored.getFirstAsync(
-        'SELECT name, calories_kcal, protein_g, source FROM food_catalog_cache WHERE id = ?',
+        "SELECT name, calories_kcal, protein_g, 'custom' AS source FROM private_foods WHERE catalog_id = ?",
         ['custom-protein-cereal'],
       ),
       { name: 'Protein cereal', calories_kcal: 215, protein_g: 21, source: 'custom' },
@@ -769,6 +831,7 @@ test('main-thread database persists committed work and isolates delayed transact
       'workout_sets',
       'meals',
       'food_items',
+      'private_foods',
       'nutrition_targets',
       'wellness_logs',
       'ai_conversations',
@@ -800,7 +863,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 16 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 17 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 

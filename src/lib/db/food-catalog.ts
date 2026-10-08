@@ -15,6 +15,7 @@ import {
   type OpenFoodFactsSearchResponse,
 } from './open-food-facts';
 import { foodItemsEligibleForDiscoveryCache, parseFoodSearchData } from './food-search-contract';
+import { parseCommunityFoods } from './community-food-contract';
 import type { FoodCatalogItem } from './types';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import {
@@ -36,6 +37,7 @@ type FoodCatalogRow = {
   source: FoodCatalogItem['source'];
   source_ref: string | null;
   barcode: string | null;
+  is_shared?: number;
 };
 
 function mapFood(row: FoodCatalogRow): FoodCatalogItem {
@@ -54,8 +56,17 @@ function mapFood(row: FoodCatalogRow): FoodCatalogItem {
     sourceRef: row.source_ref,
     barcode: row.barcode,
     confidence: null,
+    isShared: Boolean(row.is_shared),
   };
 }
+
+// Private foods are durable account records. Provider results remain a device cache.
+const LOCAL_CATALOG = `(SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
+  protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode, last_used_at, 0 AS is_shared
+  FROM food_catalog_cache WHERE source <> 'custom'
+  UNION ALL SELECT catalog_id AS id, name, brand, serving_quantity, serving_unit, calories_kcal,
+  protein_g, carbohydrate_g, fat_g, fibre_g, 'custom' AS source, NULL AS source_ref, barcode, last_used_at, is_shared
+  FROM private_foods WHERE deleted_at IS NULL)`;
 
 export async function searchLocalFoodCatalog(
   db: SQLiteDatabase,
@@ -66,8 +77,8 @@ export async function searchLocalFoodCatalog(
   if (clean.length === 0) {
     const commonRows = await db.getAllAsync<FoodCatalogRow>(
       `SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
-        protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode
-       FROM food_catalog_cache
+        protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode, is_shared
+       FROM ${LOCAL_CATALOG}
        ORDER BY CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC, name
        LIMIT ?`,
       [limit],
@@ -77,13 +88,13 @@ export async function searchLocalFoodCatalog(
   if (clean.length < 2) return [];
   const rows = await db.getAllAsync<FoodCatalogRow>(
     `SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
-      protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode
-     FROM food_catalog_cache
-     WHERE name LIKE ? COLLATE NOCASE OR brand LIKE ? COLLATE NOCASE
+      protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode, is_shared
+     FROM ${LOCAL_CATALOG}
+     WHERE name LIKE ? COLLATE NOCASE OR brand LIKE ? COLLATE NOCASE OR barcode = ?
      ORDER BY CASE WHEN name LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
        CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC, name
      LIMIT ?`,
-    [`%${clean}%`, `%${clean}%`, `${clean}%`, limit],
+    [`%${clean}%`, `%${clean}%`, clean.replace(/[\s-]/g, ''), `${clean}%`, limit],
   );
   return rows.map(mapFood);
 }
@@ -92,7 +103,7 @@ export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatal
   // FatSecret search payloads are not a general-purpose offline catalog. A selected
   // item is preserved by saveMeal as part of the user's meal history, but unselected
   // proprietary search results must not be bulk-cached here.
-  const cacheableItems = foodItemsEligibleForDiscoveryCache(items);
+  const cacheableItems = foodItemsEligibleForDiscoveryCache(items).filter((item) => item.source !== 'custom');
   if (cacheableItems.length === 0) return;
   const now = new Date().toISOString();
   await withExclusiveTransaction(db, async (db) => {
@@ -128,7 +139,19 @@ export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatal
 }
 
 export async function markFoodCatalogItemUsed(db: SQLiteDatabase, id: string): Promise<void> {
+  if (id.startsWith('custom-')) {
+    await db.runAsync('UPDATE private_foods SET last_used_at = ? WHERE catalog_id = ?', [new Date().toISOString(), id]);
+    return;
+  }
   await db.runAsync('UPDATE food_catalog_cache SET last_used_at = ? WHERE id = ?', [new Date().toISOString(), id]);
+}
+
+export async function lookupLocalFoodBarcode(db: SQLiteDatabase, barcode: string): Promise<FoodCatalogItem[]> {
+  const clean = barcode.replace(/[\s-]/g, '');
+  if (!/^\d{8,14}$/.test(clean)) throw new Error('Enter an 8–14 digit barcode.');
+  const rows = await db.getAllAsync<FoodCatalogRow>(`SELECT * FROM ${LOCAL_CATALOG} WHERE barcode = ?
+    ORDER BY CASE WHEN source = 'custom' THEN 0 ELSE 1 END, last_used_at DESC, name LIMIT 8`, [clean]);
+  return rows.map(mapFood);
 }
 
 export async function searchFoodDatabase(query: string): Promise<FoodCatalogItem[]> {
@@ -143,15 +166,17 @@ export async function searchFoodDatabase(query: string): Promise<FoodCatalogItem
     sort_by: 'unique_scans_n',
     fields: OPEN_FOOD_FACTS_FIELDS,
   });
-  const [openFoodFacts, providerSearch] = await Promise.allSettled([
+  const [openFoodFacts, providerSearch, community] = await Promise.allSettled([
     fetchOpenFoodFacts<OpenFoodFactsSearchResponse>(
       `https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`,
     ).then((response) => rankOpenFoodFactsProductsForSingapore(response.products ?? [])
       .map(mapOpenFoodFactsProduct)
       .filter((item): item is FoodCatalogItem => item != null)),
     invokeOptionalFoodSearch(clean),
+    searchCommunityFoods(clean),
   ]);
   const items = dedupeFoods([
+    ...(community.status === 'fulfilled' ? community.value : []),
     ...(providerSearch.status === 'fulfilled' ? providerSearch.value : []),
     ...(openFoodFacts.status === 'fulfilled' ? openFoodFacts.value : []),
   ]).slice(0, 20);
@@ -179,6 +204,8 @@ async function invokeOptionalFoodSearch(query: string): Promise<FoodCatalogItem[
 export async function lookupFoodBarcode(barcode: string): Promise<FoodCatalogItem[]> {
   const clean = barcode.replace(/\D/g, '');
   if (clean.length < 8 || clean.length > 14) throw new Error('Scan or enter a valid 8-14 digit barcode.');
+  const community = await searchCommunityFoods('', clean).catch(() => []);
+  if (community.length) return community;
   const cloudItems = await invokeOptionalFoodFunction('food-barcode', { barcode: clean });
   if (cloudItems[0]) return cloudItems;
   const response = await fetchOpenFoodFacts<OpenFoodFactsProductResponse>(
@@ -186,6 +213,24 @@ export async function lookupFoodBarcode(barcode: string): Promise<FoodCatalogIte
   );
   const item = response.product ? mapOpenFoodFactsProduct({ ...response.product, code: response.product.code ?? clean }) : null;
   return item ? [item] : [];
+}
+
+/** Server returns only explicitly published nutrition fields, never contributor identity. */
+export async function searchCommunityFoods(query: string, barcode: string | null = null): Promise<FoodCatalogItem[]> {
+  const supabase = getSupabaseClient();
+  const { data: session } = await supabase.auth.getSession();
+  if (!session.session) return [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const { data, error } = await supabase.rpc('search_community_foods', {
+      search_query: query.trim().slice(0, 160), product_barcode: barcode,
+    }).abortSignal(controller.signal);
+    if (error) throw error;
+    return parseCommunityFoods(data);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function analyzeMealPhoto(

@@ -8,6 +8,7 @@ const ACCOUNT_DATA_TABLES_IN_DELETE_ORDER = [
   'sync_queue',
   'workout_sets',
   'food_items',
+  'private_foods',
   'ai_messages',
   'workouts',
   'meals',

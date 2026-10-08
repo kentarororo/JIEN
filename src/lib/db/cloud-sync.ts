@@ -20,6 +20,7 @@ type PullTable =
   | 'sets'
   | 'meals'
   | 'food_items'
+  | 'private_foods'
   | 'nutrition_targets'
   | 'wellness_logs'
   | 'ai_conversations'
@@ -36,6 +37,7 @@ const PULL_TABLES: PullTable[] = [
   'notification_preferences',
   'sets',
   'food_items',
+  'private_foods',
   'ai_messages',
 ];
 
@@ -45,6 +47,7 @@ const LOCAL_TABLE: Record<PullTable, string> = {
   sets: 'workout_sets',
   meals: 'meals',
   food_items: 'food_items',
+  private_foods: 'private_foods',
   nutrition_targets: 'nutrition_targets',
   wellness_logs: 'wellness_logs',
   ai_conversations: 'ai_conversations',
@@ -156,7 +159,7 @@ export async function applyRemoteProfile(db: SQLiteDatabase, data: RemoteProfile
   return true;
 }
 
-async function applyRemoteRows(
+export async function applyRemoteRows(
   db: SQLiteDatabase,
   remoteTable: PullTable,
   rows: RemoteRow[],

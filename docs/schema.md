@@ -440,6 +440,41 @@ workout reminders target only the next future `planned` workout, default to a
 remain off until enabled, respect 22:00-08:00 quiet hours, cancel when their
 condition clears, and deep-link only through an explicit in-app route allowlist.
 
+## Private food library
+
+Migration `20261008000100_private_foods.sql` adds `public.private_foods`. Apply it
+before deploying the version-17 client. Rows have a UUID, owner `user_id`, stable
+`catalog_id`, food name, optional brand/barcode (stored as text, preserving leading
+zeros), serving quantity/unit, calories/macros/fibre, and the usual sync timestamps
+and tombstone. Owner-only SELECT/INSERT/UPDATE RLS is enabled and forced; there is
+no direct cross-account read or authenticated hard-delete policy. Account deletion
+cascades through the owner FK. The existing logical-clock trigger rejects stale edits.
+
+SQLite version 17 copies existing custom cache rows into `private_foods` and queues
+them in the same migration transaction. Original cache rows remain as recovery copies
+but are excluded from discovery, so they do not duplicate or resurrect deleted foods.
+Normal saves atomically update the reusable food and its sync outbox. Cloud pulls,
+complete JSON export and account reset include this table. Recent-use ranking is
+device-only; brand/barcode/nutrition travel with the account. An offline save is queued,
+not a claim of completed cloud backup. Missing server migration surfaces a sync error.
+
+The explicit Save/Update private food action controls reusable catalogue changes;
+saving or editing a meal alone does not overwrite product definitions. Meal history
+remains a separate nutrition snapshot. No personal meal, photo, context or notes
+are pooled into a public food database.
+
+An explicit `is_shared` boolean defaults to false and syncs with the owner's row.
+`search_community_foods` is a deliberate RLS exception: an authenticated, bounded
+security-definer RPC with an empty search path returns only opted-in product fields
+(UUID, name, brand, barcode, serving, nutrition), never owner IDs or private metadata.
+It excludes withdrawn, deleted and `community_hidden` rows. Direct table policies
+remain owner-only. Column-level write grants exclude the server-only moderation flag.
+Community entries are unverified; all signed-in accounts can discover them by
+name/brand terms or barcode. Existing private foods are not automatically published.
+Discovery is not cached, allowing withdrawal/moderation to take effect on the next
+search; previously saved personal meal snapshots remain intact. See
+[private-food-library.md](private-food-library.md) for release gates and limitations.
+
 ## Local food discovery cache
 
 `food_catalog_cache` is a SQLite-only read-through cache, not a Supabase-owned user
@@ -447,10 +482,9 @@ table. It stores normalized food names, brands, portions, macros, optional barco
 provider attribution, and source identifiers. Starter entries keep core food search
 useful offline. Migration 13 also seeds a small set of public-domain USDA regional
 records, retaining each FoodData Central identifier; other Open Food Facts and USDA
-results are cached only after retrieval. User-created `custom` rows are private, account-owned device shortcuts that
-can be updated in place and ranked by recent use. They are not a second meal record and
-do not enter the sync queue; any meal saved from one is still captured and synced as
-the normal editable meal-item snapshot. FatSecret search results are never bulk-written to this discovery cache;
+results are cached only after retrieval. User-created foods now live in the private
+food library above, not the provider cache. Any meal saved from one is still captured
+and synced as its own editable meal-item snapshot. FatSecret search results are never bulk-written to this discovery cache;
 only a result the user selects and saves can persist inside the meal's editable
 snapshot, and even that provider remains inert unless the deployment's explicit
 offline-snapshot licensing gate is enabled. Users always edit the copied meal-item

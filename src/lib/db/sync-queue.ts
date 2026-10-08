@@ -19,6 +19,7 @@ export type RemoteTable =
   | 'sets'
   | 'meals'
   | 'food_items'
+  | 'private_foods'
   | 'nutrition_targets'
   | 'wellness_logs'
   | 'ai_conversations'
@@ -45,6 +46,7 @@ const TABLE_PRIORITY: Record<RemoteTable, number> = {
   notification_preferences: 1,
   sets: 2,
   food_items: 2,
+  private_foods: 1,
   ai_messages: 2,
 };
 
@@ -92,6 +94,12 @@ export async function getSyncStatus(db: SQLiteDatabase): Promise<SyncStatus> {
     actionRequiredCount: row?.action_required_count ?? 0,
     lastError: row?.last_error ?? null,
   };
+}
+
+/** An acknowledgement only clears the exact version sent, not a newer local edit. */
+export async function acknowledgeQueuedUpsert(db: SQLiteDatabase, id: string, payloadJson: string): Promise<boolean> {
+  const result = await db.runAsync('DELETE FROM sync_queue WHERE id = ? AND payload_json = ?', [id, payloadJson]);
+  return result.changes > 0;
 }
 
 export type SyncResult =
@@ -200,7 +208,7 @@ export async function syncPendingChanges(
       if (error) {
         throw error;
       }
-      await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
+      await acknowledgeQueuedUpsert(db, row.id, row.payload_json);
       announceQueuedLocalWrite();
       processed += 1;
     } catch (error) {
@@ -210,11 +218,11 @@ export async function syncPendingChanges(
         nowMs,
         options.random,
       );
-      await db.runAsync(
+      const failureUpdate = await db.runAsync(
         `UPDATE sync_queue
          SET attempt_count = ?, next_attempt_at = ?, last_error = ?,
              failure_kind = ?, failure_code = ?, retry_paused = ?
-         WHERE id = ?`,
+         WHERE id = ? AND payload_json = ?`,
         [
           update.attemptCount,
           update.nextAttemptAt,
@@ -223,9 +231,11 @@ export async function syncPendingChanges(
           update.failureCode,
           update.retryPaused ? 1 : 0,
           row.id,
+          row.payload_json,
         ],
       );
       announceQueuedLocalWrite();
+      if (failureUpdate.changes === 0) continue; // A newer edit must not inherit this failure.
       return update.retryPaused
         ? { state: 'action_required', processed, error: update.safeMessage, code: update.failureCode }
         : { state: 'partial', processed, error: update.safeMessage, retryAt: update.nextAttemptAt! };
@@ -247,7 +257,8 @@ export async function syncPendingChanges(
 
   const delayed = await db.getFirstAsync<{ count: number; retry_at: string | null; last_error: string | null }>(
     `SELECT COUNT(*) AS count, MIN(next_attempt_at) AS retry_at, MAX(last_error) AS last_error
-     FROM sync_queue WHERE retry_paused = 0`,
+     FROM sync_queue WHERE retry_paused = 0 AND next_attempt_at > ?`,
+    [new Date(nowMs).toISOString()],
   );
   if ((delayed?.count ?? 0) > 0) {
     return {
@@ -258,5 +269,9 @@ export async function syncPendingChanges(
     };
   }
 
+  const remaining = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sync_queue');
+  if ((remaining?.count ?? 0) > 0) {
+    return { state: 'partial', processed, error: 'Newer changes are waiting to sync.', retryAt: new Date(nowMs + 1_000).toISOString() };
+  }
   return { state: 'synced', processed };
 }

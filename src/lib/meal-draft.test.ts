@@ -46,6 +46,16 @@ test('meal draft recovery preserves editable rows and AI provenance', () => {
   assert.deepEqual(restored?.appliedPhotoRequestIds, ['request-1']);
 });
 
+test('food brand and barcode survive draft recovery without invalidating older drafts', () => {
+  const input = draft();
+  input.foods[0] = { ...input.foods[0]!, brand: 'SG Test Brand', barcode: '0012345678905' };
+  const restored = parseMealDraft(JSON.stringify(input), input.ownerUserId, input.context);
+  assert.equal(restored?.foods[0]?.brand, 'SG Test Brand');
+  assert.equal(restored?.foods[0]?.barcode, '0012345678905');
+  assert.ok(parseMealDraft(JSON.stringify(draft()), input.ownerUserId, input.context));
+  assert.equal(parseMealDraft(JSON.stringify({ ...input, foods: [{ ...input.foods[0], brand: 'x'.repeat(161) }] }), input.ownerUserId, input.context), null);
+});
+
 test('meal draft parser rejects malformed and oversized data, then removes detached provenance', () => {
   assert.equal(parseMealDraft('{bad json', 'user-a', 'date:2026-08-21'), null);
   assert.equal(parseMealDraft(JSON.stringify({ ...draft(), foods: [] }), 'user-a', 'date:2026-08-21'), null);
