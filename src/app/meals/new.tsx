@@ -920,7 +920,13 @@ export default function NewMealScreen() {
         </View>
       </Modal>
 
-      <Modal visible={photoFlow.selection != null} animationType={Platform.OS === 'web' ? 'none' : 'slide'} transparent onRequestClose={() => {}}>
+      <Modal
+        visible={photoFlow.selection != null}
+        animationType={Platform.OS === 'web' ? 'none' : 'slide'}
+        transparent
+        onShow={() => dispatchPhoto({ type: 'sheet_shown' })}
+        onRequestClose={() => {}}
+      >
         <View style={[styles.cameraOverlay, { backgroundColor: colors.overlay }]}>
           <Card style={[styles.cameraSheet, { backgroundColor: colors.surface }]}>
             <ScrollView
@@ -945,7 +951,9 @@ export default function NewMealScreen() {
               value={photoFlow.description}
               onChangeText={(description) => dispatchPhoto({ type: 'description_changed', description })}
               placeholder="e.g. grilled chicken and rice, or the product name on this label"
-              editable={!cameraBusy && photoFlow.phase !== 'succeeded'}
+              // WebKit can focus an opacity-hidden modal before its focus trap is active.
+              // Enable typing only after the modal has completed its opening lifecycle.
+              editable={photoFlow.sheetReady && !cameraBusy && photoFlow.phase !== 'succeeded'}
             />
             {photoFlow.phase === 'ready' && photoFlow.capability ? (
               <View
@@ -998,7 +1006,7 @@ export default function NewMealScreen() {
                       : photoAccessStatus === 'consent_required'
                         ? 'AI consent required'
                         : photoAccessStatus === 'not_configured'
-                          ? 'Connect Gemini first'
+                          ? 'AI setup required'
                           : photoFlow.capability ? 'Analysis unavailable' : 'Checking availability...'}
                   onPress={() => void analyzePendingPhoto()}
                   busy={cameraBusy}

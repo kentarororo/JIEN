@@ -98,12 +98,15 @@ export default function AiSettingsScreen() {
     }
   };
 
+  const appManaged = status?.credentialMode === 'app';
+  const providerName = status?.provider === 'anthropic' ? 'Anthropic' : 'Gemini';
+
   return (
     <Screen>
-      <ScreenHeading eyebrow="Private AI setup" title="Connect Gemini" />
+      <ScreenHeading eyebrow="Settings" title="AI connection" />
       <Card style={{ backgroundColor: colors.accentSoft }}>
         <AppText style={styles.cardTitle}>One connection, both AI features</AppText>
-        <AppText style={{ color: colors.textMuted }}>Your Gemini key is used for meal-photo estimates and contextual wellness explanations. Training progression remains deterministic and works without AI.</AppText>
+        <AppText style={{ color: colors.textMuted }}>AI provides meal-photo estimates and contextual wellness explanations. Training progression works without AI.</AppText>
       </Card>
 
       {loading ? <StatePanel title="Checking AI connection" body="Reading only your secure connection status—not the key itself." loading /> : null}
@@ -120,19 +123,19 @@ export default function AiSettingsScreen() {
         <Card>
           <View style={styles.statusRow}>
             <View style={styles.flex}>
-              <AppText style={styles.cardTitle}>{status.configured ? 'Gemini ready' : 'No AI key connected'}</AppText>
+              <AppText style={styles.cardTitle}>{status.configured ? `${providerName} configured` : 'AI is not configured'}</AppText>
               <AppText style={{ color: colors.textMuted }}>
                 {status.credentialSource === 'personal'
                   ? 'Your personal key is encrypted in Supabase Vault.'
                   : status.credentialSource === 'app'
-                    ? 'This test deployment currently supplies Gemini for you.'
-                    : 'Connect a personal free-tier key to enable AI features.'}
+                    ? 'JIEN supplies this connection. Usage is paid by the app owner.'
+                    : appManaged ? 'The app owner needs to finish the server setup.' : 'Connect a personal free-tier key to enable AI features.'}
               </AppText>
             </View>
-            <Pill label={status.configured ? 'Connected' : 'Off'} active={status.configured} />
+            <Pill label={status.configured ? 'Configured' : 'Off'} active={status.configured} />
           </View>
           <AppText style={{ color: colors.textMuted }}>{status.usagePolicy === 'provider_managed'
-            ? 'No JIEN daily request cap. Gemini’s project quota, rate limits, and billing settings apply.'
+            ? `No JIEN daily request cap. ${providerName} quota, rate limits, and billing settings apply.`
             : `This deployment still limits JIEN to ${status.limits?.photoPerUtcDay ?? 5} photos and ${status.limits?.contextPerUtcDay ?? 10} contextual replies per UTC day.`}</AppText>
           {status.configured ? (
             <Button label="Test with a meal photo" onPress={() => router.push('/meals/new')} variant="secondary" />
@@ -140,6 +143,13 @@ export default function AiSettingsScreen() {
         </Card>
       ) : null}
 
+      {appManaged ? (
+        <Card>
+          <AppText style={styles.cardTitle}>No personal key needed</AppText>
+          <AppText>Photo analysis sends the selected image and description to the configured provider. Contextual replies use your question and relevant records. Your AI consent setting still applies.</AppText>
+          <AppText style={{ color: colors.textMuted }}>Any personal Gemini key you previously saved remains stored but is not used in this mode.</AppText>
+        </Card>
+      ) : status && !loading && !loadIssue ? <>
       <SectionHeading title="1. Create a free-tier key" detail="Usually under a minute" />
       <Card>
         <AppText>Open Google AI Studio, sign in, choose or create a project marked <AppText style={styles.strong}>Free</AppText>, then choose <AppText style={styles.strong}>Create API key</AppText> and copy it.</AppText>
@@ -201,6 +211,8 @@ export default function AiSettingsScreen() {
         <AppText style={{ color: colors.textMuted }}>The safest option is a Free project with no paid billing attached. If AI Studio offers a project spend cap for your paid project, set it to $0 or the lowest value Google accepts. Google describes spend caps as experimental and says billing can lag by about ten minutes, so a cap is not a strict zero-overage guarantee.</AppText>
         <Button label="Open Gemini spend settings" onPress={() => void Linking.openURL(GEMINI_SPEND_URL)} variant="secondary" />
       </Card>
+
+      </> : null}
 
       {status?.credentialSource === 'personal' ? (
         <Card>

@@ -1,10 +1,12 @@
 // @ts-nocheck
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { resolvePhotoProvider } from '../_shared/photo-provider.ts';
 
 import {
   AI_USAGE_POLICY,
   LEGACY_UNCAPPED_DAILY_LIMIT,
   loadPersonalAiConfiguration,
+  resolveAiCredentials,
   PERSONAL_GEMINI_MODEL,
   resolveSupabaseServerKey,
   verifyGeminiApiKey,
@@ -55,6 +57,10 @@ Deno.serve(async (request) => {
       return failure(requestId, 'INVALID_REQUEST', 'Choose a supported AI settings action.', false, 400);
     }
 
+    const credentialMode = Deno.env.get('AI_CREDENTIAL_MODE')?.trim() || 'personal-first';
+    if (action === 'save' && credentialMode !== 'personal-first') {
+      return failure(requestId, 'AI_MANAGED_BY_APP', 'JIEN supplies the AI connection. A personal key is not needed.', false, 409);
+    }
     if (action === 'save') {
       if (envelope.data.acknowledgesBillingControl !== true || envelope.data.acknowledgesFreeTierDataUse !== true) {
         return failure(requestId, 'ACKNOWLEDGEMENT_REQUIRED', 'Review the Gemini billing and free-tier data notes first.', false, 400);
@@ -92,18 +98,30 @@ Deno.serve(async (request) => {
       if (error) return failure(requestId, 'AI_KEY_REMOVE_FAILED', 'The AI connection could not be removed.', true, 503);
     }
 
-    let personal = null;
+    let provider;
     try {
-      personal = await loadPersonalAiConfiguration(admin, userId);
+      provider = await resolveAiCredentials({
+        mode: credentialMode,
+        requirePersonalLookup: true,
+        loadPersonal: () => loadPersonalAiConfiguration(admin, userId),
+        app: resolvePhotoProvider({
+          PHOTO_AI_PROVIDER: Deno.env.get('PHOTO_AI_PROVIDER'),
+          GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
+          GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
+          ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY')?.trim() || Deno.env.get('KEN_ANTHROPIC_API_KEY'),
+          ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
+          ANTHROPIC_WORKSPACE_ID: Deno.env.get('ANTHROPIC_WORKSPACE_ID'),
+        }),
+      });
     } catch {
       return failure(requestId, 'AI_KEY_STATUS_FAILED', 'Your AI connection status could not be read.', true, 503);
     }
-    const appGeminiConfigured = Boolean(Deno.env.get('GEMINI_API_KEY')?.trim());
     return success(requestId, {
-      configured: Boolean(personal || appGeminiConfigured),
-      credentialSource: personal ? 'personal' : appGeminiConfigured ? 'app' : null,
-      provider: personal || appGeminiConfigured ? 'gemini' : null,
-      model: personal?.model ?? (appGeminiConfigured ? Deno.env.get('GEMINI_MODEL')?.trim() || PERSONAL_GEMINI_MODEL : PERSONAL_GEMINI_MODEL),
+      configured: provider.ok,
+      credentialMode,
+      credentialSource: provider.ok ? provider.credentialSource : null,
+      provider: provider.ok ? provider.configuration.provider : null,
+      model: provider.ok ? provider.configuration.model : 'unconfigured',
       usagePolicy: AI_USAGE_POLICY,
       limits: {
         photoPerUtcDay: LEGACY_UNCAPPED_DAILY_LIMIT,

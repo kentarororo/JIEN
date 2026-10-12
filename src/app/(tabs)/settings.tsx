@@ -235,8 +235,8 @@ export default function SettingsScreen() {
 
         <SectionHeading title="AI connection" detail="Optional meal-photo and wellness features" />
         <Card>
-          <AppText style={styles.cardTitle}>Personal Gemini key</AppText>
-          <AppText style={{ color: theme.colors.textMuted }}>The key is verified by the server and encrypted in Supabase Vault. Manual logging and progression do not require it.</AppText>
+          <AppText style={styles.cardTitle}>Photo analysis and contextual replies</AppText>
+          <AppText style={{ color: theme.colors.textMuted }}>Check which provider is configured and whether JIEN or your personal key supplies it. Manual logging and progression work without AI.</AppText>
           <Button label="Review AI connection" onPress={() => router.push('/settings/ai' as never)} variant="secondary" />
         </Card>
 

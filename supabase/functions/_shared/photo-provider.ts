@@ -6,12 +6,14 @@ export type PhotoProviderEnvironment = {
   GEMINI_MODEL?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  ANTHROPIC_WORKSPACE_ID?: string;
 };
 
 export type PhotoProviderConfiguration = {
   provider: PhotoAiProvider;
   apiKey: string;
   model: string;
+  workspaceId?: string;
 };
 
 export type PhotoProviderResolution =
@@ -34,6 +36,7 @@ export class PhotoProviderError extends Error {
   httpStatus: number;
   upstreamStatus?: number;
   upstreamCode?: string;
+  upstreamReason?: string;
 
   constructor(
     code: PhotoProviderError['code'],
@@ -88,11 +91,14 @@ function configuredProvider(
   provider: PhotoAiProvider,
   apiKey: string | undefined,
   model: string | undefined,
+  workspaceId?: string,
 ): PhotoProviderConfiguration | null {
   const cleanKey = apiKey?.trim();
   const cleanModel = model?.trim();
+  const cleanWorkspace = workspaceId?.trim();
+  if (cleanWorkspace && !/^wrkspc_[A-Za-z0-9]{1,128}$/.test(cleanWorkspace)) return null;
   return cleanKey && cleanModel && validModel.test(cleanModel)
-    ? { provider, apiKey: cleanKey, model: cleanModel }
+    ? { provider, apiKey: cleanKey, model: cleanModel, ...(cleanWorkspace ? { workspaceId: cleanWorkspace } : {}) }
     : null;
 }
 
@@ -106,7 +112,7 @@ export function resolvePhotoProvider(
 ): PhotoProviderResolution {
   const requested = environment.PHOTO_AI_PROVIDER?.trim().toLowerCase() || 'auto';
   const gemini = configuredProvider('gemini', environment.GEMINI_API_KEY, environment.GEMINI_MODEL);
-  const anthropic = configuredProvider('anthropic', environment.ANTHROPIC_API_KEY, environment.ANTHROPIC_MODEL);
+  const anthropic = configuredProvider('anthropic', environment.ANTHROPIC_API_KEY, environment.ANTHROPIC_MODEL, environment.ANTHROPIC_WORKSPACE_ID);
 
   if (requested === 'gemini') {
     return gemini ? { ok: true, configuration: gemini } : { ok: false, code: 'PHOTO_AI_NOT_CONFIGURED' };
@@ -150,13 +156,19 @@ export async function requestPhotoEstimate(
       const failure = await providerHttpError(response, configuration.provider);
       failure.upstreamStatus = response.status;
       const body = await response.json().catch(() => null);
-      const upstreamCode = asRecord(asRecord(body)?.error)?.status;
+      const providerError = asRecord(asRecord(body)?.error);
+      const upstreamCode = configuration.provider === 'anthropic' ? providerError?.type : providerError?.status;
       // Only canonical status names, never a provider message or arbitrary body field.
       if (typeof upstreamCode === 'string' && [
         'INVALID_ARGUMENT', 'FAILED_PRECONDITION', 'OUT_OF_RANGE', 'UNAUTHENTICATED',
         'PERMISSION_DENIED', 'NOT_FOUND', 'RESOURCE_EXHAUSTED', 'UNAVAILABLE',
         'DEADLINE_EXCEEDED', 'INTERNAL', 'UNKNOWN', 'CANCELLED', 'ABORTED',
+        'invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error',
+        'rate_limit_error', 'api_error', 'overloaded_error', 'request_too_large',
       ].includes(upstreamCode)) failure.upstreamCode = upstreamCode;
+      if (configuration.provider === 'anthropic') {
+        failure.upstreamReason = classifyAnthropicRejection(providerError?.message);
+      }
       throw failure;
     }
     const payload = await response.json().catch(() => null);
@@ -227,6 +239,21 @@ function requestGemini(
   );
 }
 
+// Return only fixed categories: never log provider text, which may echo user input.
+function classifyAnthropicRejection(message: unknown): string {
+  if (typeof message !== 'string') return 'unknown';
+  const text = message.toLowerCase();
+  if (/credit balance|billing|purchase credits/.test(text)) return 'billing';
+  if (/organization|workspace|account/.test(text)) return 'account';
+  if (/output_config|effort/.test(text)) return 'output_config';
+  if (/max_tokens|budget_tokens|thinking/.test(text)) return 'token_or_thinking_config';
+  if (/temperature|top_p|top_k/.test(text)) return 'sampling_config';
+  if (/image|base64|media_type/.test(text)) return 'image';
+  if (/anthropic-version/.test(text)) return 'api_version';
+  if (/model/.test(text)) return 'model';
+  return 'unknown';
+}
+
 function requestAnthropic(
   configuration: PhotoProviderConfiguration,
   input: PhotoProviderInput,
@@ -240,16 +267,17 @@ function requestAnthropic(
       'Content-Type': 'application/json',
       'x-api-key': configuration.apiKey,
       'anthropic-version': '2023-06-01',
+      ...(configuration.workspaceId ? { 'anthropic-workspace-id': configuration.workspaceId } : {}),
     },
     body: JSON.stringify({
       model: configuration.model,
-      max_tokens: 1200,
-      temperature: 0,
+      max_tokens: 4096,
+      ...(configuration.model === 'claude-haiku-5-5' ? { output_config: { effort: 'low' } } : {}),
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: input.mediaType, data: input.imageBase64 } },
-          { type: 'text', text: `${buildPhotoEstimatePrompt(input.description)}\nReturn JSON only using the requested items shape.` },
+          { type: 'text', text: `${buildPhotoEstimatePrompt(input.description)}\nReturn JSON only matching this JSON Schema (no markdown):\n${JSON.stringify(photoItemsSchema)}` },
         ],
       }],
     }),
@@ -286,7 +314,7 @@ async function providerHttpError(response: Response, provider: PhotoAiProvider):
   if (status === 429) {
     return new PhotoProviderError(
       'PROVIDER_QUOTA_EXCEEDED',
-      'The AI project has reached a Google quota or rate limit. Try again after it resets.',
+      'The AI connection has reached a provider quota or rate limit. Try again after it resets.',
       true,
       429,
     );
@@ -320,6 +348,7 @@ function extractGeminiText(value: unknown): string | null {
 
 function extractAnthropicText(value: unknown): string | null {
   const record = asRecord(value);
+  if (record?.stop_reason && record.stop_reason !== 'end_turn') return null;
   if (!Array.isArray(record?.content)) return null;
   const text = record.content
     .map((part) => asRecord(part))

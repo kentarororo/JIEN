@@ -13,6 +13,7 @@ import {
 } from '../_shared/wellness-contract.ts';
 import {
   loadPersonalAiConfiguration,
+  resolveAiCredentials,
   resolveSupabaseServerKey,
 } from '../_shared/user-ai.ts';
 import { summarizeTrainingMuscleContext } from '../_shared/training-context.ts';
@@ -130,21 +131,18 @@ Deno.serve(async (request) => {
       return failure('INVALID_SEQUENCE', 'The reply sequence does not follow the question.', false, 409, requestId);
     }
 
-    let personalConfiguration = null;
-    try {
-      personalConfiguration = await loadPersonalAiConfiguration(admin, userId);
-    } catch {
-      // Retain the deployment-owned provider while the per-user migration rolls out.
-    }
-    const provider = personalConfiguration
-      ? { ok: true, configuration: personalConfiguration }
-      : resolveWellnessProvider({
+    const provider = await resolveAiCredentials({
+      mode: Deno.env.get('AI_CREDENTIAL_MODE'),
+      loadPersonal: () => loadPersonalAiConfiguration(admin, userId),
+      app: resolveWellnessProvider({
         WELLNESS_AI_PROVIDER: Deno.env.get('WELLNESS_AI_PROVIDER'),
         GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
         GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
-        ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
+        ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY')?.trim() || Deno.env.get('KEN_ANTHROPIC_API_KEY'),
         ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
-      });
+        ANTHROPIC_WORKSPACE_ID: Deno.env.get('ANTHROPIC_WORKSPACE_ID'),
+      }),
+    });
     if (!provider.ok) {
       return failure('AI_NOT_CONFIGURED', 'AI guidance is not configured yet.', false, 503, requestId);
     }

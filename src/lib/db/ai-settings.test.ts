@@ -3,6 +3,15 @@ import test from 'node:test';
 
 import { describeAiConnectionIssue, parseAiConnectionStatus } from './ai-settings-contract.ts';
 
+test('shared Anthropic status preserves managed mode and never returns credentials', () => {
+  const status = parseAiConnectionStatus({ configured: true, credentialMode: 'app', credentialSource: 'app',
+    provider: 'anthropic', model: 'claude-haiku-4-5', usagePolicy: 'provider_managed', apiKey: 'must-not-leak' });
+  assert.equal(status.provider, 'anthropic');
+  assert.equal(status.credentialMode, 'app');
+  assert.equal('apiKey' in status, false);
+  assert.equal(describeAiConnectionIssue({ code: 'AI_MANAGED_BY_APP' }).title, 'AI is supplied by JIEN');
+});
+
 test('AI connection status parses only the safe non-secret response', () => {
   assert.deepEqual(parseAiConnectionStatus({
     configured: true,

@@ -114,7 +114,7 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       retryable: false,
       requestId,
       provider: null,
-      message: 'No Gemini connection is enabled yet. Open AI connection to create and securely connect a personal free-tier key.',
+      message: 'Photo analysis is not configured. Open AI connection to check whether the app or a personal key supplies this feature.',
     };
   }
   if (code === 'PROVIDER_AUTH_INVALID') {
@@ -124,17 +124,17 @@ export function classifyMealPhotoAnalysisError(cause: unknown): MealPhotoAnalysi
       retryable: false,
       requestId,
       provider: null,
-      message: 'Google did not allow this key to generate content. Open AI connection to verify the key, project, and API restrictions.',
+      message: 'The configured AI provider rejected access. Open AI connection to check which connection is used. An app-supplied key must be checked by the app owner.',
     };
   }
   if (code === 'PROVIDER_REQUEST_INVALID') {
-    return { code, status: 'unavailable', retryable: false, requestId, provider: null, message: 'This Gemini request requires an app update. Your key was not exposed or removed.' };
+    return { code, status: 'unavailable', retryable: false, requestId, provider: null, message: 'The AI provider could not accept this request. Keep the support reference for the app owner. Your photo and description are retained.' };
   }
   if (code === 'PROVIDER_MODEL_UNAVAILABLE') {
-    return { code, status: 'not_configured', retryable: false, requestId, provider: null, message: 'This Gemini model is unavailable to the key’s Google project. Reconnect the key to run the current model check.' };
+    return { code, status: 'not_configured', retryable: false, requestId, provider: null, message: 'The configured AI model is unavailable to this connection. Open AI connection and ask the app owner to check model access.' };
   }
   if (code === 'PROVIDER_QUOTA_EXCEEDED') {
-    return { code, status: 'unavailable', retryable: true, requestId, provider: null, message: 'This Google project has reached its Gemini quota. Check AI Studio quotas or retry after the limit resets.' };
+    return { code, status: 'unavailable', retryable: true, requestId, provider: null, message: 'The AI connection has reached a quota or rate limit. Check the provider’s usage settings or retry after the limit resets.' };
   }
   if (code === 'HTTP_404') {
     return {

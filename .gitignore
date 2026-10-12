@@ -21,6 +21,7 @@ expo-env.d.ts
 
 # local environment
 .env
+.env.local
 .env.*.local
 
 # logs and tooling
@@ -41,3 +42,6 @@ yarn-error.log*
 
 # Supabase CLI project-link cache
 supabase/.temp/
+
+# Vercel project link and local deployment environment
+.vercel/

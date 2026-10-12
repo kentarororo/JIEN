@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { resolveAiCredentials } from './user-ai.ts';
 
 import { parseProviderPhotoItems } from './photo-contract.ts';
 import {
@@ -19,6 +21,28 @@ const providerJson = JSON.stringify({ items: [{
   name: 'Chicken rice', quantity: 1, unit: 'plate', caloriesKcal: 610,
   proteinG: 38, carbohydrateG: 74, fatG: 18, fibreG: 4, confidence: 0.78,
 }] });
+
+test('app photo credentials preserve workspace routing from environment to Anthropic headers', async () => {
+  for (const workspaceId of [undefined, 'wrkspc_test123']) {
+    const resolved = await resolveAiCredentials({
+      mode: 'app',
+      app: resolvePhotoProvider({ PHOTO_AI_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: 'server-key',
+        ANTHROPIC_MODEL: 'claude-haiku-5-5', ANTHROPIC_WORKSPACE_ID: workspaceId && ` ${workspaceId} ` }),
+      loadPersonal: async () => { throw new Error('Must not read personal keys'); },
+    });
+    assert.ok(resolved.ok);
+    await requestPhotoEstimate(resolved.configuration, input, { fetchImpl: async (_url, init) => {
+      assert.equal(new Headers(init?.headers).get('anthropic-workspace-id'), workspaceId ?? null);
+      assert.equal(JSON.parse(String(init?.body)).workspaceId, undefined);
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: providerJson }] }));
+    } });
+  }
+  assert.equal(resolvePhotoProvider({ PHOTO_AI_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: 'key',
+    ANTHROPIC_MODEL: 'model', ANTHROPIC_WORKSPACE_ID: 'invalid\r\nheader' }).ok, false);
+  for (const path of ['../analyze-food-photo/index.ts', '../ai-settings/index.ts']) {
+    assert.match(readFileSync(new URL(path, import.meta.url), 'utf8'), /ANTHROPIC_WORKSPACE_ID: Deno.env.get\('ANTHROPIC_WORKSPACE_ID'\)/);
+  }
+});
 
 test('photo guidance treats a nutrition label as transcription, not a meal estimate', () => {
   const prompt = buildPhotoEstimatePrompt('Protein cereal');
@@ -120,7 +144,7 @@ test('Anthropic remains available behind the same normalized adapter contract', 
   let requestUrl = '';
   let requestInit: RequestInit | undefined;
   const text = await requestPhotoEstimate({
-    provider: 'anthropic', apiKey: 'server-anthropic-key', model: 'claude-vision',
+    provider: 'anthropic', apiKey: 'server-anthropic-key', model: 'claude-haiku-5-5',
   }, input, {
     fetchImpl: async (url, init) => {
       requestUrl = String(url);
@@ -131,7 +155,42 @@ test('Anthropic remains available behind the same normalized adapter contract', 
   assert.equal(requestUrl, 'https://api.anthropic.com/v1/messages');
   const body = JSON.parse(String(requestInit?.body));
   assert.equal(body.messages[0].content[0].source.data, input.imageBase64);
+  assert.equal(body.temperature, undefined);
+  assert.equal(body.output_config.effort, 'low');
+  assert.equal(body.max_tokens, 4096);
+  assert.match(body.messages[0].content[1].text, /caloriesKcal/);
+  assert.match(body.messages[0].content[1].text, /carbohydrateG/);
+  assert.match(body.messages[0].content[1].text, /JSON Schema/);
   assert.equal(parseProviderPhotoItems(text).length, 1);
+});
+
+test('Anthropic rejection diagnostics use fixed categories and never retain provider messages', async () => {
+  for (const [message, reason] of [
+    ['Your credit balance is too low: private-detail', 'billing'],
+    ['model: unavailable private-detail', 'model'],
+    ['output_config.effort unsupported private-detail', 'output_config'],
+    ['Invalid image private-detail', 'image'],
+    ['unrecognized private-detail', 'unknown'],
+  ]) {
+    await assert.rejects(requestPhotoEstimate({ provider: 'anthropic', apiKey: 'secret', model: 'claude-haiku-5-5' }, input, {
+      fetchImpl: async () => new Response(JSON.stringify({ error: { type: 'invalid_request_error', message } }), { status: 400 }),
+    }), (error: unknown) => {
+      assert.ok(error instanceof PhotoProviderError);
+      assert.equal(error.upstreamCode, 'invalid_request_error');
+      assert.equal(error.upstreamReason, reason);
+      assert.doesNotMatch(JSON.stringify(error), /private-detail|secret/);
+      assert.doesNotMatch(error.message, /private-detail|secret/);
+      return true;
+    });
+  }
+});
+
+test('Anthropic truncation and refusals cannot become complete nutrition estimates', async () => {
+  for (const stop_reason of ['max_tokens', 'refusal', 'tool_use']) {
+    await assert.rejects(requestPhotoEstimate({ provider: 'anthropic', apiKey: 'test-key', model: 'claude-haiku-4-5' }, input, {
+      fetchImpl: async () => new Response(JSON.stringify({ stop_reason, content: [{ type: 'text', text: providerJson }] })),
+    }), (cause: unknown) => cause instanceof PhotoProviderError && cause.code === 'PROVIDER_OUTPUT_INVALID');
+  }
 });
 
 test('provider failures are finite, safely classified, and never expose raw output', async () => {

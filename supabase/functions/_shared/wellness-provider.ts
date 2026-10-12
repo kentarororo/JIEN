@@ -6,12 +6,14 @@ export type WellnessProviderEnvironment = {
   GEMINI_MODEL?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  ANTHROPIC_WORKSPACE_ID?: string;
 };
 
 export type WellnessProviderConfiguration = {
   provider: WellnessAiProvider;
   apiKey: string;
   model: string;
+  workspaceId?: string;
 };
 
 export type WellnessProviderResolution =
@@ -56,11 +58,14 @@ function configuredProvider(
   provider: WellnessAiProvider,
   apiKey: string | undefined,
   model: string | undefined,
+  workspaceId?: string,
 ): WellnessProviderConfiguration | null {
   const cleanKey = apiKey?.trim();
   const cleanModel = model?.trim();
+  const cleanWorkspace = workspaceId?.trim();
+  if (cleanWorkspace && !/^wrkspc_[A-Za-z0-9]{1,128}$/.test(cleanWorkspace)) return null;
   return cleanKey && cleanModel && validModel.test(cleanModel)
-    ? { provider, apiKey: cleanKey, model: cleanModel }
+    ? { provider, apiKey: cleanKey, model: cleanModel, ...(cleanWorkspace ? { workspaceId: cleanWorkspace } : {}) }
     : null;
 }
 
@@ -73,7 +78,7 @@ export function resolveWellnessProvider(
 ): WellnessProviderResolution {
   const requested = environment.WELLNESS_AI_PROVIDER?.trim().toLowerCase() || 'auto';
   const gemini = configuredProvider('gemini', environment.GEMINI_API_KEY, environment.GEMINI_MODEL);
-  const anthropic = configuredProvider('anthropic', environment.ANTHROPIC_API_KEY, environment.ANTHROPIC_MODEL);
+  const anthropic = configuredProvider('anthropic', environment.ANTHROPIC_API_KEY, environment.ANTHROPIC_MODEL, environment.ANTHROPIC_WORKSPACE_ID);
 
   if (requested === 'gemini') {
     return gemini ? { ok: true, configuration: gemini } : { ok: false, code: 'AI_NOT_CONFIGURED' };
@@ -176,11 +181,12 @@ function requestAnthropic(
       'Content-Type': 'application/json',
       'x-api-key': configuration.apiKey,
       'anthropic-version': '2023-06-01',
+      ...(configuration.workspaceId ? { 'anthropic-workspace-id': configuration.workspaceId } : {}),
     },
     body: JSON.stringify({
       model: configuration.model,
-      max_tokens: 900,
-      temperature: 0.2,
+      max_tokens: 2048,
+      ...(configuration.model === 'claude-haiku-5-5' ? { output_config: { effort: 'low' } } : {}),
       system: input.system,
       messages: [{ role: 'user', content: input.prompt }],
     }),
@@ -218,6 +224,7 @@ function extractGeminiResult(value: unknown): WellnessProviderResult | null {
 
 function extractAnthropicResult(value: unknown): WellnessProviderResult | null {
   const record = asRecord(value);
+  if (record?.stop_reason && record.stop_reason !== 'end_turn') return null;
   if (!Array.isArray(record?.content)) return null;
   const text = record.content
     .map((part) => asRecord(part))

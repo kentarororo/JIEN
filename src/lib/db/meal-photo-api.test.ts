@@ -78,4 +78,8 @@ test('maps stable service errors to explicit user-action states', () => {
   assert.equal(deployment.status, 'not_configured');
   assert.equal(deployment.requestId, 'request-123');
   assert.doesNotMatch(deployment.message, /raw provider detail/i);
+  for (const code of ['PHOTO_AI_NOT_CONFIGURED', 'PROVIDER_AUTH_INVALID', 'PROVIDER_REQUEST_INVALID', 'PROVIDER_MODEL_UNAVAILABLE', 'PROVIDER_QUOTA_EXCEEDED']) {
+    const failure = classifyMealPhotoAnalysisError({ code });
+    assert.doesNotMatch(failure.message, /Gemini|Google|AI Studio/);
+  }
 });

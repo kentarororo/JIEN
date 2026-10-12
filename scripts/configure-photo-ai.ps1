@@ -1,16 +1,26 @@
 [CmdletBinding()]
 param(
   [string]$ProjectRef = 'vrgkkcunbngjgqfmlcuh',
-  [string]$Model = 'gemini-3.5-flash-lite'
+  [ValidateSet('gemini', 'anthropic')][string]$Provider = 'gemini',
+  [string]$Model = '',
+  [string]$AnthropicWorkspaceId = '',
+  [ValidateSet('personal-first', 'app')][string]$CredentialMode = 'personal-first',
+  [switch]$UseExistingKey
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Model) {
+  $Model = if ($Provider -eq 'anthropic') { 'claude-haiku-5-5' } else { 'gemini-3.5-flash-lite' }
+}
 
 if ($ProjectRef -notmatch '^[a-z0-9]{20}$') {
   throw 'ProjectRef must be a 20-character Supabase project reference.'
 }
 if ($Model -notmatch '^[A-Za-z0-9._-]{1,128}$') {
   throw 'Model contains unsupported characters.'
+}
+if ($AnthropicWorkspaceId -and ($Provider -ne 'anthropic' -or $AnthropicWorkspaceId -notmatch '^wrkspc_[A-Za-z0-9]{1,128}$')) {
+  throw 'AnthropicWorkspaceId requires the Anthropic provider and a wrkspc_ workspace ID.'
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -37,29 +47,39 @@ if ($pnpmCommand) {
 }
 
 Write-Host ''
-Write-Host 'JIEN deployment-owned AI fallback setup' -ForegroundColor Cyan
+Write-Host 'JIEN server AI setup' -ForegroundColor Cyan
 Write-Host "Project: $ProjectRef"
 Write-Host "Model:   $Model"
-Write-Host 'Paste a JIEN-owned Gemini API key from Google AI Studio. The key is sent only to Supabase Secrets.'
-Write-Host 'Normal testers can instead connect their own key inside Settings > AI connection.'
+Write-Host "Provider: $Provider; credential mode: $CredentialMode"
+Write-Host 'App mode funds AI for every authenticated, consenting user with the server key.'
+Write-Host 'Set a provider workspace budget and disable automatic credit reload if you want a fixed balance.'
 
-$secureKey = Read-Host 'Gemini API key' -AsSecureString
-$keyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+$keyPointer = [IntPtr]::Zero
+if (-not $UseExistingKey) {
+  $secureKey = Read-Host "$Provider API key (hidden; never paste into chat)" -AsSecureString
+  $keyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+}
 $plainKey = $null
 $tempSecretFile = Join-Path ([IO.Path]::GetTempPath()) ("jien-photo-ai-{0}.env" -f [Guid]::NewGuid().ToString('N'))
 
 try {
-  $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPointer)
-  if ($plainKey -notmatch '^[A-Za-z0-9_-]{20,256}$') {
-    throw 'That does not look like a Gemini API key. Copy the key itself from Google AI Studio and try again.'
+  if (-not $UseExistingKey) {
+    $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPointer)
+    if ($plainKey -notmatch '^[A-Za-z0-9_-]{20,512}$') {
+      throw 'The API key contains unsupported characters. Copy only the key and try again.'
+    }
   }
 
-  $secretFileContents = @(
-    'PHOTO_AI_PROVIDER=gemini'
-    'WELLNESS_AI_PROVIDER=gemini'
-    "GEMINI_API_KEY=$plainKey"
-    "GEMINI_MODEL=$Model"
-  ) -join [Environment]::NewLine
+  $providerPrefix = $Provider.ToUpperInvariant()
+  $secretLines = @(
+    "PHOTO_AI_PROVIDER=$Provider"
+    "WELLNESS_AI_PROVIDER=$Provider"
+    "AI_CREDENTIAL_MODE=$CredentialMode"
+    "${providerPrefix}_MODEL=$Model"
+  )
+  if (-not $UseExistingKey) { $secretLines += "${providerPrefix}_API_KEY=$plainKey" }
+  if ($AnthropicWorkspaceId) { $secretLines += "ANTHROPIC_WORKSPACE_ID=$AnthropicWorkspaceId" }
+  $secretFileContents = $secretLines -join [Environment]::NewLine
   [IO.File]::WriteAllText($tempSecretFile, $secretFileContents, [Text.UTF8Encoding]::new($false))
 
   Write-Host ''
@@ -80,12 +100,15 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'The function deployed, but Supabase could not list the configured secret names.' }
 
   Write-Host ''
-  Write-Host 'The deployment-owned fallback is configured. Push the app build, then check Settings > AI connection.' -ForegroundColor Green
+  Write-Host 'Server configuration and AI functions deployed. Deploy the web app, then verify Settings and a photo scan.' -ForegroundColor Green
+  Write-Host 'Configuration does not prove provider connectivity. No paid test was made by this script.'
 } finally {
   if ($keyPointer -ne [IntPtr]::Zero) {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer)
   }
   $plainKey = $null
+  $secretLines = $null
+  $secretFileContents = $null
   if (Test-Path -LiteralPath $tempSecretFile) {
     Remove-Item -LiteralPath $tempSecretFile -Force
   }

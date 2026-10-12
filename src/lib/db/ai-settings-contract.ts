@@ -1,7 +1,8 @@
 export type AiConnectionStatus = {
   configured: boolean;
   credentialSource: 'personal' | 'app' | null;
-  provider: 'gemini' | null;
+  provider: 'gemini' | 'anthropic' | null;
+  credentialMode?: 'app' | 'personal-first';
   model: string;
   usagePolicy: 'provider_managed' | 'legacy_daily_cap';
   limits: null | {
@@ -25,10 +26,10 @@ export function describeAiConnectionIssue(cause: unknown): AiConnectionIssue {
   if (!code) {
     return {
       code: 'AI_CONNECTION_FAILED',
-      title: 'Gemini was not connected',
+      title: 'AI connection unavailable',
       message: cause instanceof Error && cause.message
         ? cause.message
-        : 'The Gemini key could not be connected. Try again.',
+        : 'The AI connection could not be checked. Try again.',
       requestId: null,
       retryable: false,
     };
@@ -40,6 +41,8 @@ export function describeAiConnectionIssue(cause: unknown): AiConnectionIssue {
     retryable: edge?.retryable === true,
   };
   switch (code) {
+    case 'AI_MANAGED_BY_APP':
+      return { ...issue, title: 'AI is supplied by JIEN', message: 'A personal key is not needed. Refresh this page to see the current connection.' };
     case 'AI_KEY_INVALID':
       return { ...issue, title: 'Google rejected this key', message: 'Copy an active Gemini API key from Google AI Studio, then paste it again.' };
     case 'AI_MODEL_UNAVAILABLE':
@@ -65,10 +68,10 @@ export function describeAiConnectionIssue(cause: unknown): AiConnectionIssue {
     default:
       return {
         ...issue,
-        title: 'Gemini was not connected',
+        title: 'AI connection unavailable',
         message: typeof edge?.message === 'string' && edge.message
           ? edge.message
-          : 'The Gemini key could not be connected. Try again.',
+          : 'The AI connection could not be checked. Try again.',
       };
   }
 }
@@ -80,13 +83,15 @@ export function parseAiConnectionStatus(value: unknown): Omit<AiConnectionStatus
   const source = row?.credentialSource;
   if (!row || typeof row.configured !== 'boolean'
     || (source !== 'personal' && source !== 'app' && source !== null)
-    || (row.provider !== 'gemini' && row.provider !== null)
+    || (row.provider !== 'gemini' && row.provider !== 'anthropic' && row.provider !== null)
+    || (row.credentialMode !== undefined && row.credentialMode !== 'app' && row.credentialMode !== 'personal-first')
     || !model) {
     throw new Error('AI connection status could not be read.');
   }
   if (row.usagePolicy === 'provider_managed') {
     return {
       configured: row.configured,
+      ...(row.credentialMode ? { credentialMode: row.credentialMode } : {}),
       credentialSource: source,
       provider: row.provider,
       model,

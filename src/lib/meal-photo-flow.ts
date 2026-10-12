@@ -12,6 +12,7 @@ export type PendingMealPhoto = {
 export type MealPhotoFlowState = {
   phase: 'idle' | 'ready' | 'analyzing' | 'failed' | 'succeeded';
   selection: PendingMealPhoto | null;
+  sheetReady: boolean;
   description: string;
   capability: MealPhotoCapability | null;
   failure: MealPhotoAnalysisFailure | null;
@@ -20,6 +21,7 @@ export type MealPhotoFlowState = {
 
 export type MealPhotoFlowEvent =
   | { type: 'selected'; selection: PendingMealPhoto }
+  | { type: 'sheet_shown' }
   | { type: 'description_changed'; description: string }
   | { type: 'capability_checking' }
   | { type: 'capability_resolved'; capability: MealPhotoCapability }
@@ -31,6 +33,7 @@ export type MealPhotoFlowEvent =
 export const initialMealPhotoFlowState: MealPhotoFlowState = {
   phase: 'idle',
   selection: null,
+  sheetReady: false,
   description: '',
   capability: null,
   failure: null,
@@ -46,11 +49,14 @@ export function reduceMealPhotoFlow(
       return {
         phase: 'ready',
         selection: event.selection,
+        sheetReady: false,
         description: '',
         capability: null,
         failure: null,
         result: null,
       };
+    case 'sheet_shown':
+      return state.selection ? { ...state, sheetReady: true } : state;
     case 'description_changed':
       return state.selection ? { ...state, description: event.description } : state;
     case 'capability_checking':

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { resolveAiCredentials } from './user-ai.ts';
 
 import {
   requestWellnessGuidance,
@@ -13,6 +14,26 @@ const input = {
   system: 'Use only the supplied context. Do not change deterministic progression.',
   prompt: 'Question: How should I pace today? Context: one completed session.',
 };
+
+test('app wellness credentials preserve optional workspace routing to Anthropic', async () => {
+  for (const workspaceId of [undefined, 'wrkspc_test123']) {
+    const resolved = await resolveAiCredentials({
+      mode: 'app',
+      app: resolveWellnessProvider({ WELLNESS_AI_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: 'server-key',
+        ANTHROPIC_MODEL: 'claude-haiku-5-5', ANTHROPIC_WORKSPACE_ID: workspaceId && ` ${workspaceId} ` }),
+      loadPersonal: async () => { throw new Error('Must not read personal keys'); },
+    });
+    assert.ok(resolved.ok);
+    await requestWellnessGuidance(resolved.configuration, input, { fetchImpl: async (_url, init) => {
+      assert.equal(new Headers(init?.headers).get('anthropic-workspace-id'), workspaceId ?? null);
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'Test response' }] }));
+    } });
+  }
+  assert.equal(resolveWellnessProvider({ WELLNESS_AI_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: 'key',
+    ANTHROPIC_MODEL: 'model', ANTHROPIC_WORKSPACE_ID: 'invalid\r\nheader' }).ok, false);
+  assert.match(readFileSync(new URL('../wellness-chat/index.ts', import.meta.url), 'utf8'),
+    /ANTHROPIC_WORKSPACE_ID: Deno.env.get\('ANTHROPIC_WORKSPACE_ID'\)/);
+});
 
 test('wellness provider selection is explicit and auto prefers Gemini', () => {
   const both = {
@@ -64,7 +85,7 @@ test('Gemini wellness guidance sends system and context with only the JIEN serve
 test('Anthropic wellness guidance remains behind the same normalized contract', async () => {
   let requestInit: RequestInit | undefined;
   const result = await requestWellnessGuidance({
-    provider: 'anthropic', apiKey: 'server-anthropic-key', model: 'claude-model',
+    provider: 'anthropic', apiKey: 'server-anthropic-key', model: 'claude-haiku-5-5',
   }, input, {
     fetchImpl: async (_url, init) => {
       requestInit = init;
@@ -78,7 +99,18 @@ test('Anthropic wellness guidance remains behind the same normalized contract', 
   assert.equal(result.providerMessageId, 'anthropic-response');
   const body = JSON.parse(String(requestInit?.body));
   assert.equal(body.system, input.system);
+  assert.equal(body.temperature, undefined);
+  assert.equal(body.output_config.effort, 'low');
+  assert.equal(body.max_tokens, 2048);
   assert.equal(body.messages[0].content, input.prompt);
+});
+
+test('Anthropic incomplete guidance is rejected', async () => {
+  for (const stop_reason of ['max_tokens', 'refusal']) {
+    await assert.rejects(requestWellnessGuidance({ provider: 'anthropic', apiKey: 'test-key', model: 'claude-haiku-5-5' }, input, {
+      fetchImpl: async () => new Response(JSON.stringify({ stop_reason, content: [{ type: 'text', text: 'Partial reply' }] })),
+    }), (cause: unknown) => cause instanceof WellnessProviderError && cause.code === 'AI_EMPTY_RESPONSE');
+  }
 });
 
 test('wellness provider failures are bounded and safely classified', async () => {

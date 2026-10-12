@@ -10,6 +10,32 @@ export type PersonalAiConfiguration = {
   model: string;
 };
 
+type AiConfiguration = { provider: 'gemini' | 'anthropic'; apiKey: string; model: string; workspaceId?: string };
+
+// App mode never reads personal keys, including when its provider is unavailable.
+export async function resolveAiCredentials(options: {
+  mode?: string;
+  requirePersonalLookup?: boolean;
+  app: { ok: true; configuration: AiConfiguration } | { ok: false };
+  loadPersonal: () => Promise<PersonalAiConfiguration | null>;
+}): Promise<
+  | { ok: true; configuration: AiConfiguration; credentialSource: 'app' | 'personal' }
+  | { ok: false }
+> {
+  const mode = options.mode?.trim() || 'personal-first';
+  if (mode !== 'app' && mode !== 'personal-first') return { ok: false };
+  if (mode === 'personal-first') {
+    try {
+      const personal = await options.loadPersonal();
+      if (personal) return { ok: true, configuration: personal, credentialSource: 'personal' };
+    } catch {
+      if (options.requirePersonalLookup) throw new Error('AI_CREDENTIAL_LOOKUP_FAILED');
+      // Preserve the deployment fallback if Vault is unavailable.
+    }
+  }
+  return options.app.ok ? { ...options.app, credentialSource: 'app' } : { ok: false };
+}
+
 type AdminClient = {
   rpc: (name: string, parameters: Record<string, unknown>) => Promise<{
     data: unknown;

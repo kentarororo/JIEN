@@ -6,10 +6,43 @@ import {
   AI_USAGE_POLICY,
   LEGACY_UNCAPPED_DAILY_LIMIT,
   loadPersonalAiConfiguration,
+  resolveAiCredentials,
   PERSONAL_GEMINI_MODEL,
   resolveSupabaseServerKey,
   verifyGeminiApiKey,
 } from './user-ai.ts';
+
+test('shared Anthropic bypasses personal credentials for both accounts and fails closed', async () => {
+  const configuration = { provider: 'anthropic' as const, apiKey: 'server-only-test-key', model: 'claude-haiku-4-5' };
+  let personalReads = 0;
+  const loadPersonal = async () => { personalReads += 1; return { provider: 'gemini' as const, apiKey: 'old-key', model: PERSONAL_GEMINI_MODEL }; };
+  for (const _user of ['owner', 'wife']) {
+    assert.deepEqual(await resolveAiCredentials({ mode: 'app', app: { ok: true, configuration }, loadPersonal }),
+      { ok: true, configuration, credentialSource: 'app' });
+  }
+  assert.deepEqual(await resolveAiCredentials({ mode: 'app', app: { ok: false }, loadPersonal }), { ok: false });
+  assert.deepEqual(await resolveAiCredentials({ mode: 'typo', app: { ok: true, configuration }, loadPersonal }), { ok: false });
+  assert.equal(personalReads, 0);
+  const legacy = await resolveAiCredentials({ app: { ok: true, configuration }, loadPersonal });
+  assert.equal(legacy.ok && legacy.credentialSource, 'personal');
+  const fallback = await resolveAiCredentials({ app: { ok: true, configuration }, loadPersonal: async () => { throw new Error('Vault unavailable'); } });
+  assert.equal(fallback.ok && fallback.credentialSource, 'app');
+  await assert.rejects(resolveAiCredentials({ requirePersonalLookup: true, app: { ok: false },
+    loadPersonal: async () => { throw new Error('Vault unavailable'); } }), /AI_CREDENTIAL_LOOKUP_FAILED/);
+  assert.equal((await resolveAiCredentials({ mode: 'app', requirePersonalLookup: true, app: { ok: true, configuration },
+    loadPersonal: async () => { throw new Error('Must not read Vault'); } })).ok, true);
+});
+
+test('all AI entry points share credential routing; cached clients cannot save a personal key in app mode', () => {
+  for (const name of ['ai-settings', 'analyze-food-photo', 'wellness-chat']) {
+    const source = readFileSync(new URL(`../${name}/index.ts`, import.meta.url), 'utf8');
+    assert.match(source, /await resolveAiCredentials\(/);
+    assert.match(source, /AI_CREDENTIAL_MODE/);
+    assert.match(source, /KEN_ANTHROPIC_API_KEY/);
+  }
+  const settings = readFileSync(new URL('../ai-settings/index.ts', import.meta.url), 'utf8');
+  assert.ok(settings.indexOf("'AI_MANAGED_BY_APP'") < settings.indexOf('await verifyGeminiApiKey'));
+});
 
 test('server key resolution never depends on a browser-visible key', () => {
   assert.equal(resolveSupabaseServerKey({ SUPABASE_SERVICE_ROLE_KEY: 'legacy-service-role-key-value' }), 'legacy-service-role-key-value');

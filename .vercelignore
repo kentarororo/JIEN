@@ -1,0 +1,18 @@
+# Local credentials and tool state are never deployment inputs.
+.env
+.env.*
+!.env.example
+.vercel/
+supabase/.temp/
+.pnpm-store/
+.pnpm-cache/
+.pnpm-home/
+.pnpm-state/
+.expo/
+.expo-scaffold/
+.skill-tools/
+.verification-*/
+.playwright-results/
+playwright-report/
+node_modules/
+dist/

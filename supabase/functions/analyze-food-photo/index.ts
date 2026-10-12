@@ -11,6 +11,7 @@ import {
   AI_USAGE_POLICY,
   LEGACY_UNCAPPED_DAILY_LIMIT,
   loadPersonalAiConfiguration,
+  resolveAiCredentials,
   resolveSupabaseServerKey,
 } from '../_shared/user-ai.ts';
 
@@ -87,21 +88,18 @@ Deno.serve(async (request) => {
       return failure(requestId, 'INVALID_REQUEST', 'Choose a supported photo-analysis action.', false, 400);
     }
 
-    let personalConfiguration = null;
-    try {
-      personalConfiguration = await loadPersonalAiConfiguration(admin, userData.user.id);
-    } catch {
-      // A project-owned provider remains a safe fallback during migration rollout.
-    }
-    const provider = personalConfiguration
-      ? { ok: true, configuration: personalConfiguration }
-      : resolvePhotoProvider({
+    const provider = await resolveAiCredentials({
+      mode: Deno.env.get('AI_CREDENTIAL_MODE'),
+      loadPersonal: () => loadPersonalAiConfiguration(admin, userData.user.id),
+      app: resolvePhotoProvider({
         PHOTO_AI_PROVIDER: Deno.env.get('PHOTO_AI_PROVIDER'),
         GEMINI_API_KEY: Deno.env.get('GEMINI_API_KEY'),
         GEMINI_MODEL: Deno.env.get('GEMINI_MODEL'),
-        ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY'),
+        ANTHROPIC_API_KEY: Deno.env.get('ANTHROPIC_API_KEY')?.trim() || Deno.env.get('KEN_ANTHROPIC_API_KEY'),
         ANTHROPIC_MODEL: Deno.env.get('ANTHROPIC_MODEL'),
-      });
+        ANTHROPIC_WORKSPACE_ID: Deno.env.get('ANTHROPIC_WORKSPACE_ID'),
+      }),
+    });
     if (!provider.ok) {
       return failure(
         requestId,
@@ -115,7 +113,7 @@ Deno.serve(async (request) => {
       return success(requestId, {
         available: true,
         provider: provider.configuration.provider,
-        credentialSource: personalConfiguration ? 'personal' : 'app',
+        credentialSource: provider.credentialSource,
         usagePolicy: AI_USAGE_POLICY,
         dailyLimit: LEGACY_UNCAPPED_DAILY_LIMIT,
       });
@@ -146,16 +144,20 @@ Deno.serve(async (request) => {
         // Operational metadata only: never log keys, images, prompts or raw provider bodies.
         console.warn(JSON.stringify({ event: 'photo_provider_failure', requestId,
           provider: provider.configuration.provider, model: provider.configuration.model,
-          credentialSource: personalConfiguration ? 'personal' : 'app',
+          credentialSource: provider.credentialSource,
           code: cause.code, upstreamStatus: cause.upstreamStatus ?? null,
-          upstreamCode: cause.upstreamCode ?? null, retryable: cause.retryable }));
-        return failure(
+          upstreamCode: cause.upstreamCode ?? null, upstreamReason: cause.upstreamReason ?? null,
+          retryable: cause.retryable }));
+        const response = failure(
           requestId,
           cause.code,
           cause.message,
           cause.retryable,
           cause.httpStatus,
         );
+        // Fixed, non-sensitive categories let support diagnose a request without dashboard access.
+        if (cause.upstreamReason) response.headers.set('x-jien-provider-reason', cause.upstreamReason);
+        return response;
       }
       return failure(requestId, 'PROVIDER_UNAVAILABLE', 'The photo service could not be reached. Try again.', true, 502);
     }

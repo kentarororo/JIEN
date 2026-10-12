@@ -12,6 +12,23 @@ import {
 
 const selection = { base64: 'encoded-photo', mediaType: 'image/jpeg', sourceLabel: 'Camera photo' };
 
+test('photo input readiness follows the modal lifecycle and resets on a new selection', () => {
+  let state = reduceMealPhotoFlow(initialMealPhotoFlowState, { type: 'selected', selection });
+  assert.equal(state.sheetReady, false);
+  state = reduceMealPhotoFlow(state, { type: 'sheet_shown' });
+  assert.equal(state.sheetReady, true);
+  state = reduceMealPhotoFlow(state, { type: 'description_changed', description: 'rice' });
+  state = reduceMealPhotoFlow(state, { type: 'capability_checking' });
+  assert.equal(state.sheetReady, true);
+  assert.equal(state.description, 'rice');
+  state = reduceMealPhotoFlow(state, { type: 'dismissed' });
+  assert.equal(state.sheetReady, false);
+  assert.equal(reduceMealPhotoFlow(state, { type: 'sheet_shown' }).sheetReady, false);
+  state = reduceMealPhotoFlow(state, { type: 'selected', selection });
+  assert.equal(state.sheetReady, false);
+  assert.equal(state.description, '');
+});
+
 test('retains the selected photo and context after a retryable failure', () => {
   let state = reduceMealPhotoFlow(initialMealPhotoFlowState, { type: 'selected', selection });
   state = reduceMealPhotoFlow(state, { type: 'description_changed', description: 'rice and chicken' });
