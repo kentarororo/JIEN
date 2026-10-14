@@ -13,6 +13,37 @@ See [food-photo-quality.md](food-photo-quality.md) for the MacroFactor compariso
 half-sandwich failure case, implementation limits and measured-photo release gate.
 Local implementation is not yet a deployed or benchmarked accuracy improvement.
 
+## October follow-up: day-first food logging
+
+Local implementation: Food is a daily dashboard with calorie/macro totals and one
+list of individual foods, including items from existing multi-food meals. Quick add
+uses saved/common foods with a portion preview; search, manual entry, barcode and
+photo review remain available through Add food. Saving returns to the selected day.
+Meal naming and categories are optional, not a logging prerequisite.
+
+Each item's portion can be scaled or the item removed without rewriting siblings.
+Writes and sync operations are atomic; the last removed item also tombstones its
+empty parent. Existing meal records, photos, provenance and detailed edit/repeat
+routes remain available. No schema migration or destructive history conversion is
+needed. Today opens the daily log and counts food items rather than meals.
+
+Unclassified day entries are not meal occasions: they do not establish meal-gap
+patterns and suppress meal-count reminders for that day. This does **not** infer
+that a nutrition day is complete; explicit partial/complete day state remains an
+Alpha 2.5 deliverable.
+
+Release gates: commit/deployment, physical-device checks and real-account
+multi-device sync. Local QA covers SQLite/outbox rollback and browser journeys for
+prior-day multi-item logging, offline portion edits, removal, reload, quick add and
+photo recovery, with no production records or paid AI requests used.
+
+Validation (14 October 2026): `pnpm test` passed 386 test executions including
+pretest; `pnpm typecheck` passed; `pnpm e2e:build` produced the production-mode web
+export with isolated test configuration. Fifteen focused browser checks passed
+across desktop Chromium, Android-sized Chromium and iOS WebKit. Light/dark and
+320px portion-edit layouts were inspected. The generated `dist` is a test build,
+not a production deployment artifact; deployment must rebuild with production env.
+
 ## Product promise and delivery order — September 2026 checkpoint
 
 **Log quickly. Know what to train next and why. Keep control of your records.**

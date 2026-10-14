@@ -342,7 +342,8 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await expect(page.getByRole('heading', { name: 'Workout', exact: true })).toBeVisible();
 
   await page.getByRole('tab', { name: 'Today' }).click();
-  await page.getByRole('button', { name: /Add meal/ }).first().click();
+  await page.getByRole('tab', { name: 'Food', exact: true }).click();
+  await page.getByRole('button', { name: 'Add food', exact: true }).click();
   await page.getByRole('button', { name: 'Meal details (optional)', exact: true }).click();
   await page.getByLabel('Meal name').fill('Browser QA lunch');
   await page.getByRole('textbox', { name: 'Food', exact: true }).fill('Chicken rice');
@@ -350,8 +351,8 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   await page.getByRole('textbox', { name: 'Protein (g)', exact: true }).fill('35');
   await page.getByRole('textbox', { name: 'Carbs (g)', exact: true }).fill('75');
   await page.getByRole('textbox', { name: 'Fat (g)', exact: true }).fill('20');
-  await page.getByRole('button', { name: 'Save meal' }).click();
-  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Add to day' }).click();
+  await expect(page.getByRole('heading', { name: 'Food', exact: true })).toBeVisible();
 
   await page.getByRole('tab', { name: 'Train' }).click();
   await expect(page.getByText('NEXT WORKOUT', { exact: true })).toBeVisible();

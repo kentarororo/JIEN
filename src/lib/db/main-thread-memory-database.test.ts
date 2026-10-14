@@ -41,6 +41,8 @@ import {
   updateWorkout,
 } from './workouts.ts';
 import { getDashboardSummary } from './dashboard.ts';
+import { saveMeal, getDailyNutrition, getMealDetail, getMealLoggingPattern } from './nutrition.ts';
+import { listDailyFoodItems, changeDailyFoodPortion, removeDailyFoodItem } from './daily-food.ts';
 import { getWellnessHubSummary } from './wellness.ts';
 import { listCalendarActivity } from './calendar.ts';
 import { toLocalDateKey } from '../time.ts';
@@ -94,6 +96,56 @@ const requireFromTest = createRequire(import.meta.url);
 const WaSQLiteFactory = requireFromTest(
   '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.js',
 ) as WaSQLiteFactoryType;
+
+test('daily food items preserve meal history, isolate edits and atomically sync removals', async () => {
+  const module = await WaSQLiteFactory({ wasmBinary: readFileSync(new URL('../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.wasm', import.meta.url)) });
+  const sqlite = SQLite.Factory(module);
+  const vfs = await MemoryVFS.create('daily-food-test', module);
+  sqlite.vfs_register(vfs, false);
+  const pointer = await sqlite.open_v2(':memory:', SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, 'daily-food-test');
+  const db = new MainThreadMemoryDatabase(sqlite as MainThreadSQLiteApi, pointer, vfs, { done: SQLITE_DONE, row: SQLITE_ROW },
+    { save: async () => undefined, close: async () => undefined }) as unknown as SQLiteDatabase;
+  try {
+    await migrateDatabase(db);
+    const food = { name: 'Rice', quantity: 100, unit: 'g', caloriesKcal: 130, proteinG: 3, carbohydrateG: 28, fatG: 1, fibreG: null, source: 'ai_photo' as const, confidence: 0.6 };
+    const id = await saveMeal(db, { name: 'Old lunch', type: 'lunch', eatenAt: new Date(2026, 0, 2, 12).toISOString(), items: [food, { ...food, name: 'Chicken', caloriesKcal: 200 }] });
+    await saveMeal(db, { name: 'Other day', type: 'other', eatenAt: new Date(2026, 0, 1, 12).toISOString(), items: [food] });
+    assert.equal((await getMealLoggingPattern(db, new Date(2026, 0, 3))).sampleDays, 1, 'individual day entries do not establish meal-frequency patterns');
+    const [rice, chicken] = await listDailyFoodItems(db, '2026-01-02');
+    assert.equal(rice?.mealId, id);
+    assert.equal(chicken?.name, 'Chicken');
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 330);
+    await changeDailyFoodPortion(db, rice!.id, 50);
+    assert.equal((await listDailyFoodItems(db, '2026-01-02'))[0]?.originalSource, 'ai_photo', 'portion corrections retain the photo estimate disclosure');
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 265);
+    assert.equal((await getMealDetail(db, id))?.name, 'Old lunch');
+    assert.equal((await getMealDetail(db, id))?.items[1]?.quantity, 100);
+    const queue = async (entity: string) => JSON.parse((await db.getFirstAsync<{ payload_json: string }>('SELECT payload_json FROM sync_queue WHERE entity_id = ?', [entity]))!.payload_json);
+    assert.equal((await queue(rice!.id)).original_source, 'ai_photo');
+    assert.equal((await queue(rice!.id)).original_confidence, 0.6);
+    assert.equal((await queue(rice!.id)).source, 'manual');
+    assert.equal((await queue(rice!.id)).fibre_g, null);
+    assert.equal((await queue(rice!.id)).calories_kcal, 65);
+    for (const invalid of [0, -1, NaN, Infinity]) await assert.rejects(changeDailyFoodPortion(db, rice!.id, invalid));
+    await db.execAsync(`CREATE TEMP TRIGGER reject_food_outbox BEFORE UPDATE ON sync_queue
+      WHEN NEW.table_name = 'food_items' BEGIN SELECT RAISE(ABORT, 'food queue rejected'); END;`);
+    await assert.rejects(changeDailyFoodPortion(db, rice!.id, 200), /food queue rejected/);
+    await assert.rejects(removeDailyFoodItem(db, rice!.id), /food queue rejected/);
+    assert.equal((await listDailyFoodItems(db, '2026-01-02'))[0]?.quantity, 50, 'failed outbox operations roll back local changes');
+    await db.execAsync('DROP TRIGGER reject_food_outbox');
+    await removeDailyFoodItem(db, rice!.id);
+    assert.equal((await listDailyFoodItems(db, '2026-01-02')).length, 1);
+    assert.equal((await getMealDetail(db, id))?.items[0]?.name, 'Chicken');
+    assert.ok((await queue(rice!.id)).deleted_at);
+    assert.equal((await queue(id)).deleted_at, null, 'parent remains while a sibling survives');
+    await removeDailyFoodItem(db, chicken!.id);
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).meals.length, 0);
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 0);
+    assert.ok((await queue(id)).deleted_at, 'last removal tombstones empty parent');
+    assert.equal((await listDailyFoodItems(db, '2026-01-01')).length, 1, 'other days remain intact');
+    await assert.rejects(changeDailyFoodPortion(db, rice!.id, 100), /no longer/);
+  } finally { await db.closeAsync(); }
+});
 
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
   const wasmBinary = readFileSync(new URL(

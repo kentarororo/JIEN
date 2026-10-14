@@ -74,6 +74,12 @@ export async function reconcileMealGapNotification(
   }
 
   const daily = await getDailyNutrition(db);
+  // Individual day entries are not meal occasions. Do not compare their count
+  // with a historical breakfast/lunch/dinner pattern or infer a missing meal.
+  if (daily.meals.some((meal) => meal.type == null || meal.type === 'other')) {
+    await cancelMealGapNotification(db);
+    return 'complete';
+  }
   const pattern = await getMealLoggingPattern(db);
   const expectedMeals = pattern.expectedMeals ?? 2;
   if (daily.meals.length >= expectedMeals) {

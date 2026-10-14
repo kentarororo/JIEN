@@ -118,8 +118,8 @@ export default function TodayScreen() {
             <AppText style={[styles.heroStatDetail, { color: colors.textMuted }]}>completed</AppText>
           </View>
           <View style={[styles.heroStat, { backgroundColor: colors.surfaceRaised }]}>
-            <AppText style={[styles.heroStatValue, { color: colors.wood }]}>{summary.nutrition.meals.length}</AppText>
-            <AppText style={styles.heroStatLabel}>Meals</AppText>
+            <AppText style={[styles.heroStatValue, { color: colors.wood }]}>{summary.nutrition.meals.reduce((count, meal) => count + meal.itemCount, 0)}</AppText>
+            <AppText style={styles.heroStatLabel}>Food items</AppText>
             <AppText style={[styles.heroStatDetail, { color: colors.textMuted }]}>logged</AppText>
           </View>
           <View style={[styles.heroStat, { backgroundColor: colors.surfaceRaised }]}>
@@ -130,7 +130,7 @@ export default function TodayScreen() {
         </View>
         <View style={styles.actions}>
           <ActionCard tone="accent" title="Log workout" detail="Sets, reps and load" icon="barbell-outline" onPress={() => router.push('/workouts/new')} />
-          <ActionCard title="Add meal" detail="Calories and macros" icon="restaurant-outline" onPress={() => router.push('/meals/new')} />
+          <ActionCard title="Food log" detail="Today’s food and macros" icon="restaurant-outline" onPress={() => router.push('/food')} />
         </View>
       </HeroPanel>
 
@@ -233,7 +233,7 @@ export default function TodayScreen() {
               </View>
               <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
                 <AppText style={styles.actionGroupTitle}>Food</AppText>
-                <Button icon="restaurant-outline" label={selectedActivity?.mealCount ? 'Add another meal' : 'Add meal'} onPress={() => openFromDay({ pathname: '/meals/new', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
+                <Button icon="restaurant-outline" label="Open food log" onPress={() => openFromDay({ pathname: '/food', params: { date: selectedDate } })} disabled={selectedInFuture} variant="secondary" />
               </View>
               <View style={[styles.actionGroup, { backgroundColor: colors.surfaceRaised }]}>
                 <AppText style={styles.actionGroupTitle}>Wellness</AppText>
@@ -268,7 +268,7 @@ export default function TodayScreen() {
               </Pressable>
             </Link>
           ))}</View> : null}
-          {selectedMeals.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Logged meals</AppText>{selectedMeals.map((meal) => (
+          {selectedMeals.length ? <View style={styles.selectedRecords}><AppText style={styles.selectedRecordsTitle}>Food entries</AppText>{selectedMeals.map((meal) => (
             <Link key={meal.id} href={`/meals/${meal.id}` as Href} onPress={(event) => { event.preventDefault(); openFromDay(`/meals/${meal.id}` as Href); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.itemCount} item{meal.itemCount === 1 ? '' : 's'} · P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText></View>
@@ -334,7 +334,7 @@ export default function TodayScreen() {
         </>
       ) : null}
 
-      <SectionHeading title="Today’s fuel" detail={summary.nutrition.meals.length === 0 ? 'Nothing logged yet' : `${summary.nutrition.meals.length} meals logged`} />
+      <SectionHeading title="Today’s food" detail={summary.nutrition.meals.length === 0 ? 'Nothing logged yet' : `${summary.nutrition.meals.reduce((count, meal) => count + meal.itemCount, 0)} food items logged`} />
       <Card>
         <View style={styles.macroRow}><AppText>Calories</AppText><AppText style={styles.value}>{Math.round(summary.nutrition.totals.caloriesKcal)}{calorieTarget ? ` / ${Math.round(calorieTarget)}` : ''} kcal</AppText></View>
         <ProgressBar value={calorieTarget ? summary.nutrition.totals.caloriesKcal / calorieTarget : 0} />

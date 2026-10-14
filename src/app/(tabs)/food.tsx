@@ -6,9 +6,12 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
+import { DailyFoodEntry, DailyFoodQuickAdd, type FoodSelection } from '@/components/daily-food-entry';
+import { reconcileMealGapNotification } from '@/lib/notifications';
 import {
   discardQueuedMealPhoto,
   getDailyNutrition,
+  listDailyFoodItems,
   getMealPhotoQueueSummary,
   processPendingMealPhotoJobs,
   retryQueuedMealPhotos,
@@ -65,18 +68,24 @@ export default function FoodScreen() {
   const todayKey = toLocalDateKey();
   const selectedDate = historicalDateKey(date, todayKey);
   const loader = useCallback(async () => {
-    const [nutrition, photoQueue] = await Promise.all([
+    const [nutrition, photoQueue, items] = await Promise.all([
       getDailyNutrition(db, selectedDate),
       getMealPhotoQueueSummary(db),
+      listDailyFoodItems(db, selectedDate),
     ]);
-    return { nutrition, photoQueue };
+    return { nutrition, photoQueue, items };
   }, [db, selectedDate]);
   const { data, error, loading, reload } = useScreenData(loader);
   const [queueBusy, setQueueBusy] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [showNutritionDetails, setShowNutritionDetails] = useState(false);
+  const [selection, setSelection] = useState<FoodSelection | null>(null);
+  const [foodMessage, setFoodMessage] = useState<string | null>(null);
+  const addFood = (query = '') => router.push({ pathname: '/meals/new', params: { date: selectedDate, query } });
   const nutrition = data?.nutrition.date === selectedDate ? data.nutrition : null;
   const openDate = (nextDate: string) => {
+    setSelection(null);
+    setFoodMessage(null);
     router.replace({ pathname: '/food', params: nextDate === todayKey ? {} : { date: nextDate } } as never);
   };
 
@@ -117,7 +126,7 @@ export default function FoodScreen() {
       <ScreenHeading
         title="Food"
         eyebrow={selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}
-        action={<Button label="Add meal" icon="add-circle-outline" onPress={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} />}
+        action={<Button label="Add food" accessibilityLabel="Add food" icon="add-circle-outline" onPress={() => addFood()} />}
       />
       <Card style={[styles.dateNavigator, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.dateNavigatorRow}>
@@ -130,9 +139,9 @@ export default function FoodScreen() {
         </View>
         {selectedDate !== todayKey ? <Button label="Back to today" onPress={() => openDate(todayKey)} variant="secondary" /> : null}
       </Card>
-      {loading && !data ? <StatePanel title="Loading meals" body="Reading this day’s local log." loading /> : null}
-      {error ? <StatePanel title="Meals are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
-      {loading && data && !nutrition ? <StatePanel title="Loading this day" body="Reading its meals and macro totals." loading /> : null}
+      {loading && !data ? <StatePanel title="Loading food" body="Reading this day’s local log." loading /> : null}
+      {error ? <StatePanel title="Food log unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
+      {loading && data && !nutrition ? <StatePanel title="Loading this day" body="Reading its food and macro totals." loading /> : null}
       {data && nutrition ? (
         <>
           {data.photoQueue.readyCount > 0 && data.photoQueue.latestReadyId ? (
@@ -165,7 +174,7 @@ export default function FoodScreen() {
               <AppText style={{ color: colors.textMuted }}>{nutrition.target ? `of ${Math.round(nutrition.target.caloriesKcal).toLocaleString()} kcal` : 'No target set'}</AppText>
             </View>
             <ProgressBar value={nutrition.target ? nutrition.totals.caloriesKcal / nutrition.target.caloriesKcal : 0} />
-            {nutrition.target ? <AppText style={{ color: nutrition.totals.caloriesKcal > nutrition.target.caloriesKcal ? colors.warning : colors.textMuted }}>{nutrition.totals.caloriesKcal <= nutrition.target.caloriesKcal ? `${Math.round(nutrition.target.caloriesKcal - nutrition.totals.caloriesKcal).toLocaleString()} kcal remaining today` : `${Math.round(nutrition.totals.caloriesKcal - nutrition.target.caloriesKcal).toLocaleString()} kcal over today`}</AppText> : null}
+            {nutrition.target ? <AppText style={{ color: nutrition.totals.caloriesKcal > nutrition.target.caloriesKcal ? colors.warning : colors.textMuted }}>{nutrition.totals.caloriesKcal <= nutrition.target.caloriesKcal ? `${Math.round(nutrition.target.caloriesKcal - nutrition.totals.caloriesKcal).toLocaleString()} kcal below target` : `${Math.round(nutrition.totals.caloriesKcal - nutrition.target.caloriesKcal).toLocaleString()} kcal above target`}</AppText> : null}
             <View style={styles.macroSummary}>
               <MacroSnapshot label="Protein" value={nutrition.totals.proteinG} />
               <MacroSnapshot label="Carbs" value={nutrition.totals.carbohydrateG} />
@@ -190,29 +199,38 @@ export default function FoodScreen() {
             ) : null}
           </Card>
 
-          <SectionHeading title="Meals" detail={`${nutrition.meals.length} logged · ${selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}`} />
-          {nutrition.meals.length === 0 ? <StatePanel title="No meals yet" body="Add what you know. Estimates are fine." actionLabel="Log a meal" onAction={() => router.push({ pathname: '/meals/new', params: { date: selectedDate } })} /> : null}
+          <DailyFoodQuickAdd key={selectedDate + data.items.length} onSelect={setSelection} onMore={addFood} />
+          {foodMessage ? <AppText accessibilityLiveRegion="polite">{foodMessage}</AppText> : null}
+          <SectionHeading title="Daily food log" detail={`${data.items.length} item${data.items.length === 1 ? '' : 's'} · Tap an item to adjust its portion`} />
+          {data.items.length === 0 ? <StatePanel title="No food logged" body="Add foods as you go. No meal names or categories needed." actionLabel="Add your first food" onAction={() => addFood()} /> : null}
           <View style={styles.list}>
-            {nutrition.meals.map((meal) => (
+            {data.items.map((item) => (
               <Pressable
-                key={meal.id}
+                key={item.id}
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${meal.name}, ${Math.round(meal.caloriesKcal)} calories`}
-                onPress={() => router.push(`/meals/${meal.id}` as Href)}
+                accessibilityLabel={`Edit ${item.name}, ${Math.round(item.caloriesKcal)} calories`}
+                onPress={() => setSelection({ kind: 'logged', food: item })}
                 style={({ pressed }) => [styles.mealPressable, pressed && styles.pressed]}
               >
                 <Card>
                   <View style={styles.mealRow}>
-                    <View style={styles.flex}><AppText style={styles.mealName}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.type ?? 'meal'} · {formatTime(meal.eatenAt)}</AppText></View>
-                    <View style={styles.mealTotal}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><Ionicons name="chevron-forward" size={18} color={colors.textMuted} /></View>
+                    <View style={styles.flex}><AppText style={styles.mealName}>{item.name}</AppText><AppText style={{ color: colors.textMuted }}>{Math.round(item.quantity * 100) / 100} {item.unit} · {formatTime(item.eatenAt)}</AppText></View>
+                    <View style={styles.mealTotal}><AppText style={styles.value}>{Math.round(item.caloriesKcal)} kcal</AppText><Ionicons name="chevron-forward" size={18} color={colors.textMuted} /></View>
                   </View>
-                  <AppText style={{ color: colors.textMuted }}>P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText>
+                  <AppText style={{ color: colors.textMuted }}>P {Math.round(item.proteinG)} g · C {Math.round(item.carbohydrateG)} g · F {Math.round(item.fatG)} g</AppText>
                 </Card>
               </Pressable>
             ))}
           </View>
         </>
       ) : null}
+      {selection ? <DailyFoodEntry key={selection.kind + selection.food.id} selection={selection} date={selectedDate}
+        onClose={() => setSelection(null)}
+        onSaved={(message) => {
+          setSelection(null); setFoodMessage(message); void reload();
+          void reconcileMealGapNotification(db).catch(() => undefined);
+        }}
+        onDetails={(mealId) => { setSelection(null); router.push(`/meals/${mealId}` as Href); }} /> : null}
     </Screen>
   );
 }
@@ -234,7 +252,7 @@ const styles = StyleSheet.create({
   value: { fontWeight: '700' },
   flex: { flex: 1, minWidth: 0 },
   macroSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  macroSnapshot: { flexGrow: 1, flexBasis: 132, minWidth: 0, borderRadius: radii.control, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  macroSnapshot: { flexGrow: 1, flexBasis: 80, minWidth: 80, borderRadius: radii.control, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   snapshotLabel: { ...typography.caption, fontWeight: '600' },
   snapshotValue: { ...typography.bodyLarge, fontWeight: '700', fontVariant: ['tabular-nums'] },
   nutritionDetails: { gap: spacing.sm },

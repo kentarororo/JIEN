@@ -70,6 +70,7 @@ export {
   updateSleepLog,
 } from './wellness';
 export { retryWellnessMessage, sendWellnessMessage } from './wellness-chat';
+export { listDailyFoodItems, changeDailyFoodPortion, removeDailyFoodItem, type DailyFoodItem } from './daily-food';
 export {
   deleteMeal,
   ensureStartingNutritionTarget,

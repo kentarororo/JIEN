@@ -83,7 +83,8 @@ test('planned workouts open directly in editable sets and recover without loggin
 test('food entry starts with tracking and saves without a meal name', async ({ context, page }, testInfo) => {
   const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
-  await page.getByRole('button', { name: /Add meal/ }).first().click();
+  await page.getByRole('tab', { name: 'Food', exact: true }).click();
+  await page.getByRole('button', { name: 'Add food', exact: true }).click();
   await expect(page.getByLabel('Food search', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Meal name', { exact: true })).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
@@ -94,12 +95,11 @@ test('food entry starts with tracking and saves without a meal name', async ({ c
   await page.getByLabel('Protein (g)', { exact: true }).fill('15');
   await page.getByLabel('Carbs (g)', { exact: true }).fill('20');
   await page.getByLabel('Fat (g)', { exact: true }).fill('5');
-  await page.getByRole('button', { name: 'Save meal', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Food', exact: true }).click();
-  await page.getByRole('button', { name: 'Open Meal, 200 calories', exact: true }).click();
-  await expect(page.getByText('Quick food QA', { exact: true }).filter({ visible: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Meal', exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Add to day', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Food', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit Quick food QA, 200 calories', exact: true }).click();
+  await expect(page.getByRole('dialog').getByText('Quick food QA', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Edit portion', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

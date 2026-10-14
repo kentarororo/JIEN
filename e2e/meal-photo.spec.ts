@@ -17,7 +17,8 @@ test('shared Anthropic rejection preserves input and does not blame Google or au
     analyses += 1;
     await route.fulfill({ status: 403, headers, json: { error: { code: 'PROVIDER_AUTH_INVALID', message: 'The provider rejected access.', retryable: false }, requestId: 'qa-auth-failure' } });
   });
-  await page.getByRole('button', { name: /Add meal/ }).first().click();
+  await page.getByRole('tab', { name: 'Food', exact: true }).click();
+  await page.getByRole('button', { name: 'Add food', exact: true }).click();
   await page.getByRole('button', { name: 'Choose a meal photo from this device', exact: true }).setInputFiles(path.resolve('e2e/fixtures/nutrition-label.png'));
   const description = page.getByLabel('What is in this meal? (optional)', { exact: true });
   await description.fill('Synthetic label');
@@ -54,7 +55,8 @@ test(`${provider}: photo failure retains image and context; retry adds editable 
         proteinG: 10, carbohydrateG: 30, fatG: 4, fibreG: 3, confidence: 0.9, source: 'ai_photo',
         photoReview: { basis: 'label', notes: ['Check the label serving and the amount you ate.'], referenceId: null, referenceDescription: null } }] }, requestId: 'qa-photo-success' } });
   });
-  await page.getByRole('button', { name: /Add meal/ }).first().click();
+  await page.getByRole('tab', { name: 'Food', exact: true }).click();
+  await page.getByRole('button', { name: 'Add food', exact: true }).click();
   await page.getByRole('button', { name: 'Choose a meal photo from this device', exact: true }).setInputFiles(path.resolve('e2e/fixtures/nutrition-label.png'));
   const description = page.getByLabel('What is in this meal? (optional)', { exact: true });
   // Fill immediately after upload: do not hide modal-opening races with a timeout.
@@ -78,7 +80,7 @@ test(`${provider}: photo failure retains image and context; retry adds editable 
   await page.reload();
   await expect(page.getByLabel('Quantity', { exact: true })).toHaveValue('25');
   await expect(page.getByText('Check the label serving and the amount you ate.', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save meal', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add to day', exact: true })).toBeVisible();
   expect(analyses).toBe(2); // Entirely mocked; no Gemini account or real request.
   await page.getByRole('textbox', { name: 'Food', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('photo-review-light.png') });

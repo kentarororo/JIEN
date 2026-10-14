@@ -228,6 +228,7 @@ export async function getMealLoggingPattern(
     `SELECT COUNT(*) AS meal_count
      FROM meals
      WHERE eaten_on >= ? AND eaten_on < ? AND deleted_at IS NULL
+       AND type IS NOT NULL AND type <> 'other'
      GROUP BY eaten_on
      ORDER BY meal_count`,
     [toLocalDateKey(since), today],

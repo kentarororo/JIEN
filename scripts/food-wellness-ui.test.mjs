@@ -5,8 +5,19 @@ import test from 'node:test';
 const food = readFileSync(new URL('../src/app/(tabs)/food.tsx', import.meta.url), 'utf8');
 const wellness = readFileSync(new URL('../src/app/(tabs)/wellness.tsx', import.meta.url), 'utf8');
 
+test('individual food writes refresh reminders and unclassified entries suppress meal-count comparisons', () => {
+  const notifications = readFileSync(new URL('../src/lib/notifications/index.ts', import.meta.url), 'utf8');
+  assert.match(food, /onSaved=[\s\S]*?reconcileMealGapNotification\(db\)/);
+  assert.match(notifications, /daily\.meals\.some\(\(meal\) => meal\.type == null \|\| meal\.type === 'other'\)[\s\S]*?cancelMealGapNotification\(db\)/);
+});
+
 test('Food keeps logging primary while progressively disclosing nutrition detail', () => {
-  assert.match(food, /action=\{<Button label="Add meal"[\s\S]*?pathname: '\/meals\/new'/);
+  assert.match(food, /action=\{<Button label="Add food"/);
+  assert.match(food, /const addFood =[\s\S]*?pathname: '\/meals\/new'/);
+  assert.match(food, /listDailyFoodItems\(db, selectedDate\)/);
+  assert.match(food, /data\.items\.map/);
+  assert.match(food, /<DailyFoodQuickAdd/);
+  assert.match(food, /<DailyFoodEntry/);
   assert.match(food, /const \[showNutritionDetails, setShowNutritionDetails\] = useState\(false\)/);
   assert.ok(
     food.indexOf('<View style={styles.macroSummary}>') < food.indexOf('{showNutritionDetails ? ('),

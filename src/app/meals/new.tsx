@@ -76,7 +76,7 @@ const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'
 export default function NewMealScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { date, photoJob, templateMealId } = useLocalSearchParams<{ date?: string; photoJob?: string; templateMealId?: string }>();
+  const { date, photoJob, templateMealId, query: initialQuery } = useLocalSearchParams<{ date?: string; photoJob?: string; templateMealId?: string; query?: string }>();
   const { colors } = useJienTheme();
   const cameraRef = useRef<CameraView>(null);
   const screenRef = useRef<ScrollView>(null);
@@ -91,14 +91,13 @@ export default function NewMealScreen() {
   const pendingPickerResultRef = useRef<ReturnType<typeof ImagePicker.getPendingResultAsync> | null>(null);
   const [cameraPermission, requestCameraPermission] = useJienCameraPermissions();
   const now = new Date();
-  const inferred: MealType = now.getHours() < 11 ? 'breakfast' : now.getHours() < 15 ? 'lunch' : now.getHours() < 19 ? 'dinner' : 'snack';
-  const initialMealTypeRef = useRef(inferred);
+  const initialMealTypeRef = useRef<MealType>('other');
   const todayKeyRef = useRef(toLocalDateKey(now));
   const [name, setName] = useState('Meal');
   const [showMealDetails, setShowMealDetails] = useState(false);
-  const [type, setType] = useState<MealType>(inferred);
+  const [type, setType] = useState<MealType>('other');
   const [foods, setFoods] = useState<DraftFood[]>([emptyFood()]);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [results, setResults] = useState<FoodCatalogItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [noMatchQuery, setNoMatchQuery] = useState<string | null>(null);
@@ -779,7 +778,8 @@ export default function NewMealScreen() {
         .filter((food) => food.source === 'ai_photo')
         .map((food) => food.key);
       const aiContext = serializeMealPhotoProvenance(photoAnalyses, activeAiItemKeys, foods);
-      await saveMeal(db, { name, type, eatenAt, aiContext, items });
+      await saveMeal(db, { name: name === 'Meal' ? items.map((item) => item.name).join(', ') : name,
+        type, eatenAt, aiContext, items });
       draftClearedRef.current = true;
       if (process.env.EXPO_OS === 'web' && draftOwnerUserId) {
         try {
@@ -791,8 +791,7 @@ export default function NewMealScreen() {
       void reconcileMealGapNotification(db).catch(() => {
         // A reminder failure must never turn a committed meal into a retry that creates a duplicate.
       });
-      if (templateMealId) router.replace('/food');
-      else router.back();
+      router.replace({ pathname: '/food', params: { date: toLocalDateKey(new Date(eatenAt)) } });
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : 'Please check the meal and try again.');
     } finally {
@@ -887,7 +886,6 @@ export default function NewMealScreen() {
       </Card>
 
       <Card>
-        <AppText>{name.trim() && name !== 'Meal' ? name : type[0]!.toUpperCase() + type.slice(1)}</AppText>
         <Button label={showMealDetails ? 'Hide meal details' : 'Meal details (optional)'} expanded={showMealDetails} onPress={() => setShowMealDetails((value) => !value)} variant="quiet" />
         {showMealDetails ? <>
           <Field label="Meal name" value={name} onChangeText={setName} placeholder="Optional" />
@@ -1123,7 +1121,7 @@ export default function NewMealScreen() {
           <View style={styles.flex}>
             <AppText style={styles.sectionTitle}>{draftSummary.needsAttentionCount
               ? `${draftSummary.needsAttentionCount} food row${draftSummary.needsAttentionCount === 1 ? '' : 's'} need attention`
-              : draftSummary.completedFoodCount ? 'Meal ready to save' : 'No foods added'}</AppText>
+              : draftSummary.completedFoodCount ? 'Food ready to add' : 'No foods added'}</AppText>
             <AppText style={{ color: colors.textMuted }}>{draftSummary.needsAttentionCount
               ? 'Every started row needs a food name, a positive portion, and non-negative calories and macros.'
               : `${draftSummary.blankFoodCount} untouched row${draftSummary.blankFoodCount === 1 ? '' : 's'} will be ignored.`}</AppText>
@@ -1137,7 +1135,7 @@ export default function NewMealScreen() {
           <MealSummaryMetric label="fat" value={`${formatFoodNumber(draftSummary.totals.fatG)} g`} />
         </View>
       </Card>
-      <Button label="Save meal" onPress={() => void submit()} busy={saving} />
+      <Button label="Add to day" onPress={() => void submit()} busy={saving} />
     </Screen>
   );
 }

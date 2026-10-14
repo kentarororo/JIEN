@@ -55,7 +55,7 @@ test('the calendar day workspace keeps itemized training and food edit routes da
   assert.match(source, /if \(dayWorkspaceOpen \|\| !dayDestination\) return/);
   assert.match(source, /router\.push\(dayDestination\)/);
   assert.match(source, /pathname: '\/workouts\/new', params: \{ date: selectedDate \}/);
-  assert.match(source, /pathname: '\/meals\/new', params: \{ date: selectedDate \}/);
+  assert.match(source, /pathname: '\/food', params: \{ date: selectedDate \}/);
   assert.match(source, /pathname: '\/workouts\/\[id\]'/);
   assert.match(source, /href=\{`\/meals\/\$\{meal\.id\}` as Href\}/);
   assert.match(source, /Review · Edit/);
