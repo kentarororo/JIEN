@@ -8,6 +8,9 @@ export type NormalizedPhotoItem = {
   fatG: number;
   fibreG: number | null;
   confidence: number;
+  nutritionBasis: 'label' | 'estimate';
+  assumptions: string;
+  databaseQuery: string | null;
 };
 
 export function parseProviderPhotoItems(text: string): NormalizedPhotoItem[] {
@@ -39,9 +42,15 @@ function normalizeItem(value: unknown): NormalizedPhotoItem {
   const fatG = boundedNumber(item.fatG, 0, 100_000);
   const fibreG = item.fibreG == null ? null : boundedNumber(item.fibreG, 0, 100_000);
   const confidence = boundedNumber(item.confidence, 0, 1);
+  // Older model responses remain readable during a rolling deployment.
+  const nutritionBasis = item.nutritionBasis ?? 'estimate';
+  const assumptions = item.assumptions == null || item.assumptions === '' ? '' : boundedString(item.assumptions, 200);
+  const databaseQuery = item.databaseQuery == null ? null : boundedString(item.databaseQuery, 160);
   if (!name || !unit || quantity == null || caloriesKcal == null || proteinG == null
     || carbohydrateG == null || fatG == null || confidence == null
-    || (item.fibreG != null && fibreG == null)) {
+    || (item.fibreG != null && fibreG == null)
+    || !['label', 'estimate'].includes(nutritionBasis as string) || assumptions == null
+    || (item.databaseQuery != null && databaseQuery == null)) {
     throw new Error('PROVIDER_OUTPUT_INVALID');
   }
   return {
@@ -54,6 +63,9 @@ function normalizeItem(value: unknown): NormalizedPhotoItem {
     fatG,
     fibreG,
     confidence,
+    nutritionBasis: nutritionBasis as 'label' | 'estimate',
+    assumptions,
+    databaseQuery: nutritionBasis === 'label' ? null : databaseQuery,
   };
 }
 

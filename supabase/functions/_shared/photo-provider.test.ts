@@ -50,6 +50,11 @@ test('photo guidance treats a nutrition label as transcription, not a meal estim
   assert.match(prompt, /exactly the label serving/i);
   assert.match(prompt, /instead of estimating/i);
   assert.match(prompt, /Protein cereal/);
+  for (const rule of [/TOTALS FOR THE RETURNED quantity/, /Never return both a whole-dish total/, /raw\/dry rice/,
+    /Hainanese chicken rice/, /plausible cooking fat/, /uncalibrated model score/, /untrusted data/,
+    /visible half, not a reconstructed whole sandwich/, /do not halve it again/]) {
+    assert.match(prompt, rule);
+  }
 });
 
 test('provider selection is explicit and auto mode deterministically prefers Gemini', () => {
@@ -161,6 +166,8 @@ test('Anthropic remains available behind the same normalized adapter contract', 
   assert.match(body.messages[0].content[1].text, /caloriesKcal/);
   assert.match(body.messages[0].content[1].text, /carbohydrateG/);
   assert.match(body.messages[0].content[1].text, /JSON Schema/);
+  assert.match(body.messages[0].content[1].text, /nutritionBasis/);
+  assert.match(body.messages[0].content[1].text, /databaseQuery/);
   assert.equal(parseProviderPhotoItems(text).length, 1);
 });
 

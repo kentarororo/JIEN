@@ -323,6 +323,7 @@ export type FoodItemInput = {
 };
 
 export type FoodCatalogItem = {
+  photoReview?: import('../nutrition/photo-review').PhotoReview;
   id: string;
   name: string;
   brand: string | null;

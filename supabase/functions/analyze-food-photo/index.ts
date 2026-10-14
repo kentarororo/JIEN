@@ -2,6 +2,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 import { parseProviderPhotoItems } from '../_shared/photo-contract.ts';
+import { groundPhotoItems } from '../_shared/photo-grounding.ts';
+import { PHOTO_ANALYSIS_POLICY_VERSION } from '../_shared/photo-analysis-policy.ts';
 import {
   PhotoProviderError,
   requestPhotoEstimate,
@@ -177,8 +179,10 @@ Deno.serve(async (request) => {
         noFood ? 422 : 502,
       );
     }
+    const reviewedItems = await groundPhotoItems(items, { apiKey: Deno.env.get('USDA_FDC_API_KEY') });
     return success(requestId, {
-      items: items.map((item) => ({
+      policyVersion: PHOTO_ANALYSIS_POLICY_VERSION,
+      items: reviewedItems.map((item) => ({
         id: `ai-${crypto.randomUUID()}`,
         name: item.name,
         brand: null,
@@ -193,6 +197,7 @@ Deno.serve(async (request) => {
         sourceRef: null,
         barcode: null,
         confidence: item.confidence,
+        photoReview: item.photoReview,
       })),
       disclaimer: 'AI estimate—review every portion and macro before saving. Not medical advice.',
     });

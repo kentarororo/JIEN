@@ -2,6 +2,7 @@ import type {
   MealPhotoAnalysisFailure,
   MealPhotoCapability,
 } from './db/meal-photo-api';
+import type { PhotoReview } from './nutrition/photo-review';
 
 export type PendingMealPhoto = {
   base64: string;
@@ -114,14 +115,18 @@ export function applyPhotoAnalysisDrafts<T>(
 export function serializeMealPhotoProvenance(
   analyses: Array<{ requestId: string; description: string; itemKeys: string[] }>,
   activeItemKeys: string[],
+  itemReviews: Array<{ key: string; photoReview?: PhotoReview }> = [],
 ): string | null {
   const active = new Set(activeItemKeys);
   const retained = analyses.flatMap((analysis) => {
     const retainedCount = analysis.itemKeys.filter((key) => active.has(key)).length;
+    const reviews = itemReviews.filter((item) => active.has(item.key) && analysis.itemKeys.includes(item.key) && item.photoReview)
+      .map((item) => ({ itemKey: item.key, ...item.photoReview }));
     return retainedCount > 0 ? [{
       requestId: analysis.requestId,
       description: analysis.description.trim() || null,
       retainedItemCount: retainedCount,
+      ...(reviews.length ? { reviews } : {}),
     }] : [];
   });
   return retained.length

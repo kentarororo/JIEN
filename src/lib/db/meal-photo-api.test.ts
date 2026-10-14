@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { photoReviewLabel } from '../nutrition/photo-review.ts';
 
 import {
   classifyMealPhotoAnalysisError,
@@ -20,6 +21,17 @@ const validItem = {
   confidence: 0.78,
   source: 'ai_photo',
 };
+
+test('photo evidence is bounded, labelled honestly and backwards compatible', () => {
+  const photoReview = { basis: 'usda', notes: ['Check estimated portion.'], referenceId: '12345', referenceDescription: 'Rice, cooked' };
+  const item = parseMealPhotoAnalysisData({ items: [{ ...validItem, photoReview }] }).items[0];
+  assert.ok(item);
+  assert.deepEqual(item.photoReview, photoReview);
+  assert.equal(photoReviewLabel(item.photoReview), 'Photo estimate · USDA nutrition');
+  assert.equal(photoReviewLabel(), 'Photo estimate · check portion and ingredients');
+  assert.throws(() => parseMealPhotoAnalysisData({ items: [{ ...validItem, photoReview: { ...photoReview, referenceId: null } }] }), /Invalid photo review/);
+  assert.throws(() => parseMealPhotoAnalysisData({ items: [{ ...validItem, photoReview: { ...photoReview, notes: ['a'.repeat(241)] } }] }), /Invalid photo review/);
+});
 
 test('strictly parses normalized meal-photo items', () => {
   const result = parseMealPhotoAnalysisData({ items: [validItem], disclaimer: 'Review before saving.' });

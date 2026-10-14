@@ -1,3 +1,5 @@
+import { buildPhotoAnalysisPolicy } from './photo-analysis-policy.ts';
+
 export type PhotoAiProvider = 'gemini' | 'anthropic';
 
 export type PhotoProviderEnvironment = {
@@ -76,10 +78,13 @@ const photoItemsSchema = {
           fatG: { type: 'number', minimum: 0 },
           fibreG: { type: ['number', 'null'], minimum: 0 },
           confidence: { type: 'number', minimum: 0, maximum: 1 },
+          nutritionBasis: { type: 'string', enum: ['label', 'estimate'] },
+          assumptions: { type: 'string', maxLength: 200 },
+          databaseQuery: { type: ['string', 'null'], maxLength: 160 },
         },
         required: [
           'name', 'quantity', 'unit', 'caloriesKcal', 'proteinG',
-          'carbohydrateG', 'fatG', 'fibreG', 'confidence',
+          'carbohydrateG', 'fatG', 'fibreG', 'confidence', 'nutritionBasis', 'assumptions', 'databaseQuery',
         ],
       },
     },
@@ -128,13 +133,7 @@ export function resolvePhotoProvider(
 }
 
 export function buildPhotoEstimatePrompt(description: string): string {
-  return [
-    'Convert the image into editable food line items.',
-    `User description: ${description.trim() || 'none provided'}`,
-    'If the image is a nutrition label, transcribe values for exactly the label serving instead of estimating them. Use the visible product name or user description, and lower confidence when text is unclear.',
-    'Otherwise, use realistic portions and nutrition estimates. Confidence must be from 0 to 1.',
-    'If no food is visible, return an empty items array. Do not provide medical advice.',
-  ].join('\n');
+  return buildPhotoAnalysisPolicy(description);
 }
 
 export async function requestPhotoEstimate(

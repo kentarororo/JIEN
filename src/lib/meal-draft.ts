@@ -1,3 +1,5 @@
+import { parsePhotoReview, type PhotoReview } from './nutrition/photo-review';
+
 export type MealDraftType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 
 export type MealDraftFood = {
@@ -17,6 +19,7 @@ export type MealDraftFood = {
   source: 'manual' | 'ai_photo' | 'imported';
   sourceLabel: string | null;
   confidence: number | null;
+  photoReview?: PhotoReview;
   referenceQuantity: number;
   referenceUnit: string;
   referenceMacros: {
@@ -227,7 +230,12 @@ function parseFood(value: unknown): MealDraftFood | null {
     || !isFiniteRange(macros.fatG, 0, 1_000_000)
     || !isFiniteRange(macros.fibreG, 0, 1_000_000)) return null;
 
-  return value as MealDraftFood;
+  try {
+    const photoReview = parsePhotoReview(value.photoReview);
+    return { ...value, ...(photoReview ? { photoReview } : {}) } as MealDraftFood;
+  } catch {
+    return null;
+  }
 }
 
 function parsePhotoAnalysis(value: unknown): MealDraftPhotoAnalysis | null {

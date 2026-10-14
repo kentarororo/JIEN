@@ -59,6 +59,7 @@ import {
   type MealDraftFood,
 } from '@/lib/meal-draft';
 import { buildRepeatMealDraft } from '@/lib/nutrition/meal-template';
+import { photoReviewLabel } from '@/lib/nutrition/photo-review';
 
 type DraftFood = MealDraftFood;
 
@@ -208,7 +209,7 @@ export default function NewMealScreen() {
       photoAnalyses,
       updatedAt: new Date().toISOString(),
     };
-    const timer = setTimeout(() => {
+    const persistDraft = () => {
       if (draftClearedRef.current) return;
       try {
         if (mealDraftHasContent(snapshot, initialMealTypeRef.current)) {
@@ -220,8 +221,14 @@ export default function NewMealScreen() {
       } catch {
         setDraftWarning('This browser could not store a recovery copy. Save this meal before leaving the page.');
       }
-    }, 180);
-    return () => clearTimeout(timer);
+    };
+    const timer = setTimeout(persistDraft, 180);
+    // Flush the current snapshot before navigation/reload can cancel the debounce.
+    globalThis.addEventListener?.('pagehide', persistDraft);
+    return () => {
+      clearTimeout(timer);
+      globalThis.removeEventListener?.('pagehide', persistDraft);
+    };
   }, [appliedPhotoRequestIds, draftContext, draftOwnerUserId, draftReady, foods, name, photoAnalyses, type]);
 
   useEffect(() => {
@@ -771,7 +778,7 @@ export default function NewMealScreen() {
       const activeAiItemKeys = completedFoods
         .filter((food) => food.source === 'ai_photo')
         .map((food) => food.key);
-      const aiContext = serializeMealPhotoProvenance(photoAnalyses, activeAiItemKeys);
+      const aiContext = serializeMealPhotoProvenance(photoAnalyses, activeAiItemKeys, foods);
       await saveMeal(db, { name, type, eatenAt, aiContext, items });
       draftClearedRef.current = true;
       if (process.env.EXPO_OS === 'web' && draftOwnerUserId) {
@@ -940,7 +947,7 @@ export default function NewMealScreen() {
                 <AppText style={{ color: colors.textMuted }}>
                   {photoFlow.phase === 'succeeded'
                     ? 'Analysis is complete. Open the preview to review the editable items.'
-                    : `${photoFlow.selection?.sourceLabel ?? 'Photo'} selected. Analysis sends the photo and description to the configured AI provider.`}
+                    : `${photoFlow.selection?.sourceLabel ?? 'Photo'} selected. The AI provider receives this photo and description. Identified food names may be checked with USDA; the photo is not sent to USDA.`}
                 </AppText>
               </View>
               {photoFlow.phase !== 'succeeded' ? <Button label="Remove photo" onPress={() => dismissPendingPhoto()} variant="quiet" disabled={cameraBusy} /> : null}
@@ -968,6 +975,7 @@ export default function NewMealScreen() {
                 <AppText>Checking secure photo-analysis availability…</AppText>
               </View>
             ) : null}
+            <AppText style={[styles.attribution, { color: colors.textMuted }]}>For a better estimate, include the dish name, cooked weight if known, sauces and how much you ate. A photo cannot reliably show hidden oil or serving weight. For packaged food, use a barcode or a clear nutrition label.</AppText>
             <AppText style={[styles.attribution, { color: colors.textMuted }]}>AI estimates can be wrong. You will review and edit every portion and macro before saving.</AppText>
             {photoFlow.phase === 'analyzing' ? (
               <View accessibilityLiveRegion="assertive" style={[styles.message, { backgroundColor: colors.accentSoft }]}>
@@ -1058,7 +1066,11 @@ export default function NewMealScreen() {
       <SectionHeading title="Meal items" detail="Database and photo-analysis values remain editable" />
       {foods.map((food, index) => (
         <Card key={food.key}>
-          <View style={styles.header}><View style={styles.flex}><AppText style={styles.foodTitle}>Food {index + 1}</AppText>{food.sourceLabel ? <AppText style={{ color: colors.textMuted }}>{food.sourceLabel}{food.confidence != null ? ` · ${Math.round(food.confidence * 100)}% confidence` : ''}</AppText> : null}</View>{foods.length > 1 ? <Button label="Remove" onPress={() => setFoods((current) => current.filter((item) => item.key !== food.key))} variant="quiet" /> : null}</View>
+          <View style={styles.header}><View style={styles.flex}><AppText style={styles.foodTitle}>Food {index + 1}</AppText>{food.sourceLabel ? <AppText style={{ color: colors.textMuted }}>{food.sourceLabel}</AppText> : null}</View>{foods.length > 1 ? <Button label="Remove" onPress={() => setFoods((current) => current.filter((item) => item.key !== food.key))} variant="quiet" /> : null}</View>
+          {food.source === 'ai_photo' && food.photoReview ? <View style={styles.photoReviewNotes}>
+            {food.photoReview.notes.map((note, noteIndex) => <AppText key={noteIndex} style={{ color: colors.textMuted }}>{note}</AppText>)}
+            {food.photoReview.referenceDescription ? <AppText style={{ color: colors.textMuted }}>USDA reference {food.photoReview.referenceId}: {food.photoReview.referenceDescription}</AppText> : null}
+          </View> : null}
           <Field label="Food" value={food.name} onChangeText={(value) => update(food.key, 'name', value)} placeholder="Chicken rice" />
           <View style={styles.portionSection}>
             <Field label="Quantity" value={food.quantity} onChangeText={(value) => updateQuantity(food.key, value)} keyboardType="decimal-pad" containerStyle={styles.quantityField} />
@@ -1146,8 +1158,9 @@ function toDraftFood(item: FoodCatalogItem): DraftFood {
     fat: String(roundMacro(item.fatG)),
     fibre: item.fibreG == null ? '' : String(roundMacro(item.fibreG)),
     source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' || item.source === 'custom' ? 'manual' : 'imported',
-    sourceLabel: item.isShared ? 'Your community food · unverified' : sourceName(item.source),
+    sourceLabel: item.source === 'ai_photo' ? photoReviewLabel(item.photoReview) : item.isShared ? 'Your community food · unverified' : sourceName(item.source),
     confidence: item.confidence,
+    photoReview: item.photoReview,
     referenceQuantity: item.servingQuantity,
     referenceUnit: item.servingUnit,
     referenceMacros: {
@@ -1293,6 +1306,7 @@ const styles = StyleSheet.create({
   photoPreview: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, borderRadius: radii.card },
   photoSheetScroll: { width: '100%' },
   photoSheetContent: { gap: spacing.sm, paddingBottom: spacing.xs },
+  photoReviewNotes: { gap: spacing.xs },
   photoReviewActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   photoSuccess: { minHeight: 72, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   photoSuccessCount: { ...typography.title, fontWeight: '800', minWidth: 36, textAlign: 'center', fontVariant: ['tabular-nums'] },

@@ -4,6 +4,15 @@ JIEN remains a lifting-first, local-first training and nutrition product. Milest
 close one complete user loop at a time; new activity types do not enter the product
 until their measurements and progression rules are explicit.
 
+## October follow-up: food-photo trust
+
+The next Alpha 2.5 quality gate is grounded, editable photo nutrition—not an
+uncalibrated confidence score. The first local slice adds a runtime analysis rubric,
+conservative USDA matching, portion/ingredient assumptions and recovery-safe review.
+See [food-photo-quality.md](food-photo-quality.md) for the MacroFactor comparison,
+half-sandwich failure case, implementation limits and measured-photo release gate.
+Local implementation is not yet a deployed or benchmarked accuracy improvement.
+
 ## Product promise and delivery order — September 2026 checkpoint
 
 **Log quickly. Know what to train next and why. Keep control of your records.**

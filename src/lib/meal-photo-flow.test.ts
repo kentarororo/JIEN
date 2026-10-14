@@ -83,3 +83,10 @@ test('stores provenance only for AI items retained in the saved meal', () => {
   });
   assert.equal(serializeMealPhotoProvenance([], []), null);
 });
+
+test('nutrition reference provenance follows only retained photo items', () => {
+  const photoReview = { basis: 'usda' as const, notes: ['Portion estimated'], referenceId: '12345', referenceDescription: 'Rice, cooked' };
+  const encoded = serializeMealPhotoProvenance([{ requestId: 'request-1', description: '', itemKeys: ['rice', 'removed'] }],
+    ['rice'], [{ key: 'rice', photoReview }, { key: 'removed', photoReview }]);
+  assert.deepEqual(JSON.parse(encoded!).analyses[0].reviews, [{ itemKey: 'rice', ...photoReview }]);
+});

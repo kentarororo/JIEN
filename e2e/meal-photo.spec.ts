@@ -51,7 +51,8 @@ test(`${provider}: photo failure retains image and context; retry adds editable 
     await route.fulfill({ status: analyses === 1 ? 503 : 200, headers, json: analyses === 1
       ? { error: { code: 'PROVIDER_UNAVAILABLE', message: 'The photo service could not analyze this image. Try again.', retryable: true }, requestId: 'qa-photo-failure' }
       : { data: { items: [{ id: 'qa-cereal', name: 'Test cereal', servingQuantity: 50, servingUnit: 'g', caloriesKcal: 200,
-        proteinG: 10, carbohydrateG: 30, fatG: 4, fibreG: 3, confidence: 0.9, source: 'ai_photo' }] }, requestId: 'qa-photo-success' } });
+        proteinG: 10, carbohydrateG: 30, fatG: 4, fibreG: 3, confidence: 0.9, source: 'ai_photo',
+        photoReview: { basis: 'label', notes: ['Check the label serving and the amount you ate.'], referenceId: null, referenceDescription: null } }] }, requestId: 'qa-photo-success' } });
   });
   await page.getByRole('button', { name: /Add meal/ }).first().click();
   await page.getByRole('button', { name: 'Choose a meal photo from this device', exact: true }).setInputFiles(path.resolve('e2e/fixtures/nutrition-label.png'));
@@ -68,7 +69,22 @@ test(`${provider}: photo failure retains image and context; retry adds editable 
   await page.getByRole('button', { name: 'Review 1 added item', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Food', exact: true })).toHaveValue('Test cereal');
   await expect(page.getByLabel('Calories', { exact: true })).toHaveValue('200');
+  await expect(page.getByText('AI-read nutrition label · check serving', { exact: true })).toBeVisible();
+  await expect(page.getByText('Check the label serving and the amount you ate.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/90% confidence/)).toHaveCount(0);
+  await page.getByLabel('Quantity', { exact: true }).fill('25');
+  await expect(page.getByLabel('Calories', { exact: true })).toHaveValue('100');
+  await expect(page.getByLabel('Protein (g)', { exact: true })).toHaveValue('5');
+  await page.reload();
+  await expect(page.getByLabel('Quantity', { exact: true })).toHaveValue('25');
+  await expect(page.getByText('Check the label serving and the amount you ate.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save meal', exact: true })).toBeVisible();
   expect(analyses).toBe(2); // Entirely mocked; no Gemini account or real request.
+  await page.getByRole('textbox', { name: 'Food', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('photo-review-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await expect(page.getByText('AI-read nutrition label · check serving', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Calories', { exact: true })).toHaveValue('100');
+  await page.screenshot({ path: test.info().outputPath('photo-review-dark.png') });
 });
 }

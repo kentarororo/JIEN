@@ -1,4 +1,5 @@
 import type { FoodCatalogItem } from './types';
+import { parsePhotoReview } from '../nutrition/photo-review';
 
 export type MealPhotoCapabilityStatus =
   | 'ready'
@@ -211,6 +212,7 @@ function parseFoodItem(value: unknown, index: number): FoodCatalogItem {
     sourceRef: null,
     barcode: null,
     confidence,
+    photoReview: parsePhotoReview(record.photoReview),
   };
 }
 
