@@ -17,27 +17,27 @@ test('normalizes Expo Router base paths', () => {
   assert.equal(normalizeBasePath('JIEN/'), '/JIEN');
 });
 
-test('builds a GitHub Pages-safe OAuth callback at the exported root', () => {
+test('builds a subpath-safe OAuth callback at the exported root', () => {
   assert.equal(
-    buildWebOAuthRedirectUrl('https://kentarororo.github.io/', '/JIEN'),
-    'https://kentarororo.github.io/JIEN/?auth_callback=1',
+    buildWebOAuthRedirectUrl('https://app.example.com/', '/JIEN'),
+    'https://app.example.com/JIEN/?auth_callback=1',
   );
 });
 
 test('detects and parses the root-query OAuth callback', () => {
   assert.deepEqual(
     parseWebOAuthCallbackUrl(
-      'https://kentarororo.github.io/JIEN/?auth_callback=1&code=abc123',
+      'https://app.example.com/JIEN/?auth_callback=1&code=abc123',
     ),
     { code: 'abc123', errorCode: null, errorDescription: null },
   );
   assert.deepEqual(
     parseWebOAuthCallbackUrl(
-      'https://kentarororo.github.io/JIEN/?auth_callback=1&error_description=Access%20denied',
+      'https://app.example.com/JIEN/?auth_callback=1&error_description=Access%20denied',
     ),
     { code: null, errorCode: null, errorDescription: 'Access denied' },
   );
-  assert.equal(parseWebOAuthCallbackUrl('https://kentarororo.github.io/JIEN/'), null);
+  assert.equal(parseWebOAuthCallbackUrl('https://app.example.com/JIEN/'), null);
 });
 
 test('redacts a provider exchange failure instead of exposing the Google code', () => {
@@ -84,9 +84,9 @@ test('recognizes the native callback route and rejects ordinary app routes', () 
   assert.equal(isNativeOAuthCallbackPath('/settings/account'), false);
 });
 
-test('builds the clean Pages URL used after the session is persisted', () => {
+test('builds the clean subpath URL used after the session is persisted', () => {
   assert.equal(
-    buildCleanWebAppUrl('https://kentarororo.github.io/', '/JIEN/'),
-    'https://kentarororo.github.io/JIEN/',
+    buildCleanWebAppUrl('https://app.example.com/', '/JIEN/'),
+    'https://app.example.com/JIEN/',
   );
 });

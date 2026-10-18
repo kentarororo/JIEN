@@ -7,18 +7,13 @@ The supported web tester is the Vercel deployment. Native and web expose the sam
 | iOS / Android | persistent native `jien.db` | Expo SQLite |
 | Vercel web tester on Chromium / Android | persistent, account-scoped `jien.db` | wa-sqlite Asyncify on the main thread with `IDBBatchAtomicVFS` in IndexedDB |
 | Vercel web tester on Safari / iOS WebKit | persistent, account-scoped `jien.db` | wa-sqlite Asyncify with `MemoryVFS` and atomic IndexedDB snapshots |
-| GitHub Pages | none | publishes a host-requirements screen; functional web testing remains Vercel-only |
-
-The Pages finalizer replaces every exported HTML route with that static handoff and
-removes all application scripts from those documents, so a direct deep link cannot
-mount authentication, SQLite, or another local-data consumer.
 
 The web runtime does not mount Expo SQLite's web worker, use `AccessHandlePoolVFS`, call `createSyncAccessHandle`, or require `SharedArrayBuffer`. Its main-thread Asyncify WASM runs when `crossOriginIsolated` is false, including mobile browsers that do not implement COEP `credentialless`. Chromium uses the page-based IndexedDB VFS. Safari and every iOS browser use the snapshot-backed MemoryVFS because WebKit can stall after the sample page-based VFS acquires its SQLite reserved lock. Expo's OPFS driver can leave an access handle owned by an abandoned or singleton worker, which makes a later page fail with `NoModificationAllowedError` before application-level recovery can close it. Native still uses the supported Expo SQLite implementation.
 
 ## Startup order
 
 1. OAuth callbacks finish before the ownership gate or database provider mounts. Supabase persists the PKCE session in browser storage.
-2. Vercel may enable cross-origin isolation as defense in depth, but application startup does not depend on it. GitHub Pages remains an intentionally unsupported tester through its separate build finalizer.
+2. Vercel may enable cross-origin isolation as defense in depth, but application startup does not depend on it.
 3. JIEN installs worker tracking, opens the same-origin ownership `BroadcastChannel`, and announces the new page.
 4. An older page that receives a newer ownership request starts deterministic teardown. The requester waits for the origin Web Lock `jien:sqlite:jien.db` and a short handoff-settle interval.
 5. Only the lock owner mounts `SQLiteProvider`. The web provider obtains the authenticated user ID and selects its storage implementation. Chromium opens `jien-web-sqlite-v2:<user-id>` with strict IndexedDB durability. Safari/WebKit opens the account-scoped `jien-web-sqlite-v1:<user-id>` snapshot store and restores `jien.db` into MemoryVFS.

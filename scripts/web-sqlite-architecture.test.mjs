@@ -11,10 +11,6 @@ const nativeProvider = readFileSync(new URL('../src/lib/db/database-context.tsx'
 const webDatabase = readFileSync(new URL('../src/lib/db/web-indexeddb-database.ts', import.meta.url), 'utf8');
 const metro = readFileSync(new URL('../metro.config.js', import.meta.url), 'utf8');
 const webFinalizer = readFileSync(new URL('./finalize-web-build.mjs', import.meta.url), 'utf8');
-const pagesHostFinalizer = readFileSync(
-  new URL('./finalize-pages-host-build.mjs', import.meta.url),
-  'utf8',
-);
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const webBuilder = readFileSync(new URL('./build-web.mjs', import.meta.url), 'utf8');
 const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
@@ -89,15 +85,6 @@ test('Vercel publishes the main-thread SQLite WASM at a stable public path', () 
   assert.match(webBuilder, /SUPABASE_PUBLISHABLE_KEY/);
   assert.match(webBuilder, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
   assert.match(webBuilder, /'--clear'/);
-});
-
-test('GitHub Pages publishes a safe host-requirements screen instead of SQLite', () => {
-  assert.match(packageJson.scripts['pages:build'], /finalize-pages-host-build\.mjs/);
-  assert.match(pagesHostFinalizer, /PAGES_HOST_UNSUPPORTED/);
-  assert.match(pagesHostFinalizer, /listHtmlFiles/);
-  assert.match(pagesHostFinalizer, /does not open JIEN's local database/);
-  assert.match(pagesHostFinalizer, /\.nojekyll/);
-  assert.doesNotMatch(packageJson.scripts['pages:build'], /finalize-pages-build\.mjs/);
 });
 
 test('web authenticates and hydrates before database consumers render', () => {

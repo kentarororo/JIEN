@@ -62,11 +62,11 @@ All failures use the shared envelope:
 
 ## Deployment check
 
-GitHub Pages publishes only the Expo client. Deploy `wellness-chat` separately with
-normal Supabase JWT verification and server-only provider secrets. After deployment,
-an authenticated smoke test must confirm a v1 envelope, a matching reserved
-assistant UUID, and a second identical request returning the saved row rather than
-creating another message.
+The Vercel deployment publishes only the Expo client. Deploy `wellness-chat`
+separately with normal Supabase JWT verification and server-only provider secrets.
+After deployment, an authenticated smoke test must confirm a v1 envelope, a matching
+reserved assistant UUID, and a second identical request returning the saved row
+rather than creating another message.
 
 On Windows, `scripts/deploy-ai-slice.ps1` resolves a globally available Supabase CLI,
 pnpm's hashed CLI link directory, or an explicit `SUPABASE_CLI_PATH`. Validate CLI
