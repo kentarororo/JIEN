@@ -16,13 +16,15 @@ export type NextSessionRecommendation = {
   approach: SessionApproach | null;
   reason: string;
   code: 'no_main_sets' | 'invalid_values' | 'joint_review' | 'lighter_requested'
-    | 'single_sets' | 'old_reference' | 'failure' | 'high_effort' | 'missing_effort' | 'eligible' | 'hold';
+    | 'single_sets' | 'returning_break_lighter' | 'returning_break_repeat'
+    | 'old_reference' | 'failure' | 'high_effort' | 'missing_effort' | 'eligible' | 'hold';
 };
 
 /** A whole-session default; never supplies numbers or overwrites exercise cues. */
 export function recommendNextSession(input: {
   sets: WorkoutSet[];
   startedAt?: string | null;
+  latestMainSetStartedAt?: string | null;
   completedAt: string | null;
   now: Date;
   jointFlag?: boolean;
@@ -47,8 +49,8 @@ export function recommendNextSession(input: {
   };
   const grouped = new Map<string, WorkoutSet[]>();
   for (const set of mainSets) grouped.set(set.exerciseId, [...(grouped.get(set.exerciseId) ?? []), set]);
+  const reducible = [...grouped.values()].some((sets) => sets.length > 1);
   if (input.feedback === 'harder' || input.feedback === 'returning') {
-    const reducible = [...grouped.values()].some((sets) => sets.length > 1);
     return reducible ? {
       approach: 'ease_off', code: 'lighter_requested',
       reason: input.feedback === 'returning'
@@ -57,6 +59,22 @@ export function recommendNextSession(input: {
     } : {
       approach: 'repeat', code: 'single_sets',
       reason: 'Each exercise has only one main set, so Ease off cannot remove a set. Repeat without increase cues and adjust the draft to suit you.',
+    };
+  }
+  const latestMainSetStartedAt = input.latestMainSetStartedAt === undefined
+    ? input.startedAt ?? input.completedAt
+    : input.latestMainSetStartedAt;
+  const latestMainSetAge = latestMainSetStartedAt == null
+    ? NaN
+    : input.now.getTime() - Date.parse(latestMainSetStartedAt);
+  if (Number.isFinite(latestMainSetAge)
+    && latestMainSetAge > SESSION_REFERENCE_MAX_AGE_DAYS * 86_400_000) {
+    return reducible ? {
+      approach: 'ease_off', code: 'returning_break_lighter',
+      reason: 'The most recent main-set workout started more than 14 days ago. Preview one fewer main set per exercise where possible; loads and reps stay editable.',
+    } : {
+      approach: 'repeat', code: 'returning_break_repeat',
+      reason: 'The most recent main-set workout started more than 14 days ago. Each exercise has one main set, so repeat the recorded values and adjust the draft if needed.',
     };
   }
   const referenceAt = input.startedAt ?? input.completedAt;

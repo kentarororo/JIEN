@@ -6,10 +6,10 @@ import { buildMuscleGroupAdvisory, normalizeMuscleGroupKey } from '@/lib/progres
 
 import { getDailyNutrition } from './nutrition';
 import { getLatestBodyMeasurement } from './wellness';
-import { getWorkoutProgressComparison, listVolumeHistory } from './workouts';
+import { getMissedPlannedWorkout, getWorkoutProgressComparison, listVolumeHistory } from './workouts';
 import type { DashboardSummary, WorkoutStatus, WorkoutSummary } from './types';
 
-export async function getDashboardSummary(db: SQLiteDatabase): Promise<DashboardSummary> {
+export async function getDashboardSummary(db: SQLiteDatabase, now = new Date()): Promise<DashboardSummary> {
   const weekStart = toLocalDateKey(startOfIsoWeek());
   const workoutRow = await db.getFirstAsync<{
     workout_count: number;
@@ -74,6 +74,7 @@ export async function getDashboardSummary(db: SQLiteDatabase): Promise<Dashboard
     workoutCountThisWeek: workoutRow?.workout_count ?? 0,
     weeklyVolumeKg: workoutRow?.volume_kg ?? 0,
     latestWorkout,
+    missedWorkout: await getMissedPlannedWorkout(db, now),
     workoutProgress: await getWorkoutProgressComparison(db, latestWorkout?.id),
     trainingAdvisory: buildMuscleGroupAdvisory(volumeHistory),
     latestBodyMeasurement: await getLatestBodyMeasurement(db),

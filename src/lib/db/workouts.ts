@@ -10,11 +10,13 @@ import {
   RECENT_EXERCISE_BASELINE_SESSION_LIMIT,
 } from '@/lib/progression';
 import { parsePlannedWorkoutPlan } from '@/lib/planning/workout-plan';
+import { isMissedPlannedWorkout } from '@/lib/planning/session-approach';
 import { trainingSetSql, progressionSetSql, countsTowardProgression } from '../../../supabase/functions/_shared/training-set-policy.ts';
 
 import { exerciseRemotePayload } from './exercises';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
+import { getWorkoutDraft, getWorkoutDraftOwnerId } from './workout-drafts';
 import type {
   LoadUnit,
   SaveWorkoutInput,
@@ -158,6 +160,47 @@ export async function listPlannedWorkoutsForDate(
     [date],
   );
   return rows.map(mapWorkoutSummary);
+}
+
+export async function getMissedPlannedWorkout(
+  db: SQLiteDatabase,
+  now = new Date(),
+): Promise<WorkoutSummary | null> {
+  const rows = await db.getAllAsync<WorkoutSummaryRow>(
+    `${WORKOUT_SUMMARY_SELECT}
+     WHERE w.status = 'planned' AND w.scheduled_at IS NOT NULL
+       AND w.started_at IS NULL AND w.deleted_at IS NULL
+     GROUP BY w.id
+     ORDER BY w.scheduled_at ASC, w.id ASC`,
+  );
+  const candidates = rows.map(mapWorkoutSummary)
+    .filter((plan) => isMissedPlannedWorkout(plan, now));
+  if (!candidates.length) return null;
+
+  const ownerUserId = await getWorkoutDraftOwnerId(db);
+  for (const plan of candidates) {
+    const draft = await getWorkoutDraft(db, ownerUserId, `plan:${plan.id}`);
+    if (!draft?.startedAt) return plan;
+  }
+  return null;
+}
+
+export async function getLatestMainSetWorkoutStartedAt(
+  db: SQLiteDatabase,
+): Promise<string | null> {
+  const row = await db.getFirstAsync<{ started_at: string }>(
+    `SELECT w.started_at
+     FROM workouts w
+     WHERE w.status = 'completed' AND w.started_at IS NOT NULL AND w.deleted_at IS NULL
+       AND EXISTS (
+         SELECT 1 FROM workout_sets s
+         WHERE s.workout_id = w.id AND s.deleted_at IS NULL
+           AND ${progressionSetSql('s.kind')}
+       )
+     ORDER BY w.started_at DESC, w.id DESC
+     LIMIT 1`,
+  );
+  return row?.started_at ?? null;
 }
 
 export async function getWorkoutDetail(
