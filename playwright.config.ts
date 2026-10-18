@@ -17,6 +17,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     colorScheme: 'light',
     locale: 'en-SG',
+    timezoneId: 'Asia/Singapore',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     viewport: { width: 390, height: 844 },
