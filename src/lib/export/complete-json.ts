@@ -1,6 +1,6 @@
 import type { CompleteExportSnapshot, ExportDatabaseRow } from '@/lib/db/export';
 
-export const COMPLETE_EXPORT_SCHEMA_VERSION = 1;
+export const COMPLETE_EXPORT_SCHEMA_VERSION = 2;
 
 type JsonObject = Record<string, unknown>;
 
@@ -133,6 +133,18 @@ function mapNutritionTarget(row: ExportDatabaseRow): JsonObject {
   };
 }
 
+function mapNutritionDayState(row: ExportDatabaseRow): JsonObject {
+  return {
+    id: value(row, 'id'),
+    loggedOn: value(row, 'logged_on'),
+    state: value(row, 'state'),
+    createdAt: value(row, 'created_at'),
+    updatedAt: value(row, 'updated_at'),
+    clientUpdatedAt: value(row, 'client_updated_at'),
+    deletedAt: value(row, 'deleted_at'),
+  };
+}
+
 function mapWellnessLog(row: ExportDatabaseRow): JsonObject {
   return {
     id: value(row, 'id'), kind: value(row, 'kind'), loggedOn: value(row, 'logged_on'), loggedAt: value(row, 'logged_at'),
@@ -195,6 +207,9 @@ export function buildCompleteJsonExport(
     workoutSets: [...snapshot.workoutSets].sort(compare('workout_id', 'sort_order', 'id')).map(mapWorkoutSet),
     meals: [...snapshot.meals].sort(compare('eaten_on', 'eaten_at', 'id')).map(mapMeal),
     foodItems: [...snapshot.foodItems].sort(compare('meal_id', 'sort_order', 'id')).map(mapFoodItem),
+    nutritionDayStates: [...snapshot.nutritionDayStates]
+      .sort(compare('logged_on', 'id'))
+      .map(mapNutritionDayState),
     privateFoods: [...(snapshot.privateFoods ?? [])].sort(compare('name', 'id')).map((row) => ({
       id: value(row, 'id'), catalogId: value(row, 'catalog_id'), name: value(row, 'name'),
       brand: value(row, 'brand'), barcode: value(row, 'barcode'),

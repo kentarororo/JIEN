@@ -6,6 +6,8 @@ export type SetKind = 'working' | 'warmup' | 'drop' | 'failure';
 export type WorkoutStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 export type MealSource = 'manual' | 'ai_photo' | 'imported';
+export type NutritionDayState = 'not_logged' | 'partial' | 'complete';
+export type LoggedNutritionDayState = Exclude<NutritionDayState, 'not_logged'>;
 export type WellnessSource = 'manual' | 'healthkit' | 'health_connect';
 export type NotificationType = 'meal_gap' | 'workout_plan' | 'sync_issue';
 export type TrainingExperience = 'beginner' | 'intermediate' | 'advanced';
@@ -404,6 +406,7 @@ export type NutritionTarget = MacroTotals & {
 
 export type DailyNutrition = {
   date: string;
+  dayState: NutritionDayState;
   totals: MacroTotals;
   target: NutritionTarget | null;
   meals: MealSummary[];
@@ -492,4 +495,5 @@ export type NutritionExportRow = {
   carbohydrateG: number;
   fatG: number;
   fibreG: number | null;
+  dayState: LoggedNutritionDayState;
 };

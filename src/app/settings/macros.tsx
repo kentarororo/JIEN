@@ -146,7 +146,7 @@ function adaptiveTitle(action: 'hold' | 'recommend_adjustment', confidence: stri
 
 function adaptiveCopy(evaluation: ReturnType<typeof evaluateAdaptiveNutritionTarget>): string {
   if (evaluation.confidence === 'insufficient') {
-    return 'A recommendation requires at least three qualifying weeks. Missing days are treated as missing, not zero intake.';
+    return 'A recommendation requires at least three qualifying weeks with enough complete food days. Partial and not-logged days are ignored for intake, not counted as zero.';
   }
   const trend = evaluation.trend.smoothedWeeklyWeightChangePercent;
   if (evaluation.recommendation.reason === 'weight_trend_unstable') return 'The smoothed and recent directions do not agree yet, so the current target stays in place.';

@@ -1,5 +1,6 @@
 export type AdaptiveNutritionHistoryDay = {
   date: string;
+  dayState: 'not_logged' | 'partial' | 'complete';
   bodyWeightKg: number | null;
   caloriesKcal: number | null;
   proteinG: number | null;
@@ -10,6 +11,7 @@ export type AdaptiveNutritionConfidence = 'insufficient' | 'low' | 'medium' | 'h
 export type AdaptiveNutritionDataIssue =
   | 'history_too_short'
   | 'weight_coverage_low'
+  | 'complete_day_coverage_low'
   | 'calorie_coverage_low'
   | 'protein_coverage_low'
   | 'calorie_pattern_inconsistent';
@@ -29,6 +31,7 @@ export type AdaptiveNutritionEvaluation = {
     daysEvaluated: number;
     completeWeeks: number;
     weightDays: number;
+    completeDays: number;
     calorieDays: number;
     proteinDays: number;
     issues: AdaptiveNutritionDataIssue[];
@@ -64,6 +67,7 @@ export type EvaluateAdaptiveNutritionInput = {
 type DailyAggregate = {
   dayNumber: number;
   weights: number[];
+  completeFoodDay: boolean;
   calories: number[];
   proteins: number[];
 };
@@ -73,6 +77,7 @@ type WeeklyAggregate = {
   averageCaloriesKcal: number | null;
   averageProteinG: number | null;
   weightDays: number;
+  completeDays: number;
   calorieDays: number;
   proteinDays: number;
   proteinTargetDays: number;
@@ -202,10 +207,19 @@ function normalizeDailyHistory(history: AdaptiveNutritionHistoryDay[]): DailyAgg
   for (const row of history) {
     const dayNumber = parseDateKey(row.date);
     if (dayNumber == null) continue;
-    const aggregate = byDay.get(dayNumber) ?? { dayNumber, weights: [], calories: [], proteins: [] };
+    const aggregate = byDay.get(dayNumber) ?? {
+      dayNumber,
+      weights: [],
+      completeFoodDay: false,
+      calories: [],
+      proteins: [],
+    };
     if (validRange(row.bodyWeightKg, 20, 500)) aggregate.weights.push(row.bodyWeightKg!);
-    if (validRange(row.caloriesKcal, 1, 20_000)) aggregate.calories.push(row.caloriesKcal!);
-    if (validRange(row.proteinG, 0, 1_000)) aggregate.proteins.push(row.proteinG!);
+    if (row.dayState === 'complete') {
+      aggregate.completeFoodDay = true;
+      if (validRange(row.caloriesKcal, 0, 20_000)) aggregate.calories.push(row.caloriesKcal!);
+      if (validRange(row.proteinG, 0, 1_000)) aggregate.proteins.push(row.proteinG!);
+    }
     byDay.set(dayNumber, aggregate);
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
@@ -229,6 +243,7 @@ function buildWeeks(
       averageCaloriesKcal: calories.length ? mean(calories) : null,
       averageProteinG: proteins.length ? mean(proteins) : null,
       weightDays: weights.length,
+      completeDays: weekDays.filter((day) => day.completeFoodDay).length,
       calorieDays: calories.length,
       proteinDays: proteins.length,
       proteinTargetDays: proteins.filter((protein) => protein >= proteinTargetG * 0.9).length,
@@ -250,6 +265,7 @@ function coverageIssues(
     issues.push('history_too_short');
   }
   if (weeks.some((week) => week.weightDays < MIN_WEIGHT_DAYS_PER_WEEK)) issues.push('weight_coverage_low');
+  if (weeks.some((week) => week.completeDays < MIN_NUTRITION_DAYS_PER_WEEK)) issues.push('complete_day_coverage_low');
   if (weeks.some((week) => week.calorieDays < MIN_NUTRITION_DAYS_PER_WEEK)) issues.push('calorie_coverage_low');
   if (weeks.some((week) => week.proteinDays < MIN_NUTRITION_DAYS_PER_WEEK)) issues.push('protein_coverage_low');
   return issues;
@@ -359,6 +375,7 @@ function dataSufficiency(
     daysEvaluated,
     completeWeeks: weeks.filter(hasMinimumCoverage).length,
     weightDays: weeks.reduce((total, week) => total + week.weightDays, 0),
+    completeDays: weeks.reduce((total, week) => total + week.completeDays, 0),
     calorieDays: weeks.reduce((total, week) => total + week.calorieDays, 0),
     proteinDays: weeks.reduce((total, week) => total + week.proteinDays, 0),
     issues,
@@ -367,12 +384,13 @@ function dataSufficiency(
 
 function highConfidence(weeks: WeeklyAggregate[], weeklyCalories: number[]): boolean {
   return weeks.length === MAX_WEEKS
-    && weeks.every((week) => week.weightDays >= 5 && week.calorieDays >= 6 && week.proteinDays >= 6)
+    && weeks.every((week) => week.weightDays >= 5 && week.completeDays >= 6 && week.calorieDays >= 6 && week.proteinDays >= 6)
     && relativeSpreadPercent(weeklyCalories) <= 6;
 }
 
 function hasMinimumCoverage(week: WeeklyAggregate): boolean {
   return week.weightDays >= MIN_WEIGHT_DAYS_PER_WEEK
+    && week.completeDays >= MIN_NUTRITION_DAYS_PER_WEEK
     && week.calorieDays >= MIN_NUTRITION_DAYS_PER_WEEK
     && week.proteinDays >= MIN_NUTRITION_DAYS_PER_WEEK;
 }

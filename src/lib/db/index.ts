@@ -78,11 +78,13 @@ export {
   getDailyNutrition,
   getMealLoggingPattern,
   getMealDetail,
+  getNutritionDayState,
   getNutritionTarget,
   listMealsForDate,
   listNutritionExportRows,
   saveMeal,
   saveNutritionTarget,
+  setNutritionDayState,
   updateMeal,
 } from './nutrition';
 export {

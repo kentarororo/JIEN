@@ -11,6 +11,7 @@ export type CompleteExportSnapshot = {
   workoutSets: ExportDatabaseRow[];
   meals: ExportDatabaseRow[];
   foodItems: ExportDatabaseRow[];
+  nutritionDayStates: ExportDatabaseRow[];
   privateFoods?: ExportDatabaseRow[];
   nutritionTargets: ExportDatabaseRow[];
   wellnessLogs: ExportDatabaseRow[];
@@ -39,6 +40,7 @@ export async function getCompleteExportSnapshot(
     workoutSets,
     meals,
     foodItems,
+    nutritionDayStates,
     nutritionTargets,
     wellnessLogs,
     aiConversations,
@@ -99,6 +101,13 @@ export async function getCompleteExportSnapshot(
        ORDER BY meal_id ASC, sort_order ASC, id ASC`,
     ),
     db.getAllAsync<ExportDatabaseRow>(
+      `SELECT id, logged_on, state, created_at, updated_at, client_updated_at,
+              deleted_at
+       FROM nutrition_day_states
+       WHERE deleted_at IS NULL
+       ORDER BY logged_on ASC, id ASC`,
+    ),
+    db.getAllAsync<ExportDatabaseRow>(
       `SELECT id, effective_from, effective_to, calories_kcal, protein_g,
               carbohydrate_g, fat_g, fibre_g, desired_weekly_weight_change_percent,
               source, rationale, created_at,
@@ -154,6 +163,7 @@ export async function getCompleteExportSnapshot(
     workoutSets,
     meals,
     foodItems,
+    nutritionDayStates,
     privateFoods,
     nutritionTargets,
     wellnessLogs,

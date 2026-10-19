@@ -15,6 +15,7 @@ import {
   getMealPhotoQueueSummary,
   processPendingMealPhotoJobs,
   retryQueuedMealPhotos,
+  setNutritionDayState,
 } from '@/lib/db';
 import { historicalDateKey, shiftLocalDateKey, toLocalDateKey, formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -81,12 +82,36 @@ export default function FoodScreen() {
   const [showNutritionDetails, setShowNutritionDetails] = useState(false);
   const [selection, setSelection] = useState<FoodSelection | null>(null);
   const [foodMessage, setFoodMessage] = useState<string | null>(null);
+  const [dayStateBusy, setDayStateBusy] = useState(false);
+  const [dayStateError, setDayStateError] = useState<string | null>(null);
+  const [dayStateMessage, setDayStateMessage] = useState<string | null>(null);
   const addFood = (query = '') => router.push({ pathname: '/meals/new', params: { date: selectedDate, query } });
   const nutrition = data?.nutrition.date === selectedDate ? data.nutrition : null;
   const openDate = (nextDate: string) => {
     setSelection(null);
     setFoodMessage(null);
+    setDayStateError(null);
+    setDayStateMessage(null);
     router.replace({ pathname: '/food', params: nextDate === todayKey ? {} : { date: nextDate } } as never);
+  };
+
+  const toggleDayState = async () => {
+    if (!nutrition || nutrition.dayState === 'not_logged') return;
+    const nextState = nutrition.dayState === 'complete' ? 'partial' : 'complete';
+    setDayStateBusy(true);
+    setDayStateError(null);
+    setDayStateMessage(null);
+    try {
+      await setNutritionDayState(db, selectedDate, nextState);
+      setDayStateMessage(nextState === 'complete'
+        ? 'Day marked complete. Its calorie and protein totals now count in adaptive nutrition.'
+        : 'Day marked partial. Its calorie and protein totals no longer count in adaptive nutrition.');
+      await reload();
+    } catch (cause) {
+      setDayStateError(cause instanceof Error ? cause.message : 'The food day status could not be changed.');
+    } finally {
+      setDayStateBusy(false);
+    }
   };
 
   const retryQueuedPhotos = async () => {
@@ -199,6 +224,44 @@ export default function FoodScreen() {
             ) : null}
           </Card>
 
+          <Card
+            accessibilityLabel={`Food day status: ${nutrition.dayState === 'not_logged' ? 'Not logged' : nutrition.dayState === 'complete' ? 'Complete' : 'Partial'}`}
+            style={{
+              backgroundColor: nutrition.dayState === 'complete' ? colors.successSoft : colors.surface,
+              borderColor: nutrition.dayState === 'complete' ? colors.success : colors.border,
+            }}
+          >
+            <View style={styles.dayStateHeader}>
+              <View style={styles.flex}>
+                <AppText style={[styles.kicker, { color: colors.textMuted }]}>FOOD DAY STATUS</AppText>
+                <AppText style={styles.mealName}>
+                  {nutrition.dayState === 'not_logged' ? 'Not logged' : nutrition.dayState === 'complete' ? 'Complete' : 'Partial'}
+                </AppText>
+              </View>
+              {nutrition.dayState !== 'not_logged' ? (
+                <Button
+                  label={nutrition.dayState === 'complete' ? 'Mark day partial' : 'Mark day complete'}
+                  onPress={() => void toggleDayState()}
+                  busy={dayStateBusy}
+                  variant={nutrition.dayState === 'complete' ? 'secondary' : 'primary'}
+                />
+              ) : null}
+            </View>
+            <AppText style={{ color: colors.textMuted }}>
+              {nutrition.dayState === 'not_logged'
+                ? 'No food is recorded for this day. Adaptive nutrition treats the intake as unknown, not zero.'
+                : nutrition.dayState === 'complete'
+                  ? 'This day’s calorie and protein totals count in adaptive nutrition.'
+                  : 'This day’s calorie and protein totals stay out of adaptive nutrition until the log is complete.'}
+            </AppText>
+            {dayStateMessage ? <AppText accessibilityLiveRegion="polite">{dayStateMessage}</AppText> : null}
+            {dayStateError ? (
+              <AppText accessibilityLiveRegion="assertive" style={{ color: colors.danger }}>
+                {dayStateError} Try again.
+              </AppText>
+            ) : null}
+          </Card>
+
           <DailyFoodQuickAdd key={selectedDate + data.items.length} onSelect={setSelection} onMore={addFood} />
           {foodMessage ? <AppText accessibilityLiveRegion="polite">{foodMessage}</AppText> : null}
           <SectionHeading title="Daily food log" detail={`${data.items.length} item${data.items.length === 1 ? '' : 's'} · Tap an item to adjust its portion`} />
@@ -248,6 +311,7 @@ const styles = StyleSheet.create({
   splitSection: { gap: spacing.xs, marginTop: spacing.xs },
   splitTrack: { height: 12, borderRadius: radii.pill, overflow: 'hidden', flexDirection: 'row' },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
+  dayStateHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   value: { fontWeight: '700' },
   flex: { flex: 1, minWidth: 0 },

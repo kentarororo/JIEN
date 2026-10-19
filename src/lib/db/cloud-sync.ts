@@ -21,6 +21,7 @@ type PullTable =
   | 'meals'
   | 'food_items'
   | 'private_foods'
+  | 'nutrition_day_states'
   | 'nutrition_targets'
   | 'wellness_logs'
   | 'ai_conversations'
@@ -31,6 +32,7 @@ const PULL_TABLES: PullTable[] = [
   'exercises',
   'workouts',
   'meals',
+  'nutrition_day_states',
   'nutrition_targets',
   'wellness_logs',
   'ai_conversations',
@@ -48,6 +50,7 @@ const LOCAL_TABLE: Record<PullTable, string> = {
   meals: 'meals',
   food_items: 'food_items',
   private_foods: 'private_foods',
+  nutrition_day_states: 'nutrition_day_states',
   nutrition_targets: 'nutrition_targets',
   wellness_logs: 'wellness_logs',
   ai_conversations: 'ai_conversations',
@@ -183,14 +186,16 @@ export async function applyRemoteRows(
         }
       }
       if (!columns.includes('id') || !columns.includes('client_updated_at')) continue;
+      const conflictColumn = remoteTable === 'nutrition_day_states' ? 'logged_on' : 'id';
+      if (!columns.includes(conflictColumn)) continue;
       const quotedColumns = columns.map((column) => `"${column}"`);
       const updates = columns
-        .filter((column) => column !== 'id')
+        .filter((column) => column !== conflictColumn)
         .map((column) => `"${column}" = excluded."${column}"`);
       await db.runAsync(
         `INSERT INTO "${localTable}" (${quotedColumns.join(', ')})
          VALUES (${columns.map(() => '?').join(', ')})
-         ON CONFLICT("id") DO UPDATE SET ${updates.join(', ')}
+         ON CONFLICT("${conflictColumn}") DO UPDATE SET ${updates.join(', ')}
          WHERE julianday(excluded."client_updated_at") >= julianday("${localTable}"."client_updated_at")`,
         columns.map((column) => serializeCloudValue(row[column]) as string | number | null),
       );

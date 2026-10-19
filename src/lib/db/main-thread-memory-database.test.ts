@@ -41,7 +41,7 @@ import {
   updateWorkout,
 } from './workouts.ts';
 import { getDashboardSummary } from './dashboard.ts';
-import { saveMeal, getDailyNutrition, getMealDetail, getMealLoggingPattern } from './nutrition.ts';
+import { saveMeal, getDailyNutrition, getMealDetail, getMealLoggingPattern, setNutritionDayState } from './nutrition.ts';
 import { listDailyFoodItems, changeDailyFoodPortion, removeDailyFoodItem } from './daily-food.ts';
 import { getWellnessHubSummary } from './wellness.ts';
 import { listCalendarActivity } from './calendar.ts';
@@ -115,6 +115,36 @@ test('daily food items preserve meal history, isolate edits and atomically sync 
     assert.equal(rice?.mealId, id);
     assert.equal(chicken?.name, 'Chicken');
     assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 330);
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).dayState, 'partial');
+    await setNutritionDayState(db, '2026-01-02', 'complete');
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).dayState, 'complete');
+    const dayStateRow = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM nutrition_day_states WHERE logged_on = ?',
+      ['2026-01-02'],
+    );
+    assert.ok(dayStateRow);
+    const dayStateQueue = await db.getFirstAsync<{ table_name: string; payload_json: string }>(
+      'SELECT table_name, payload_json FROM sync_queue WHERE entity_id = ?',
+      [dayStateRow.id],
+    );
+    assert.equal(dayStateQueue?.table_name, 'nutrition_day_states');
+    assert.equal(JSON.parse(dayStateQueue!.payload_json).state, 'complete');
+    await setNutritionDayState(db, '2026-01-02', 'partial');
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).dayState, 'partial');
+    const restoredDayStateId = '90000000-0000-4000-8000-000000000002';
+    await applyRemoteRows(db, 'nutrition_day_states', [{
+      id: restoredDayStateId,
+      user_id: '90000000-0000-4000-8000-000000000001',
+      logged_on: '2026-01-02',
+      state: 'complete',
+      created_at: '2026-01-02T00:00:00.000Z',
+      updated_at: '2030-01-02T00:00:00.000Z',
+      client_updated_at: '2030-01-02T00:00:00.000Z',
+      deleted_at: null,
+    }], { clientUpdatedAt: '2030-01-02T00:00:00.000Z', id: restoredDayStateId });
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).dayState, 'complete', 'remote restore preserves completion state');
+    assert.equal((await db.getFirstAsync<{ id: string }>('SELECT id FROM nutrition_day_states WHERE logged_on = ?', ['2026-01-02']))?.id, restoredDayStateId);
+    assert.equal((await getCompleteExportSnapshot(db)).nutritionDayStates[0]?.state, 'complete');
     await changeDailyFoodPortion(db, rice!.id, 50);
     assert.equal((await listDailyFoodItems(db, '2026-01-02'))[0]?.originalSource, 'ai_photo', 'portion corrections retain the photo estimate disclosure');
     assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 265);
@@ -141,6 +171,7 @@ test('daily food items preserve meal history, isolate edits and atomically sync 
     await removeDailyFoodItem(db, chicken!.id);
     assert.equal((await getDailyNutrition(db, '2026-01-02')).meals.length, 0);
     assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 0);
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).dayState, 'not_logged', 'an empty day is unknown instead of zero intake');
     assert.ok((await queue(id)).deleted_at, 'last removal tombstones empty parent');
     assert.equal((await listDailyFoodItems(db, '2026-01-01')).length, 1, 'other days remain intact');
     await assert.rejects(changeDailyFoodPortion(db, rice!.id, 100), /no longer/);
@@ -190,7 +221,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 17);
+    assert.equal(version?.user_version, 18);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -883,6 +914,7 @@ test('main-thread database persists committed work and isolates delayed transact
       'workout_sets',
       'meals',
       'food_items',
+      'nutrition_day_states',
       'private_foods',
       'nutrition_targets',
       'wellness_logs',
@@ -915,7 +947,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 17 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 18 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 
