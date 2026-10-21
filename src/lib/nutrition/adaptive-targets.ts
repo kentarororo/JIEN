@@ -84,6 +84,7 @@ type WeeklyAggregate = {
 };
 
 const DAY_MS = 86_400_000;
+export const MIN_PLAUSIBLE_COMPLETE_DAY_KCAL = 800;
 const REQUIRED_WEEKS = 3;
 const MAX_WEEKS = 4;
 const MIN_WEIGHT_DAYS_PER_WEEK = 4;
@@ -215,14 +216,18 @@ function normalizeDailyHistory(history: AdaptiveNutritionHistoryDay[]): DailyAgg
       proteins: [],
     };
     if (validRange(row.bodyWeightKg, 20, 500)) aggregate.weights.push(row.bodyWeightKg!);
-    if (row.dayState === 'complete') {
+    if (row.dayState === 'complete' && isPlausibleCompleteDay(row.caloriesKcal)) {
       aggregate.completeFoodDay = true;
-      if (validRange(row.caloriesKcal, 0, 20_000)) aggregate.calories.push(row.caloriesKcal!);
+      aggregate.calories.push(row.caloriesKcal!);
       if (validRange(row.proteinG, 0, 1_000)) aggregate.proteins.push(row.proteinG!);
     }
     byDay.set(dayNumber, aggregate);
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
+}
+
+export function isPlausibleCompleteDay(caloriesKcal: number | null): boolean {
+  return validRange(caloriesKcal, MIN_PLAUSIBLE_COMPLETE_DAY_KCAL, 20_000);
 }
 
 function buildWeeks(

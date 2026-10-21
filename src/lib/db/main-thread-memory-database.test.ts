@@ -173,6 +173,8 @@ test('daily food items preserve meal history, isolate edits and atomically sync 
     assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 0);
     assert.equal((await getDailyNutrition(db, '2026-01-02')).dayState, 'not_logged', 'an empty day is unknown instead of zero intake');
     assert.ok((await queue(id)).deleted_at, 'last removal tombstones empty parent');
+    await saveMeal(db, { name: 'Replacement meal', type: 'other', eatenAt: new Date(2026, 0, 2, 18).toISOString(), items: [food] });
+    assert.equal((await getDailyNutrition(db, '2026-01-02')).dayState, 'complete', 'adding food back restores the retained Complete state');
     assert.equal((await listDailyFoodItems(db, '2026-01-01')).length, 1, 'other days remain intact');
     await assert.rejects(changeDailyFoodPortion(db, rice!.id, 100), /no longer/);
   } finally { await db.closeAsync(); }

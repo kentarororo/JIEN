@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
@@ -18,7 +18,28 @@ import {
   setNutritionDayState,
 } from '@/lib/db';
 import { historicalDateKey, shiftLocalDateKey, toLocalDateKey, formatTime } from '@/lib/time';
+import {
+  isPlausibleCompleteDay,
+  MIN_PLAUSIBLE_COMPLETE_DAY_KCAL,
+} from '@/lib/nutrition/adaptive-targets';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
+
+function confirmNearEmptyDay(caloriesKcal: number): Promise<boolean> {
+  if (isPlausibleCompleteDay(caloriesKcal)) return Promise.resolve(true);
+  const message = `This day has ${Math.round(caloriesKcal).toLocaleString()} kcal logged. Complete days below ${MIN_PLAUSIBLE_COMPLETE_DAY_KCAL.toLocaleString()} kcal stay out of adaptive nutrition averages. Mark it complete anyway?`;
+  if (Platform.OS === 'web') return Promise.resolve(globalThis.confirm(message));
+  return new Promise((resolve) => {
+    Alert.alert(
+      'Mark this day complete?',
+      message,
+      [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Mark complete', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
 
 function Macro({ label, value, target, color }: { label: string; value: number; target?: number; color?: string }) {
   const remaining = target == null ? null : target - value;
@@ -98,13 +119,17 @@ export default function FoodScreen() {
   const toggleDayState = async () => {
     if (!nutrition || nutrition.dayState === 'not_logged') return;
     const nextState = nutrition.dayState === 'complete' ? 'partial' : 'complete';
+    if (nextState === 'complete' && !await confirmNearEmptyDay(nutrition.totals.caloriesKcal)) return;
+    const qualifiesForAdaptiveAverages = isPlausibleCompleteDay(nutrition.totals.caloriesKcal);
     setDayStateBusy(true);
     setDayStateError(null);
     setDayStateMessage(null);
     try {
       await setNutritionDayState(db, selectedDate, nextState);
       setDayStateMessage(nextState === 'complete'
-        ? 'Day marked complete. Its calorie and protein totals now count in adaptive nutrition.'
+        ? qualifiesForAdaptiveAverages
+          ? 'Day marked complete. Its calorie and protein totals now count in adaptive nutrition.'
+          : `Day marked complete. Its totals stay out of adaptive nutrition averages because fewer than ${MIN_PLAUSIBLE_COMPLETE_DAY_KCAL.toLocaleString()} kcal are logged.`
         : 'Day marked partial. Its calorie and protein totals no longer count in adaptive nutrition.');
       await reload();
     } catch (cause) {
@@ -251,7 +276,9 @@ export default function FoodScreen() {
               {nutrition.dayState === 'not_logged'
                 ? 'No food is recorded for this day. Adaptive nutrition treats the intake as unknown, not zero.'
                 : nutrition.dayState === 'complete'
-                  ? 'This day’s calorie and protein totals count in adaptive nutrition.'
+                  ? isPlausibleCompleteDay(nutrition.totals.caloriesKcal)
+                    ? 'This day’s calorie and protein totals count in adaptive nutrition.'
+                    : `This day is marked complete, but its totals stay out of adaptive nutrition averages until at least ${MIN_PLAUSIBLE_COMPLETE_DAY_KCAL.toLocaleString()} kcal are logged.`
                   : 'This day’s calorie and protein totals stay out of adaptive nutrition until the log is complete.'}
             </AppText>
             {dayStateMessage ? <AppText accessibilityLiveRegion="polite">{dayStateMessage}</AppText> : null}

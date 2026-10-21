@@ -272,15 +272,17 @@ no active food items is always presented and evaluated as `not_logged`, regardle
 of a retained state row, so missing intake is never converted into a zero-calorie
 observation.
 
-Only `complete` days contribute calorie and protein values to adaptive-nutrition
-coverage and averages. Body-weight observations remain independent and can count on
-partial or not-logged food days. This state is descriptive user input, not an AI
-claim and not a notification trigger.
+Only `complete` days with active food items and at least 800 kcal logged contribute
+calorie and protein values to adaptive-nutrition coverage and averages. The named
+client-side plausibility floor can be changed without altering the stored day state.
+Body-weight observations remain independent and can count on partial, implausibly
+low, or not-logged food days. This state is descriptive user input, not an AI claim
+and not a notification trigger.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id`, `user_id` | `uuid` | PK and owner FK; client-generated ID |
-| `logged_on` | `date` | User-local food-log day; one active row per owner and date |
+| `logged_on` | `date` | User-local food-log day; one row per owner and date, including a retained tombstone (local SQLite stores one row per date) |
 | `state` | `nutrition_day_state` | `partial` or `complete` |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
 

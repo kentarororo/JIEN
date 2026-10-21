@@ -32,6 +32,7 @@ test('day-first food log adds, scales and removes individual items without chang
   await expect(page.getByLabel('Food day status: Partial', { exact: true })).toBeVisible();
   // Disable the network after app load: day-state and food-item writes still commit locally.
   await context.setOffline(true);
+  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Mark day complete', exact: true }).click();
   await expect(page.getByLabel('Food day status: Complete', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Mark day partial', exact: true }).click();

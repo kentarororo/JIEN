@@ -4,6 +4,8 @@ import test from 'node:test';
 import { calculateStartingNutritionTarget } from './targets.ts';
 import {
   evaluateAdaptiveNutritionTarget,
+  isPlausibleCompleteDay,
+  MIN_PLAUSIBLE_COMPLETE_DAY_KCAL,
   type AdaptiveNutritionHistoryDay,
 } from './adaptive-targets.ts';
 
@@ -177,6 +179,30 @@ test('does not turn a not-logged day into a zero-calorie observation', () => {
   assert.equal(result.dataSufficiency.sufficient, true);
   assert.equal(result.dataSufficiency.calorieDays, 24);
   assert.equal(result.trend.robustAverageCaloriesKcal, 2_400);
+});
+
+test('excludes empty and implausibly low Complete days from nutrition coverage and averages', () => {
+  assert.equal(MIN_PLAUSIBLE_COMPLETE_DAY_KCAL, 800);
+  assert.equal(isPlausibleCompleteDay(null), false);
+  assert.equal(isPlausibleCompleteDay(MIN_PLAUSIBLE_COMPLETE_DAY_KCAL - 1), false);
+  assert.equal(isPlausibleCompleteDay(MIN_PLAUSIBLE_COMPLETE_DAY_KCAL), true);
+
+  const history = buildHistory([80, 79.9, 79.8, 79.7]);
+  history[2] = { ...history[2]!, caloriesKcal: null, proteinG: null };
+  history[9] = { ...history[9]!, caloriesKcal: MIN_PLAUSIBLE_COMPLETE_DAY_KCAL - 1, proteinG: 900 };
+  const result = evaluateAdaptiveNutritionTarget({
+    currentCaloriesKcal: 2_400,
+    currentProteinTargetG: 150,
+    desiredWeeklyWeightChangePercent: -0.5,
+    history,
+  });
+
+  assert.equal(result.dataSufficiency.sufficient, true);
+  assert.equal(result.dataSufficiency.completeDays, 26);
+  assert.equal(result.dataSufficiency.calorieDays, 26);
+  assert.equal(result.dataSufficiency.proteinDays, 26);
+  assert.equal(result.trend.robustAverageCaloriesKcal, 2_400);
+  assert.equal(result.trend.robustAverageProteinG, 160);
 });
 
 test('caps a large recommendation by both 150 kcal and six percent of the current target', () => {

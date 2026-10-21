@@ -720,24 +720,26 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     });
   }
   if (currentVersion < 18) {
-    await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS nutrition_day_states (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT,
-        logged_on TEXT NOT NULL UNIQUE,
-        state TEXT NOT NULL DEFAULT 'partial'
-          CHECK (state IN ('partial', 'complete')),
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        client_updated_at TEXT NOT NULL,
-        deleted_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS nutrition_day_states_date_idx
-        ON nutrition_day_states(logged_on DESC)
-        WHERE deleted_at IS NULL;
-      CREATE INDEX IF NOT EXISTS nutrition_day_states_sync_idx
-        ON nutrition_day_states(client_updated_at, id);
-      PRAGMA user_version = 18;
-    `);
+    await withExclusiveTransaction(db, async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS nutrition_day_states (
+          id TEXT PRIMARY KEY NOT NULL,
+          user_id TEXT,
+          logged_on TEXT NOT NULL UNIQUE,
+          state TEXT NOT NULL DEFAULT 'partial'
+            CHECK (state IN ('partial', 'complete')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          client_updated_at TEXT NOT NULL,
+          deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS nutrition_day_states_date_idx
+          ON nutrition_day_states(logged_on DESC)
+          WHERE deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS nutrition_day_states_sync_idx
+          ON nutrition_day_states(client_updated_at, id);
+      `);
+      await db.execAsync('PRAGMA user_version = 18;');
+    });
   }
 }
