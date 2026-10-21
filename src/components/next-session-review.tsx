@@ -8,9 +8,10 @@ import { recommendNextSession, SESSION_REVIEW_OPTIONS, type SessionReviewFeedbac
 import { sessionApproachTitle } from '@/lib/planning/session-approach';
 import { spacing, useJienTheme } from '@/theme';
 
-export function NextSessionReview({ sets, startedAt, completedAt, jointFlag, selected, onSelect }: {
+export function NextSessionReview({ sets, startedAt, latestMainSetStartedAt, completedAt, jointFlag, selected, onSelect }: {
   sets: WorkoutSet[];
   startedAt: string | null;
+  latestMainSetStartedAt: string | null;
   completedAt: string | null;
   jointFlag: boolean;
   selected: SessionApproach | null;
@@ -19,8 +20,10 @@ export function NextSessionReview({ sets, startedAt, completedAt, jointFlag, sel
   const { colors } = useJienTheme();
   const [feedback, setFeedback] = useState<SessionReviewFeedback>('unsure');
   useFocusEffect(useCallback(() => () => setFeedback('unsure'), []));
-  const recommendation = recommendNextSession({ sets, startedAt, completedAt, jointFlag, feedback, now: new Date() });
+  const recommendation = recommendNextSession({ sets, startedAt, latestMainSetStartedAt, completedAt, jointFlag, feedback, now: new Date() });
   const approach = recommendation.approach;
+  const returningAfterBreak = recommendation.code === 'returning_break_lighter'
+    || recommendation.code === 'returning_break_repeat';
   return (
     <View style={styles.review}>
       <AppText style={styles.title}>Session check-in (optional)</AppText>
@@ -31,6 +34,7 @@ export function NextSessionReview({ sets, startedAt, completedAt, jointFlag, sel
         ))}
       </View>
       <View accessibilityLiveRegion="polite" style={styles.review}>
+        {returningAfterBreak ? <AppText style={styles.title}>Welcome back</AppText> : null}
         <AppText style={[styles.title, { color: colors.accent }]}>{approach ? `Suggested: ${sessionApproachTitle(approach)}` : 'More information needed'}</AppText>
         <AppText>{recommendation.reason}</AppText>
         {selected && approach && selected !== approach ? (

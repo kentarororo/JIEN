@@ -16,14 +16,17 @@ The existing four-week muscle baseline remains a description of habits.
 3. User reports “Harder than expected” or “Returning after a break”: suggest Ease off
    only when at least one exercise has multiple main sets. This previews the existing
    one-set reduction, not a personalized deload. Single-set exercises are retained.
-4. Source workout older than 14 days, missing a date, or future-dated: suggest Repeat
+4. Most recent main-set workout started more than 14 days ago: show “Welcome back”
+   and suggest Ease off when an exercise has multiple main sets, or Repeat when no set
+   can be removed. This reuses the one-set reduction and remains optional.
+5. Source workout older than 14 days, missing a date, or future-dated: suggest Repeat
    as a reference. Fourteen days is a conservative product freshness threshold, not
    a detraining threshold or evidence that no other training happened.
    Use the actual workout start when available, falling back to its completion time;
    saving a retrospectively entered workout today must not refresh its training date.
-5. Failure or RPE above 9: suggest Repeat. Work still counts; there is no failure bonus.
-6. Missing/invalid main-set RPE: suggest Repeat. “As expected” never fabricates set RPE.
-7. Every exercise has an eligible deterministic cue: suggest Progress. Otherwise
+6. Failure or RPE above 9: suggest Repeat. Work still counts; there is no failure bonus.
+7. Missing/invalid main-set RPE: suggest Repeat. “As expected” never fabricates set RPE.
+8. Every exercise has an eligible deterministic cue: suggest Progress. Otherwise
    suggest Repeat. Numeric targets still come only from the per-exercise engine.
 
 ## User control and storage
@@ -40,10 +43,24 @@ transaction/outbox. The recommendation rationale is transient, not a saved audit
 No schema migration is required. Persisting dated feedback/recommendation provenance
 is a later, explicit model change rather than silently reusing wellness records.
 
+## Missed scheduled sessions
+
+A planned workout becomes missed only when its scheduled timestamp is more than one
+day old, it is still planned, and no active local workout draft has recorded a start.
+Flexible plans with no scheduled timestamp never become missed. Today shows one missed
+plan at a time with Start now, Move to a new date, and Skip actions.
+
+Skip uses the existing `skipped` workout status and the normal SQLite transaction and
+sync outbox. It does not create completed sets, volume, progression, or adherence
+credit. Move keeps the record planned with a new future timestamp. Starting uses the
+existing device-local recovery draft until the workout is completed. No schema change
+is required. Existing workout-plan reminder eligibility remains opt-in and stale
+reminders are cancelled by the existing reconciliation path.
+
 ## Remaining Alpha 2.4 work
 
-Goal and priority-muscle programme targets; set/rest-based time estimates; adherence,
-missed-session and plateau handling across multiple sessions; and structured joint
+Goal and priority-muscle programme targets; set/rest-based time estimates; adherence
+and plateau handling across multiple sessions; and structured joint
 scope. A single session's recommendation does not claim to solve those decisions.
 
 ## Verification

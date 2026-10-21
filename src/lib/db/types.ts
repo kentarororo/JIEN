@@ -446,6 +446,7 @@ export type DashboardSummary = {
   workoutCountThisWeek: number;
   weeklyVolumeKg: number;
   latestWorkout: WorkoutSummary | null;
+  missedWorkout: WorkoutSummary | null;
   workoutProgress: WorkoutProgressComparison | null;
   trainingAdvisory: MuscleGroupAdvisory;
   latestBodyMeasurement: BodyMeasurement | null;

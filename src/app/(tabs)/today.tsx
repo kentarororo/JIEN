@@ -6,7 +6,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } f
 import { ActionCard, AppText, Button, Card, HeroPanel, Pill, ProgressBar, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, calendarSelectionForDate, isRepeatedCalendarDayActivation, moveMonthSelection, type CalendarDayActivation } from '@/lib/calendar';
-import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate } from '@/lib/db';
+import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate, skipPlannedWorkout } from '@/lib/db';
 import { muscleGroupLabel, type MuscleGroupAdvisory } from '@/lib/progression';
 import { formatShortDate, formatTime, shiftLocalDateKey, toLocalDateKey } from '@/lib/time';
 import { formatSleepDuration } from '@/lib/wellness/sleep-record';
@@ -25,6 +25,8 @@ export default function TodayScreen() {
   const [monthExpanded, setMonthExpanded] = useState(false);
   const [dayWorkspaceOpen, setDayWorkspaceOpen] = useState(false);
   const [dayDestination, setDayDestination] = useState<Href | null>(null);
+  const [missedActionError, setMissedActionError] = useState<string | null>(null);
+  const [skippingMissed, setSkippingMissed] = useState(false);
   function openFromDay(destination: Href) {
     setDayDestination(destination);
     setDayWorkspaceOpen(false);
@@ -59,6 +61,20 @@ export default function TodayScreen() {
     return { summary, activity, cardio, selectedWorkouts, selectedPlans, selectedMeals, selectedBodyMeasurements, selectedSleepLogs, selectedDate };
   }, [cells, db, selectedDate, todayKey]);
   const { data, error, loading, reload } = useScreenData(loader);
+
+  const skipMissedWorkout = async (workoutId: string) => {
+    if (skippingMissed) return;
+    setSkippingMissed(true);
+    setMissedActionError(null);
+    try {
+      await skipPlannedWorkout(db, workoutId);
+      await reload();
+    } catch (cause) {
+      setMissedActionError(cause instanceof Error ? cause.message : 'The planned workout could not be skipped.');
+    } finally {
+      setSkippingMissed(false);
+    }
+  };
 
   if (loading && !data) return <Screen><StatePanel title="Opening your day" body="Loading your local training and nutrition log." loading /></Screen>;
   if (error || !data) return <Screen><StatePanel title="Today is unavailable" body={error ?? 'The summary could not be loaded.'} actionLabel="Try again" onAction={() => void reload()} /></Screen>;
@@ -133,6 +149,26 @@ export default function TodayScreen() {
           <ActionCard title="Food log" detail="Today’s food and macros" icon="restaurant-outline" onPress={() => router.push('/food')} />
         </View>
       </HeroPanel>
+
+      <SectionHeading title="Missed session" detail="Scheduled workouts only" />
+      {summary.missedWorkout ? (
+        <Card accessibilityLabel={`Missed workout: ${summary.missedWorkout.title}`} style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
+          <AppText style={[styles.kicker, { color: colors.warning }]}>PLANNED TIME PASSED</AppText>
+          <AppText style={styles.sessionTitle}>{summary.missedWorkout.title}</AppText>
+          <AppText style={{ color: colors.textMuted }}>
+            Planned for {formatShortDate(summary.missedWorkout.scheduledAt!)} at {formatTime(summary.missedWorkout.scheduledAt!)}. No completed-workout totals or progression values changed.
+          </AppText>
+          <AppText style={{ color: colors.textMuted }}>Start the workout now, choose another date, or record the plan as skipped.</AppText>
+          {missedActionError ? <AppText style={{ color: colors.danger }}>{missedActionError}</AppText> : null}
+          <View style={styles.actions}>
+            <Button label="Start now" disabled={skippingMissed} onPress={() => router.push({ pathname: '/workouts/new', params: { planWorkoutId: summary.missedWorkout!.id } })} />
+            <Button label="Move to a new date" disabled={skippingMissed} onPress={() => router.push({ pathname: '/workouts/plan', params: { planWorkoutId: summary.missedWorkout!.id } } as never)} variant="secondary" />
+            <Button label="Skip" busy={skippingMissed} onPress={() => void skipMissedWorkout(summary.missedWorkout!.id)} variant="quiet" />
+          </View>
+        </Card>
+      ) : (
+        <StatePanel title="No missed sessions" body="No scheduled workout is more than one day past its planned time." />
+      )}
 
       <SectionHeading title={monthExpanded ? 'Calendar' : 'Your week'} detail="Training, meals and wellness" />
       <Card style={[styles.calendarCard, compactRecords && styles.calendarCardCompact]}>

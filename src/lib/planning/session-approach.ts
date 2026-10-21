@@ -1,4 +1,16 @@
-import type { PlannedWorkoutExercise, SessionApproach } from '../db/types.ts';
+import type { PlannedWorkoutExercise, SessionApproach, WorkoutStatus } from '../db/types.ts';
+
+export const MISSED_SESSION_GRACE_DAYS = 1;
+
+export function isMissedPlannedWorkout(
+  plan: { scheduledAt: string | null; startedAt: string | null; status: WorkoutStatus },
+  now: Date,
+): boolean {
+  if (plan.status !== 'planned' || plan.scheduledAt == null || plan.startedAt != null) return false;
+  const scheduledAt = Date.parse(plan.scheduledAt);
+  return Number.isFinite(scheduledAt)
+    && now.getTime() - scheduledAt > MISSED_SESSION_GRACE_DAYS * 86_400_000;
+}
 
 export const SESSION_APPROACHES: ReadonlyArray<{
   id: SessionApproach;

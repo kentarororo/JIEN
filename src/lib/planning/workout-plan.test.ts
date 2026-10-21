@@ -9,7 +9,7 @@ import {
   parsePlannedWorkoutPlan,
   rebuildPlannedWorkoutProgression,
 } from './workout-plan.ts';
-import { applySessionApproach } from './session-approach.ts';
+import { applySessionApproach, isMissedPlannedWorkout } from './session-approach.ts';
 import { recommendNextSession, SESSION_REFERENCE_MAX_AGE_DAYS } from './next-session-recommendation.ts';
 import { DEFAULT_TIME_BUDGET, estimateSessionTime, parseTimeEstimateFields, parseWorkoutTimeBudget, previewShorterSession, timeEstimateFields } from './session-time.ts';
 
@@ -267,6 +267,31 @@ test('ease off never removes the only working set', () => {
   assert.match(easier.progression.reason, /has one working set/i);
 });
 
+test('only unstarted scheduled plans become missed after the one-day grace period', () => {
+  const now = new Date('2026-09-14T12:00:00.000Z');
+  const scheduled = {
+    status: 'planned' as const,
+    scheduledAt: '2026-09-13T12:00:00.000Z',
+    startedAt: null,
+  };
+  assert.equal(isMissedPlannedWorkout(scheduled, now), false, 'exactly one day is still within the grace period');
+  assert.equal(isMissedPlannedWorkout({ ...scheduled, scheduledAt: '2026-09-12T12:00:00.000Z' }, now), true);
+  assert.equal(isMissedPlannedWorkout({ ...scheduled, scheduledAt: null }, now), false, 'flexible plans are never missed');
+});
+
+test('start, move, and skip each clear the missed-plan state without changing training math', () => {
+  const now = new Date('2026-09-14T12:00:00.000Z');
+  const missed = {
+    status: 'planned' as const,
+    scheduledAt: '2026-09-12T12:00:00.000Z',
+    startedAt: null,
+  };
+  assert.equal(isMissedPlannedWorkout(missed, now), true);
+  assert.equal(isMissedPlannedWorkout({ ...missed, startedAt: now.toISOString() }, now), false, 'start records an actual start');
+  assert.equal(isMissedPlannedWorkout({ ...missed, scheduledAt: '2026-09-20T12:00:00.000Z' }, now), false, 'move keeps the plan scheduled');
+  assert.equal(isMissedPlannedWorkout({ ...missed, status: 'skipped' }, now), false, 'skip is a distinct non-completed state');
+});
+
 const reviewNow = new Date('2026-09-14T12:00:00.000Z');
 const recentReview = { completedAt: '2026-09-13T12:00:00.000Z', now: reviewNow };
 
@@ -306,15 +331,61 @@ test('fresh feedback suggests a lighter plan only when a main set can be removed
   assert.equal(JSON.stringify(sets), untouched);
 });
 
-test('recommendation distinguishes an old reference from a claimed training break', () => {
+test('automatic return uses the actual main-set start at the 14-day boundary', () => {
+  const sets = [set(10, 40, 8), set(10, 40, 8)];
+  const boundary = reviewNow.getTime() - SESSION_REFERENCE_MAX_AGE_DAYS * 86_400_000;
+  const exactlyFourteen = recommendNextSession({
+    sets, now: reviewNow, startedAt: new Date(boundary).toISOString(), completedAt: recentReview.completedAt,
+    latestMainSetStartedAt: new Date(boundary).toISOString(),
+  });
+  assert.equal(exactlyFourteen.approach, 'progress');
+  const fifteenDaysAgo = new Date(reviewNow.getTime() - 15 * 86_400_000).toISOString();
+  const returning = recommendNextSession({
+    sets, now: reviewNow, startedAt: fifteenDaysAgo, completedAt: recentReview.completedAt,
+    latestMainSetStartedAt: fifteenDaysAgo,
+  });
+  assert.equal(returning.code, 'returning_break_lighter');
+  assert.equal(returning.approach, 'ease_off');
+  assert.equal(recommendNextSession({
+    sets: sets.slice(0, 1), now: reviewNow, startedAt: fifteenDaysAgo,
+    completedAt: recentReview.completedAt, latestMainSetStartedAt: fifteenDaysAgo,
+  }).code, 'returning_break_repeat');
+});
+
+test('a backdated workout triggers the return note and the user can override its suggestion', () => {
+  const sets = [set(10, 40, 8), set(10, 40, 8)];
+  const backdatedStart = '2026-08-01T12:00:00Z';
+  const advice = recommendNextSession({
+    sets,
+    now: reviewNow,
+    startedAt: backdatedStart,
+    completedAt: recentReview.completedAt,
+    latestMainSetStartedAt: backdatedStart,
+  });
+  assert.equal(advice.code, 'returning_break_lighter', 'saving today does not refresh the actual training date');
+  const repeated = applySessionApproach(
+    buildPlannedWorkoutExercise({ exercise, history: sets, preferredLoadUnit: 'kg' }),
+    'repeat',
+  );
+  assert.equal(advice.approach, 'ease_off');
+  assert.equal(repeated.sets.length, 2, 'the explicit Repeat choice overrides the one-set reduction suggestion');
+  assert.deepEqual(repeated.progression.cues, []);
+});
+
+test('an older source is a reference rather than a claimed break when newer main-set work exists', () => {
   const sets = [set(10, 40, 8)];
   const boundary = reviewNow.getTime() - SESSION_REFERENCE_MAX_AGE_DAYS * 86_400_000;
-  assert.equal(recommendNextSession({ sets, now: reviewNow, completedAt: new Date(boundary).toISOString() }).approach, 'progress');
   for (const completedAt of [new Date(boundary - 1).toISOString(), null, 'invalid', '2027-01-01']) {
-    assert.equal(recommendNextSession({ sets, now: reviewNow, completedAt }).code, 'old_reference');
+    assert.equal(recommendNextSession({
+      sets, now: reviewNow, completedAt, latestMainSetStartedAt: recentReview.completedAt,
+    }).code, 'old_reference');
   }
-  assert.equal(recommendNextSession({ ...recentReview, sets, startedAt: '2026-08-01T12:00:00Z' }).code, 'old_reference',
-    'recording an old workout today does not make its training recent');
+  assert.equal(recommendNextSession({
+    ...recentReview,
+    sets,
+    startedAt: '2026-08-01T12:00:00Z',
+    latestMainSetStartedAt: recentReview.completedAt,
+  }).code, 'old_reference');
 });
 
 test('eligible recommendation keeps rep and load targets in the existing per-exercise engine', () => {

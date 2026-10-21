@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { fillBlankWorkoutLoads, latestValidWorkoutLoad, summarizeWorkoutDraft } from '../workout-draft.ts';
-import { completePlannedWorkout, savePlannedWorkout, skipPlannedWorkout } from '../db/workouts.ts';
+import { completePlannedWorkout, reschedulePlannedWorkout, savePlannedWorkout, skipPlannedWorkout } from '../db/workouts.ts';
 
 const read = (relative: string) => readFileSync(new URL(relative, import.meta.url), 'utf8');
 
@@ -29,6 +29,9 @@ test('planned workouts are local-first and use the same synced workout UUID when
   assert.match(repository, /if \(input\.scheduledAt != null\)/);
   assert.match(repository, /CASE WHEN w\.scheduled_at IS NULL THEN 0 ELSE 1 END/);
   assert.match(repository, /listPlannedWorkoutsForDate[\s\S]*w\.scheduled_at IS NOT NULL/);
+  assert.match(repository, /getMissedPlannedWorkout[\s\S]*w\.status = 'planned'[\s\S]*w\.scheduled_at IS NOT NULL[\s\S]*w\.started_at IS NULL/);
+  assert.match(repository, /getMissedPlannedWorkout[\s\S]*getWorkoutDraft\(db, ownerUserId, `plan:\$\{plan\.id\}`\)/);
+  assert.match(repository, /getLatestMainSetWorkoutStartedAt[\s\S]*w\.status = 'completed'[\s\S]*progressionSetSql\('s\.kind'\)/);
   assert.match(repository, /savePlannedWorkout[\s\S]*const updated = await db\.runAsync[\s\S]*updated\.changes !== 1[\s\S]*enqueueUpsert\(db, 'workouts'/);
   assert.match(repository, /skipPlannedWorkout[\s\S]*status = 'planned' AND deleted_at IS NULL[\s\S]*updated\.changes !== 1[\s\S]*enqueueUpsert\(db, 'workouts'/);
 });
@@ -50,6 +53,10 @@ test('calendar, start flow, and reminders all invalidate stale plans', () => {
   const runtime = read('../../components/app-runtime.tsx');
   const notifications = read('../notifications/index.ts');
   assert.match(calendar, /listPlannedWorkoutsForDate/);
+  assert.match(calendar, /summary\.missedWorkout/);
+  assert.match(calendar, /label="Start now"[\s\S]*planWorkoutId/);
+  assert.match(calendar, /label="Move to a new date"[\s\S]*planWorkoutId/);
+  assert.match(calendar, /label="Skip"[\s\S]*skipMissedWorkout/);
   assert.match(calendar, /pathname: '\/workouts\/plan'/);
   assert.match(logger, /completePlannedWorkout/);
   assert.match(logger, /planWorkoutId \? new Date\(\)\.toISOString\(\) : templateWorkoutId \? new Date\(\)\.toISOString\(\) : null/);
@@ -93,6 +100,33 @@ test('a concurrently changed plan is never queued as an edit or skip', async () 
     await assert.rejects(operation, /changed before it could be (saved|skipped)/);
     assert.equal(queueWrites, 0, `${action} must not enqueue a state that SQLite rejected`);
   }
+});
+
+test('skip and move queue distinct local-first plan states', async () => {
+  const base = {
+    id: 'plan-actions', title: 'Push', status: 'planned' as const,
+    performed_on: '2036-09-04', scheduled_at: '2036-09-04T10:00:00.000Z',
+    started_at: null, completed_at: null, notes: null, plan_json: null,
+    created_at: '2026-09-04T01:00:00.000Z',
+  };
+  const queued: Record<string, unknown>[] = [];
+  const db = {
+    getFirstAsync: async () => base,
+    runAsync: async (sql: string, params: unknown[] = []) => {
+      if (sql.includes('INSERT INTO sync_queue')) queued.push(JSON.parse(String(params[3])) as Record<string, unknown>);
+      return { changes: 1 };
+    },
+    withTransactionAsync: async (task: () => Promise<void>) => task(),
+  } as unknown as SQLiteDatabase;
+
+  await skipPlannedWorkout(db, base.id);
+  assert.equal(queued.at(-1)?.status, 'skipped');
+  assert.equal(queued.at(-1)?.completed_at, null, 'skip never creates completed work');
+
+  await reschedulePlannedWorkout(db, base.id, '2036-09-20T10:00:00.000Z');
+  assert.equal(queued.at(-1)?.status, 'planned');
+  assert.equal(queued.at(-1)?.scheduled_at, '2036-09-20T10:00:00.000Z');
+  assert.equal(queued.at(-1)?.started_at, null);
 });
 
 test('completing a plan preserves its recovered start and stamps the actual completion write', async () => {

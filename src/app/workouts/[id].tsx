@@ -7,7 +7,7 @@ import { AppText, Button, Card, ChoiceCard, Screen, ScreenHeading, SectionHeadin
 import { NextSessionReview } from '@/components/next-session-review';
 import { WorkoutTimeSummary } from '@/components/workout-time-estimate';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { deleteWorkout, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, reschedulePlannedWorkout, skipPlannedWorkout } from '@/lib/db';
+import { deleteWorkout, getLatestMainSetWorkoutStartedAt, getUserProfile, getWorkoutDetail, getWorkoutProgressComparison, reschedulePlannedWorkout, skipPlannedWorkout } from '@/lib/db';
 import { applyStoredJointConsiderationHold, hasStoredJointConsideration } from '@/lib/planning/workout-plan';
 import { SESSION_APPROACHES, sessionApproachBody, sessionApproachTitle } from '@/lib/planning/session-approach';
 import type { SessionApproach } from '@/lib/db';
@@ -28,10 +28,11 @@ export default function WorkoutDetailScreen() {
   const [nextApproach, setNextApproach] = useState<SessionApproach | null>(null);
   useEffect(() => { setNextApproach(null); }, [id]);
   const loader = useCallback(async () => {
-    const [detail, progress, profile] = await Promise.all([
+    const [detail, progress, profile, latestMainSetStartedAt] = await Promise.all([
       getWorkoutDetail(db, id),
       getWorkoutProgressComparison(db, id),
       getUserProfile(db),
+      getLatestMainSetWorkoutStartedAt(db),
     ]);
     return {
       detail: detail?.status === 'planned'
@@ -45,6 +46,7 @@ export default function WorkoutDetailScreen() {
         : detail,
       progress,
       jointFlag: hasStoredJointConsideration(profile?.injuryFlags),
+      latestMainSetStartedAt,
     };
   }, [db, id]);
   const { data, error, loading, reload } = useScreenData(loader);
@@ -253,6 +255,7 @@ export default function WorkoutDetailScreen() {
           <AppText style={{ color: colors.textMuted }}>Choose an approach, then open editable sets now or save a plan for later. This workout will not change.</AppText>
         </View>
         <NextSessionReview key={detail.id} sets={detail.sets} startedAt={detail.startedAt} completedAt={detail.completedAt}
+          latestMainSetStartedAt={data?.latestMainSetStartedAt ?? null}
           jointFlag={data?.jointFlag ?? false} selected={nextApproach} onSelect={setNextApproach} />
         <View accessibilityRole="radiogroup" accessibilityLabel="Next workout approach" style={styles.approachChoices}>
           {SESSION_APPROACHES.map((approach) => (
