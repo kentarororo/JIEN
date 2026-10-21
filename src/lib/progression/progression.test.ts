@@ -6,11 +6,13 @@ import {
   buildMuscleGroupAdvisory,
   buildCompletedExerciseVolumeFeedback,
   buildMuscleGroupTrends,
+  buildMuscleVolumeDropFlags,
   buildSetProgressionPlan,
   calculateOverloadChangePercent,
   calculateRecentExerciseBaseline,
   calculateSetVolumeKg,
   detectDeloadSignal,
+  detectExercisePlateau,
   MUSCLE_GROUP_OPTIONS,
   muscleGroupLabel,
   normalizeMuscleGroupKey,
@@ -483,6 +485,88 @@ test('flags sustained stagnation and a twenty percent drop', () => {
   assert.equal(detectDeloadSignal([1000, 1010, 1015, 1020]).kind, 'stagnation');
   assert.equal(detectDeloadSignal([1200, 900]).kind, 'volume_drop');
   assert.equal(detectDeloadSignal([1000, 1100]).kind, 'none');
+});
+
+test('plateau review requires three flat comparable sessions', () => {
+  const flat = ['2026-08-03', '2026-08-10', '2026-08-17'].map((performedOn, index) => ({
+    workoutId: `flat-${index}`,
+    performedOn,
+    completedAt: `${performedOn}T10:00:00.000Z`,
+    sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'working' as const }],
+  }));
+  assert.equal(detectExercisePlateau(flat.slice(0, 2)).status, 'insufficient');
+  const plateau = detectExercisePlateau(flat);
+  assert.equal(plateau.status, 'plateau');
+  assert.equal(plateau.windowStart, '2026-08-03');
+  assert.equal(plateau.windowEnd, '2026-08-17');
+});
+
+test('a rep increase or a load increase with fewer reps breaks a plateau', () => {
+  const base = ['2026-08-03', '2026-08-10', '2026-08-17'].map((performedOn, index) => ({
+    workoutId: `progress-${index}`,
+    performedOn,
+    completedAt: `${performedOn}T10:00:00.000Z`,
+    sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'working' as const }],
+  }));
+  const repIncrease = base.map((item, index) => index === 2
+    ? { ...item, sets: [{ ...item.sets[0]!, reps: 11 }] }
+    : item);
+  assert.equal(detectExercisePlateau(repIncrease).status, 'progressing');
+  assert.equal(detectExercisePlateau(repIncrease).topRepIncrease, true);
+
+  const loadIncrease = base.map((item, index) => index === 2
+    ? { ...item, sets: [{ ...item.sets[0]!, reps: 8, loadValue: 45 }] }
+    : item);
+  assert.equal(detectExercisePlateau(loadIncrease).status, 'progressing');
+  assert.equal(detectExercisePlateau(loadIncrease).topLoadIncrease, true);
+});
+
+test('an exercise weekly-volume increase breaks otherwise flat session metrics', () => {
+  const sessions = [
+    { workoutId: 'week-one', performedOn: '2026-08-03', completedAt: '2026-08-03T10:00:00.000Z', sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'working' as const }] },
+    { workoutId: 'week-two-a', performedOn: '2026-08-10', completedAt: '2026-08-10T10:00:00.000Z', sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'working' as const }] },
+    { workoutId: 'week-two-b', performedOn: '2026-08-12', completedAt: '2026-08-12T10:00:00.000Z', sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'working' as const }] },
+  ];
+  const review = detectExercisePlateau(sessions);
+  assert.equal(review.status, 'progressing');
+  assert.equal(review.weeklyVolumeIncrease, true);
+});
+
+test('joint holds and drop-only sessions stay out of plateau comparisons', () => {
+  const sessions = [
+    { workoutId: 'one', performedOn: '2026-08-03', completedAt: '2026-08-03T10:00:00.000Z', sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'working' as const }] },
+    { workoutId: 'joint', performedOn: '2026-08-10', completedAt: '2026-08-10T10:00:00.000Z', jointHold: true, sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'working' as const }] },
+    { workoutId: 'drop', performedOn: '2026-08-12', completedAt: '2026-08-12T10:00:00.000Z', sets: [{ reps: 12, loadValue: 20, loadUnit: 'kg' as const, kind: 'drop' as const }] },
+    { workoutId: 'two', performedOn: '2026-08-17', completedAt: '2026-08-17T10:00:00.000Z', sets: [{ reps: 10, loadValue: 40, loadUnit: 'kg' as const, kind: 'failure' as const }] },
+  ];
+  const review = detectExercisePlateau(sessions);
+  assert.equal(review.status, 'insufficient');
+  assert.equal(review.comparableSessionCount, 2);
+});
+
+test('flags a muscle week more than one third below its four-week work average', () => {
+  const weeks = aggregateWeeklyVolume([
+    ...session('2026-07-27T10:00:00.000Z', 10),
+    ...session('2026-08-03T10:00:00.000Z', 10),
+    ...session('2026-08-10T10:00:00.000Z', 10),
+    ...session('2026-08-17T10:00:00.000Z', 10),
+    { ...session('2026-08-24T10:00:00.000Z', 10)[0]! },
+  ]);
+  const flags = buildMuscleVolumeDropFlags(weeks, new Date('2026-08-24T12:00:00.000Z'));
+  const chest = flags.find((flag) => flag.muscleGroup === 'chest');
+  assert.equal(Math.round(chest?.dropPercent ?? 0), 67);
+  assert.equal(chest?.currentWorkKg, 400);
+  assert.equal(chest?.fourWeekAverageWorkKg, 1_200);
+
+  const boundary = aggregateWeeklyVolume([
+    ...session('2026-07-27T10:00:00.000Z', 10),
+    ...session('2026-08-03T10:00:00.000Z', 10),
+    ...session('2026-08-10T10:00:00.000Z', 10),
+    ...session('2026-08-17T10:00:00.000Z', 10),
+    ...session('2026-08-24T10:00:00.000Z', 10).slice(0, 2),
+  ]);
+  assert.equal(buildMuscleVolumeDropFlags(boundary, new Date('2026-08-24T12:00:00.000Z'))
+    .some((flag) => flag.muscleGroup === 'chest'), false, 'exactly one third below is not more than one third');
 });
 
 test('filters workout history by exercise text and normalized muscle group, then preserves month order', () => {

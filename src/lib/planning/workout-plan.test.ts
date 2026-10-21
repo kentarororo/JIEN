@@ -12,6 +12,24 @@ import {
 import { applySessionApproach, isMissedPlannedWorkout } from './session-approach.ts';
 import { recommendNextSession, SESSION_REFERENCE_MAX_AGE_DAYS } from './next-session-recommendation.ts';
 import { DEFAULT_TIME_BUDGET, estimateSessionTime, parseTimeEstimateFields, parseWorkoutTimeBudget, previewShorterSession, timeEstimateFields } from './session-time.ts';
+import { buildTrainingAdherence } from './training-programme.ts';
+
+test('adherence counts flexible completed work without adding planned sessions', () => {
+  const now = new Date('2026-09-29T12:00:00.000Z');
+  const adherence = buildTrainingAdherence([
+    { id: 'scheduled-complete', status: 'completed', scheduledAt: '2026-09-10T10:00:00.000Z', startedAt: '2026-09-10T10:00:00.000Z', completedAt: '2026-09-10T11:00:00.000Z' },
+    { id: 'scheduled-missed', status: 'skipped', scheduledAt: '2026-09-17T10:00:00.000Z', startedAt: null, completedAt: null },
+    { id: 'flexible-complete', status: 'completed', scheduledAt: null, startedAt: '2026-09-20T10:00:00.000Z', completedAt: '2026-09-20T11:00:00.000Z' },
+    { id: 'old', status: 'completed', scheduledAt: '2026-08-01T10:00:00.000Z', startedAt: '2026-08-01T10:00:00.000Z', completedAt: '2026-08-01T11:00:00.000Z' },
+  ], now);
+  assert.deepEqual(adherence, { completedSessions: 2, scheduledSessions: 2, windowDays: 28 });
+});
+
+test('adherence stays hidden when there are no scheduled plans', () => {
+  assert.equal(buildTrainingAdherence([
+    { id: 'flexible', status: 'completed', scheduledAt: null, startedAt: '2026-09-20T10:00:00.000Z', completedAt: '2026-09-20T11:00:00.000Z' },
+  ], new Date('2026-09-29T12:00:00.000Z')), null);
+});
 
 test('duration uses set counts, one warm-up buffer and no final-set rest', () => {
   const plan = buildPlannedWorkoutExercise({ exercise, history: [], preferredLoadUnit: 'kg' });

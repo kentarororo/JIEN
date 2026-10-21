@@ -1,11 +1,12 @@
 import { View } from 'react-native';
 import { AppText, Button, Card, ProgressBar } from './ui';
-import type { getTrainingProgrammeProgress } from '@/lib/db/training-programme';
+import type { getTrainingAdherence, getTrainingProgrammeProgress } from '@/lib/db/training-programme';
 import { PROGRAMME_GOALS } from '@/lib/planning/training-programme';
 import { spacing, typography, useJienTheme } from '@/theme';
 
-export function TrainingProgrammeCard({ progress, onEdit, onPlan }: {
+export function TrainingProgrammeCard({ progress, adherence, onEdit, onPlan }: {
   progress: Awaited<ReturnType<typeof getTrainingProgrammeProgress>>;
+  adherence: Awaited<ReturnType<typeof getTrainingAdherence>>;
   onEdit: () => void;
   onPlan: () => void;
 }) {
@@ -13,6 +14,7 @@ export function TrainingProgrammeCard({ progress, onEdit, onPlan }: {
   if (!progress) return <Card>
     <AppText style={typography.section}>Choose your training targets</AppText>
     <AppText style={{ color: colors.textMuted }}>Set priority muscles and weekly targets. Your recent history stays a separate reference.</AppText>
+    {adherence ? <AdherenceSummary adherence={adherence} /> : null}
     <Button label="Set training targets" onPress={onEdit} variant="secondary" />
   </Card>;
   const { programme, rows, completedSessions, focus } = progress;
@@ -21,6 +23,7 @@ export function TrainingProgrammeCard({ progress, onEdit, onPlan }: {
     <AppText style={typography.section}>Your weekly targets</AppText>
     <AppText>{PROGRAMME_GOALS.find((goal) => goal.value === programme.goal)?.label} · {completedSessions} of {programme.sessionsPerWeek} sessions logged</AppText>
     <AppText style={{ color: colors.textMuted }}>Monday–Sunday · Targets you chose, not automatic progression.</AppText>
+    {adherence ? <AdherenceSummary adherence={adherence} /> : null}
     {rows.map((row) => <View key={row.muscleGroup} style={{ gap: spacing.xxs }}>
       <AppText>{row.label}: {row.completed} / {row.weeklySetCredits} credits</AppText>
       <ProgressBar value={row.completed / row.weeklySetCredits} />
@@ -33,4 +36,14 @@ export function TrainingProgrammeCard({ progress, onEdit, onPlan }: {
     <Button label={focus.length ? 'Plan from my targets' : 'Browse workout plans'} onPress={onPlan} variant="secondary" />
     <Button label="Edit training targets" onPress={onEdit} variant="quiet" />
   </Card>;
+}
+
+function AdherenceSummary({ adherence }: {
+  adherence: NonNullable<Awaited<ReturnType<typeof getTrainingAdherence>>>;
+}) {
+  const { colors } = useJienTheme();
+  return <View style={{ gap: spacing.xxs }}>
+    <AppText style={{ fontWeight: '700' }}>{adherence.completedSessions} of {adherence.scheduledSessions} planned sessions done</AppText>
+    <AppText style={{ color: colors.textMuted }}>Last {adherence.windowDays} days · Flexible completed workouts count as completed work and do not add a planned session.</AppText>
+  </View>;
 }

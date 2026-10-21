@@ -71,12 +71,14 @@ export default function PlanWorkoutScreen() {
     availableMinutes?: string;
     sourceWorkoutId?: string;
     sessionApproach?: string;
+    swapExerciseId?: string;
   }>();
   const { width } = useWindowDimensions();
   const compact = width < 640;
   const { colors } = useJienTheme();
   const planIdRef = useRef(params.planWorkoutId ?? Crypto.randomUUID());
   const submitLockRef = useRef(false);
+  const swapRequestHandledRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const exerciseBrowserYRef = useRef(0);
   const [catalog, setCatalog] = useState<Exercise[] | null>(null);
@@ -180,6 +182,18 @@ export default function PlanWorkoutScreen() {
   }, [db, params.planWorkoutId, params.sessionApproach, params.sourceWorkoutId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!params.swapExerciseId || swapRequestHandledRef.current || replacementIndex != null) return;
+    const index = planned.findIndex((exercise) => exercise.exerciseId === params.swapExerciseId);
+    if (index < 0) return;
+    swapRequestHandledRef.current = true;
+    setReplacementIndex(index);
+    setQuery(muscleGroupLabel(planned[index]!.primaryMuscleGroup));
+    setBrowseAll(true);
+    setCatalogLimit(24);
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, exerciseBrowserYRef.current - spacing.md), animated: true }));
+  }, [params.swapExerciseId, planned, replacementIndex]);
 
   const jointProgressionHold = hasJointConsideration && jointProgressionChoice === 'hold';
 

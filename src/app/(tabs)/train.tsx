@@ -6,9 +6,9 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, Field, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { TrainingProgrammeCard } from '@/components/training-programme-card';
-import { getTrainingProgrammeProgress } from '@/lib/db';
+import { getTrainingAdherence, getTrainingProgrammeProgress } from '@/lib/db';
 import { getWorkoutProgressComparison, listRecentWorkouts, listUpcomingPlannedWorkouts, listVolumeHistory } from '@/lib/db';
-import { aggregateWeeklyVolume, buildMuscleGroupAdvisory, buildMuscleGroupTrends, muscleGroupLabel, type MuscleGroupAdvisory, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
+import { aggregateWeeklyVolume, buildMuscleGroupAdvisory, buildMuscleGroupTrends, buildMuscleVolumeDropFlags, muscleGroupLabel, type MuscleGroupAdvisory, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { filterWorkoutHistory, groupWorkoutHistoryByMonth } from '@/lib/training/history';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -24,12 +24,13 @@ export default function TrainScreen() {
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(12);
   const [showAllHistoryMuscles, setShowAllHistoryMuscles] = useState(false);
   const loader = useCallback(async () => {
-    const [workouts, planned, volumeSets, progress, programme] = await Promise.all([
+    const [workouts, planned, volumeSets, progress, programme, adherence] = await Promise.all([
       listRecentWorkouts(db, 100),
       listUpcomingPlannedWorkouts(db),
       listVolumeHistory(db),
       getWorkoutProgressComparison(db),
       getTrainingProgrammeProgress(db),
+      getTrainingAdherence(db),
     ]);
     const weeks = aggregateWeeklyVolume(volumeSets);
     return {
@@ -38,8 +39,10 @@ export default function TrainScreen() {
       weeks,
       advisory: buildMuscleGroupAdvisory(volumeSets),
       muscleTrends: buildMuscleGroupTrends(weeks),
+      volumeDropFlags: buildMuscleVolumeDropFlags(weeks),
       progress,
       programme,
+      adherence,
     };
   }, [db]);
   const { data, error, loading, reload } = useScreenData(loader);
@@ -77,7 +80,7 @@ export default function TrainScreen() {
       {error ? <StatePanel title="Workouts are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && data?.workouts.length === 0 && data.planned.length === 0 ? <StatePanel title="No workouts yet" body="Plan the work ahead or start with one exercise and record the sets you completed." actionLabel="Plan your first workout" onAction={() => router.push('/workouts/plan' as never)} /> : null}
       {trainingView === 'overview' ? <>
-      {data ? <TrainingProgrammeCard progress={data.programme} onEdit={() => router.push('/workouts/programme' as never)} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'programme_targets' } } as never)} /> : null}
+      {data ? <TrainingProgrammeCard progress={data.programme} adherence={data.adherence} onEdit={() => router.push('/workouts/programme' as never)} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'programme_targets' } } as never)} /> : null}
       {data && !data.programme ? <MuscleAdvisoryCard advisory={data.advisory} onPlan={() => router.push({ pathname: '/workouts/plan', params: { source: 'advisory' } } as never)} onLog={() => router.push('/workouts/new')} /> : null}
       {data?.planned.length ? <>
         <SectionHeading title="Workout plans" detail={`${data.planned.length} saved session${data.planned.length === 1 ? '' : 's'}`} />
@@ -154,6 +157,12 @@ export default function TrainScreen() {
       {data?.muscleTrends.length ? <>
         <SectionHeading title="Muscle-group coverage" detail="Completed training-set credits by muscle" />
         <Card>
+          {data.volumeDropFlags.length ? <View style={styles.volumeFlags}>
+            {data.volumeDropFlags.map((flag) => <View key={flag.muscleGroup} style={[styles.volumeFlag, { backgroundColor: colors.warningSoft }]}>
+              <AppText style={{ color: colors.warning, fontWeight: '700' }}>{flag.label}: possible deload or missed week</AppText>
+              <AppText style={{ color: colors.textMuted }}>{formatWork(flag.currentWorkKg)} this week versus a {formatWork(flag.fourWeekAverageWorkKg)} four-week average. This is logged work information, not a plan change.</AppText>
+            </View>)}
+          </View> : null}
           <View style={styles.muscleGrid}>
             {(showAllMuscles ? data.muscleTrends : data.muscleTrends.slice(0, 6)).map((trend) => (
               <MuscleTrendCard key={trend.muscleGroup} trend={trend} recentWeekCount={Math.min(4, data.weeks.length)} />
@@ -230,6 +239,8 @@ const styles = StyleSheet.create({
   comparisonLabel: { ...typography.caption, fontWeight: '700' },
   comparisonValue: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
   exerciseWork: { ...typography.caption, fontVariant: ['tabular-nums'] },
+  volumeFlags: { gap: spacing.xs },
+  volumeFlag: { borderRadius: radii.control, padding: spacing.sm, gap: spacing.xxs },
   muscleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   muscleCard: { flexGrow: 1, flexBasis: 250, minWidth: 220, padding: spacing.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, gap: spacing.sm },
   muscleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },

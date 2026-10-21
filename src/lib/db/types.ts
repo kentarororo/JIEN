@@ -260,6 +260,7 @@ export type ExerciseHistorySession = {
   workoutTitle: string;
   performedOn: string;
   completedAt: string;
+  jointHold: boolean;
   volumeKg: number;
   sets: ExerciseHistorySet[];
 };

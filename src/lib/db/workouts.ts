@@ -960,10 +960,11 @@ export async function getExerciseSessionHistory(
     load_unit: LoadUnit;
     rpe: number | null;
     kind: SetKind;
+    plan_json: string | null;
   }>(
     `SELECT s.id, s.workout_id, w.title AS workout_title, w.performed_on,
       COALESCE(w.completed_at, s.completed_at) AS completed_at,
-      s.reps, s.load_value, s.load_unit, s.rpe, s.kind
+      s.reps, s.load_value, s.load_unit, s.rpe, s.kind, w.plan_json
      FROM workout_sets s
      JOIN workouts w ON w.id = s.workout_id
      WHERE s.exercise_id = ?
@@ -994,6 +995,7 @@ export async function getExerciseSessionHistory(
       workoutTitle: row.workout_title,
       performedOn: row.performed_on,
       completedAt: row.completed_at,
+      jointHold: parsePlannedWorkoutPlan(row.plan_json)?.jointProgressionChoice === 'hold',
       volumeKg: 0,
       sets: [],
     };
