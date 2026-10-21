@@ -126,9 +126,10 @@ supabase secrets set PHOTO_AI_PROVIDER="anthropic" WELLNESS_AI_PROVIDER="anthrop
 supabase functions deploy analyze-food-photo wellness-chat --project-ref vrgkkcunbngjgqfmlcuh
 ```
 
-Never place provider keys in Expo, GitHub Pages variables, browser storage, or Google
-OAuth configuration. Deployment-owned keys use Supabase Function Secrets; tester-owned
-keys use the authenticated `ai-settings` proxy and encrypted Supabase Vault storage.
+Never place provider keys in Expo public variables, web-host variables, browser
+storage, or Google OAuth configuration. Deployment-owned keys use Supabase Function
+Secrets; tester-owned keys use the authenticated `ai-settings` proxy and encrypted
+Supabase Vault storage.
 
 Food search accepts the version 1 authenticated envelope and combines Open Food Facts
 Search-a-licious with configured FatSecret and USDA results. Singapore-tagged Open Food
