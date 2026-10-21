@@ -4,6 +4,8 @@ import test from 'node:test';
 import { calculateStartingNutritionTarget } from './targets.ts';
 import {
   evaluateAdaptiveNutritionTarget,
+  isPlausibleCompleteDay,
+  MIN_PLAUSIBLE_COMPLETE_DAY_KCAL,
   type AdaptiveNutritionHistoryDay,
 } from './adaptive-targets.ts';
 
@@ -127,6 +129,82 @@ test('requires protein logging coverage but never invents a protein target chang
   assert.equal(result.recommendation.suggestedCaloriesKcal, 2_400);
 });
 
+test('excludes partial food days from intake coverage and averages', () => {
+  const history = buildHistory([80, 79.9, 79.8, 79.7]);
+  history[3] = { ...history[3]!, dayState: 'partial', caloriesKcal: 12_000, proteinG: 900 };
+  const result = evaluateAdaptiveNutritionTarget({
+    currentCaloriesKcal: 2_400,
+    currentProteinTargetG: 150,
+    desiredWeeklyWeightChangePercent: -0.5,
+    history,
+  });
+
+  assert.equal(result.dataSufficiency.sufficient, true);
+  assert.equal(result.dataSufficiency.completeDays, 27);
+  assert.equal(result.dataSufficiency.calorieDays, 27);
+  assert.equal(result.trend.robustAverageCaloriesKcal, 2_400);
+  assert.equal(result.trend.robustAverageProteinG, 160);
+});
+
+test('counts body weight from partial food days while reporting too few complete days', () => {
+  const history = buildHistory([80, 79.9, 79.8], { days: 21 });
+  for (let index = 0; index < history.length; index += 1) {
+    if (index % 7 < 4) history[index] = { ...history[index]!, dayState: 'partial' };
+  }
+  const result = evaluateAdaptiveNutritionTarget({
+    currentCaloriesKcal: 2_400,
+    currentProteinTargetG: 150,
+    desiredWeeklyWeightChangePercent: -0.5,
+    history,
+  });
+
+  assert.equal(result.dataSufficiency.weightDays, 21);
+  assert.equal(result.dataSufficiency.completeDays, 9);
+  assert.ok(result.dataSufficiency.issues.includes('complete_day_coverage_low'));
+  assert.equal(result.dataSufficiency.issues.includes('weight_coverage_low'), false);
+});
+
+test('does not turn a not-logged day into a zero-calorie observation', () => {
+  const history = buildHistory([80, 79.9, 79.8, 79.7]);
+  for (let index = 0; index < history.length; index += 7) {
+    history[index] = { ...history[index]!, dayState: 'not_logged', caloriesKcal: 0, proteinG: 0 };
+  }
+  const result = evaluateAdaptiveNutritionTarget({
+    currentCaloriesKcal: 2_400,
+    currentProteinTargetG: 150,
+    desiredWeeklyWeightChangePercent: -0.5,
+    history,
+  });
+
+  assert.equal(result.dataSufficiency.sufficient, true);
+  assert.equal(result.dataSufficiency.calorieDays, 24);
+  assert.equal(result.trend.robustAverageCaloriesKcal, 2_400);
+});
+
+test('excludes empty and implausibly low Complete days from nutrition coverage and averages', () => {
+  assert.equal(MIN_PLAUSIBLE_COMPLETE_DAY_KCAL, 800);
+  assert.equal(isPlausibleCompleteDay(null), false);
+  assert.equal(isPlausibleCompleteDay(MIN_PLAUSIBLE_COMPLETE_DAY_KCAL - 1), false);
+  assert.equal(isPlausibleCompleteDay(MIN_PLAUSIBLE_COMPLETE_DAY_KCAL), true);
+
+  const history = buildHistory([80, 79.9, 79.8, 79.7]);
+  history[2] = { ...history[2]!, caloriesKcal: null, proteinG: null };
+  history[9] = { ...history[9]!, caloriesKcal: MIN_PLAUSIBLE_COMPLETE_DAY_KCAL - 1, proteinG: 900 };
+  const result = evaluateAdaptiveNutritionTarget({
+    currentCaloriesKcal: 2_400,
+    currentProteinTargetG: 150,
+    desiredWeeklyWeightChangePercent: -0.5,
+    history,
+  });
+
+  assert.equal(result.dataSufficiency.sufficient, true);
+  assert.equal(result.dataSufficiency.completeDays, 26);
+  assert.equal(result.dataSufficiency.calorieDays, 26);
+  assert.equal(result.dataSufficiency.proteinDays, 26);
+  assert.equal(result.trend.robustAverageCaloriesKcal, 2_400);
+  assert.equal(result.trend.robustAverageProteinG, 160);
+});
+
 test('caps a large recommendation by both 150 kcal and six percent of the current target', () => {
   const result = evaluateAdaptiveNutritionTarget({
     currentCaloriesKcal: 2_000,
@@ -156,6 +234,7 @@ function buildHistory(
     const week = Math.min(Math.floor(index / 7), weeklyWeightKg.length - 1);
     return {
       date: new Date(start + index * 86_400_000).toISOString().slice(0, 10),
+      dayState: 'complete',
       bodyWeightKg: weeklyWeightKg[week]! + dailyOffsets[index % 7]!,
       caloriesKcal: options.weeklyCalories?.[week] ?? options.caloriesKcal ?? 2_400,
       proteinG: options.proteinG ?? 160,

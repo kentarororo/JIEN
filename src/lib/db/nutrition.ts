@@ -20,6 +20,7 @@ import { getUserProfile } from './profile';
 import { getLatestBodyMeasurement } from './wellness';
 import type {
   DailyNutrition,
+  LoggedNutritionDayState,
   MealDetail,
   MealItemSnapshot,
   MealSource,
@@ -199,7 +200,10 @@ export async function getDailyNutrition(
   db: SQLiteDatabase,
   date = toLocalDateKey(),
 ): Promise<DailyNutrition> {
-  const meals = await listMealsForDate(db, date);
+  const [meals, dayState] = await Promise.all([
+    listMealsForDate(db, date),
+    getNutritionDayState(db, date),
+  ]);
   const totals = meals.reduce<MacroTotals>(
     (sum, meal) => ({
       caloriesKcal: sum.caloriesKcal + meal.caloriesKcal,
@@ -214,7 +218,80 @@ export async function getDailyNutrition(
   const target = await getNutritionTarget(db, date) ?? (date === toLocalDateKey()
     ? await ensureStartingNutritionTarget(db)
     : null);
-  return { date, meals, totals, target };
+  return { date, dayState, meals, totals, target };
+}
+
+export async function getNutritionDayState(
+  db: SQLiteDatabase,
+  date = toLocalDateKey(),
+): Promise<DailyNutrition['dayState']> {
+  const queryDate = mealDateQueryKey(date);
+  const logged = await db.getFirstAsync<{ item_count: number }>(
+    `SELECT COUNT(f.id) AS item_count
+     FROM meals m
+     JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
+     WHERE m.eaten_on = ? AND m.deleted_at IS NULL`,
+    [queryDate],
+  );
+  if ((logged?.item_count ?? 0) === 0) return 'not_logged';
+  const row = await db.getFirstAsync<{ state: LoggedNutritionDayState }>(
+    `SELECT state FROM nutrition_day_states
+     WHERE logged_on = ? AND deleted_at IS NULL
+     LIMIT 1`,
+    [queryDate],
+  );
+  return row?.state === 'complete' ? 'complete' : 'partial';
+}
+
+export async function setNutritionDayState(
+  db: SQLiteDatabase,
+  date: string,
+  state: LoggedNutritionDayState,
+): Promise<void> {
+  const queryDate = mealDateQueryKey(date);
+  if (state !== 'partial' && state !== 'complete') throw new Error('Choose partial or complete.');
+  await withExclusiveTransaction(db, async (transactionDb) => {
+    const logged = await transactionDb.getFirstAsync<{ item_count: number }>(
+      `SELECT COUNT(f.id) AS item_count
+       FROM meals m
+       JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
+       WHERE m.eaten_on = ? AND m.deleted_at IS NULL`,
+      [queryDate],
+    );
+    if ((logged?.item_count ?? 0) === 0) {
+      throw new Error('Add food before changing this day from not logged.');
+    }
+    const existing = await transactionDb.getFirstAsync<{ id: string; created_at: string }>(
+      'SELECT id, created_at FROM nutrition_day_states WHERE logged_on = ?',
+      [queryDate],
+    );
+    const id = existing?.id ?? Crypto.randomUUID();
+    const now = new Date().toISOString();
+    const createdAt = existing?.created_at ?? now;
+    if (existing) {
+      await transactionDb.runAsync(
+        `UPDATE nutrition_day_states
+         SET state = ?, updated_at = ?, client_updated_at = ?, deleted_at = NULL
+         WHERE id = ?`,
+        [state, now, now, id],
+      );
+    } else {
+      await transactionDb.runAsync(
+        `INSERT INTO nutrition_day_states (
+          id, logged_on, state, created_at, updated_at, client_updated_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+        [id, queryDate, state, createdAt, now, now],
+      );
+    }
+    await enqueueUpsert(transactionDb, 'nutrition_day_states', id, {
+      id,
+      logged_on: queryDate,
+      state,
+      created_at: createdAt,
+      client_updated_at: now,
+      deleted_at: null,
+    });
+  });
 }
 
 export async function getMealLoggingPattern(
@@ -616,25 +693,50 @@ export async function getAdaptiveNutritionHistory(
        ORDER BY w.logged_on`,
       [startDate],
     ),
-    db.getAllAsync<{ date: string; calories_kcal: number; protein_g: number }>(
+    db.getAllAsync<{
+      date: string;
+      day_state: LoggedNutritionDayState;
+      calories_kcal: number;
+      protein_g: number;
+    }>(
       `SELECT m.eaten_on AS date,
+        CASE WHEN s.state = 'complete' THEN 'complete' ELSE 'partial' END AS day_state,
         COALESCE(SUM(f.calories_kcal), 0) AS calories_kcal,
         COALESCE(SUM(f.protein_g), 0) AS protein_g
        FROM meals m
-       LEFT JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
+       JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
+       LEFT JOIN nutrition_day_states s
+         ON s.logged_on = m.eaten_on AND s.deleted_at IS NULL
        WHERE m.eaten_on >= ? AND m.deleted_at IS NULL
-       GROUP BY m.eaten_on
+       GROUP BY m.eaten_on, s.state
        ORDER BY m.eaten_on`,
       [startDate],
     ),
   ]);
   const byDate = new Map<string, AdaptiveNutritionHistoryDay>();
   for (const row of weights) {
-    byDate.set(row.date, { date: row.date, bodyWeightKg: row.body_weight_kg, caloriesKcal: null, proteinG: null });
+    byDate.set(row.date, {
+      date: row.date,
+      dayState: 'not_logged',
+      bodyWeightKg: row.body_weight_kg,
+      caloriesKcal: null,
+      proteinG: null,
+    });
   }
   for (const row of nutrition) {
-    const current = byDate.get(row.date) ?? { date: row.date, bodyWeightKg: null, caloriesKcal: null, proteinG: null };
-    byDate.set(row.date, { ...current, caloriesKcal: row.calories_kcal, proteinG: row.protein_g });
+    const current = byDate.get(row.date) ?? {
+      date: row.date,
+      dayState: row.day_state,
+      bodyWeightKg: null,
+      caloriesKcal: null,
+      proteinG: null,
+    };
+    byDate.set(row.date, {
+      ...current,
+      dayState: row.day_state,
+      caloriesKcal: row.day_state === 'complete' ? row.calories_kcal : null,
+      proteinG: row.day_state === 'complete' ? row.protein_g : null,
+    });
   }
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -679,12 +781,15 @@ export async function listNutritionExportRows(
     carbohydrate_g: number;
     fat_g: number;
     fibre_g: number | null;
+    day_state: LoggedNutritionDayState;
   }>(
     `SELECT m.id AS meal_id, m.eaten_on, m.eaten_at, m.name AS meal_name, m.type AS meal_type,
       f.name AS food, f.quantity, f.unit, f.calories_kcal, f.protein_g,
-      f.carbohydrate_g, f.fat_g, f.fibre_g
+      f.carbohydrate_g, f.fat_g, f.fibre_g,
+      CASE WHEN s.state = 'complete' THEN 'complete' ELSE 'partial' END AS day_state
      FROM food_items f
      JOIN meals m ON m.id = f.meal_id
+     LEFT JOIN nutrition_day_states s ON s.logged_on = m.eaten_on AND s.deleted_at IS NULL
      WHERE f.deleted_at IS NULL AND m.deleted_at IS NULL
      ORDER BY m.eaten_on, m.eaten_at, f.sort_order`,
   );
@@ -702,5 +807,6 @@ export async function listNutritionExportRows(
     carbohydrateG: row.carbohydrate_g,
     fatG: row.fat_g,
     fibreG: row.fibre_g,
+    dayState: row.day_state,
   }));
 }

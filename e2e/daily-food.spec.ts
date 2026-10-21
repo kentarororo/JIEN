@@ -29,8 +29,14 @@ test('day-first food log adds, scales and removes individual items without chang
   await expect(page.getByRole('button', { name: 'Edit First food QA, 200 calories', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit Second food QA, 100 calories', exact: true })).toBeVisible();
   await expect(page.getByText('300', { exact: true })).toBeVisible();
-  // Disable the network after app load: manual writes still commit locally.
+  await expect(page.getByLabel('Food day status: Partial', { exact: true })).toBeVisible();
+  // Disable the network after app load: day-state and food-item writes still commit locally.
   await context.setOffline(true);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Mark day complete', exact: true }).click();
+  await expect(page.getByLabel('Food day status: Complete', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mark day partial', exact: true }).click();
+  await expect(page.getByLabel('Food day status: Partial', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Edit First food QA, 200 calories', exact: true }).click();
   await page.getByLabel('Portion', { exact: true }).fill('0');
   await expect(page.getByRole('button', { name: 'Save portion', exact: true })).toBeDisabled();

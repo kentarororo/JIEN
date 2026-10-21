@@ -47,6 +47,7 @@ export function nutritionToCsv(rows: NutritionExportRow[]): string {
     [
       'meal_id',
       'date',
+      'day_state',
       'eaten_at',
       'meal',
       'meal_type',
@@ -62,6 +63,7 @@ export function nutritionToCsv(rows: NutritionExportRow[]): string {
     rows.map((row) => [
       row.mealId,
       row.eatenOn,
+      row.dayState,
       row.eatenAt,
       row.mealName,
       row.mealType,

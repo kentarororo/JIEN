@@ -11,7 +11,9 @@ test('workout CSV escapes commas and includes portable headers', () => {
 });
 
 test('nutrition CSV escapes quotes and preserves macro columns', () => {
-  const csv = nutritionToCsv([{ mealId: '1', eatenOn: '2026-08-11', eatenAt: '2026-08-11T12:00:00Z', mealName: 'Lunch', mealType: 'lunch', food: '6" sandwich', quantity: 1, unit: 'serving', caloriesKcal: 500, proteinG: 30, carbohydrateG: 55, fatG: 18, fibreG: null }]);
+  const csv = nutritionToCsv([{ mealId: '1', eatenOn: '2026-08-11', dayState: 'complete', eatenAt: '2026-08-11T12:00:00Z', mealName: 'Lunch', mealType: 'lunch', food: '6" sandwich', quantity: 1, unit: 'serving', caloriesKcal: 500, proteinG: 30, carbohydrateG: 55, fatG: 18, fibreG: null }]);
   assert.match(csv, /"6"" sandwich"/);
+  assert.match(csv, /^meal_id,date,day_state,/);
+  assert.match(csv, /,complete,/);
   assert.match(csv, /protein_g,carbohydrate_g,fat_g,fibre_g/);
 });

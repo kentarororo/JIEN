@@ -11,9 +11,9 @@ editable form only after the user selects it; saving remains a separate confirma
 - Current daily calorie and protein targets.
 - A desired weekly body-weight change expressed as a percentage between `-1%` and
   `+1%`. The evaluator does not infer this direction from a broad composition goal.
-- One daily aggregate per local calendar date containing optional body weight,
-  calories, and protein. Invalid dates or implausible numeric values are treated as
-  missing observations rather than coerced.
+- One daily aggregate per local calendar date containing its food-log state and
+  optional body weight, calories, and protein. Invalid dates or implausible numeric
+  values are treated as missing observations rather than coerced.
 
 ## Data sufficiency
 
@@ -21,13 +21,18 @@ The latest four rolling seven-day windows are inspected. The newest three window
 must span at least 21 days and each contain:
 
 - body weight on at least four days;
-- calorie totals on at least five days; and
-- protein totals on at least five days.
+- at least five food-log days explicitly marked complete;
+- calorie totals on at least five complete days; and
+- protein totals on at least five complete days.
+
+Partial and not-logged food days do not contribute intake totals or zeroes. Body
+weight remains independent and still counts on either kind of day.
 
 A fourth eligible week improves confidence. Weekly calorie averages must also stay
 within a 12% relative spread; otherwise changes in weight cannot be attributed to a
 stable enough intake signal and the result is `hold`. Missing-history and consistency
-reasons are returned as machine-readable issue codes.
+reasons are returned as machine-readable issue codes. `complete_day_coverage_low`
+specifically means that a required week has too few explicitly complete food days.
 
 ## Robust trend
 

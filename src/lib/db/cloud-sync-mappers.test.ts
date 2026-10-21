@@ -18,6 +18,7 @@ test('serializes Postgres booleans without changing scalar values', () => {
   assert.equal(serializeCloudValue(false), 0);
   assert.equal(serializeCloudValue('2026-08-14T00:00:00Z'), '2026-08-14T00:00:00Z');
   assert.equal(serializeCloudValue(null), null);
+  assert.equal(serializeCloudValue('complete'), 'complete', 'nutrition day state survives the remote-to-local mapper');
 });
 
 test('preserves device-only AI retry metadata until a request completes', () => {

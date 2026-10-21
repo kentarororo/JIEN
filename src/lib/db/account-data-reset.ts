@@ -12,6 +12,7 @@ const ACCOUNT_DATA_TABLES_IN_DELETE_ORDER = [
   'ai_messages',
   'workouts',
   'meals',
+  'nutrition_day_states',
   'nutrition_targets',
   'wellness_logs',
   'ai_conversations',

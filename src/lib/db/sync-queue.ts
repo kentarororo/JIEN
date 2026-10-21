@@ -20,6 +20,7 @@ export type RemoteTable =
   | 'meals'
   | 'food_items'
   | 'private_foods'
+  | 'nutrition_day_states'
   | 'nutrition_targets'
   | 'wellness_logs'
   | 'ai_conversations'
@@ -40,6 +41,7 @@ const TABLE_PRIORITY: Record<RemoteTable, number> = {
   exercises: 0,
   workouts: 1,
   meals: 1,
+  nutrition_day_states: 1,
   nutrition_targets: 1,
   wellness_logs: 1,
   ai_conversations: 1,
@@ -204,6 +206,8 @@ export async function syncPendingChanges(
           ? await supabase.from('exercises').upsert(ownedPayload, { onConflict: 'id,user_id' })
           : row.table_name === 'notification_preferences'
             ? await supabase.from('notification_preferences').upsert(ownedPayload, { onConflict: 'user_id,type' })
+            : row.table_name === 'nutrition_day_states'
+              ? await supabase.from('nutrition_day_states').upsert(ownedPayload, { onConflict: 'user_id,logged_on' })
             : await supabase.from(row.table_name).upsert(ownedPayload);
       if (error) {
         throw error;

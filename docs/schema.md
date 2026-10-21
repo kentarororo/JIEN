@@ -10,7 +10,9 @@ Calendar-backed workout plans are added by
 bodybuilding taxonomy is synchronized for existing accounts by
 `supabase/migrations/20260820000100_bodybuilding_muscle_taxonomy.sql`. Immutable
 set-level muscle target snapshots are added by
-`supabase/migrations/20260901000100_muscle_target_snapshots.sql`.
+`supabase/migrations/20260901000100_muscle_target_snapshots.sql`. Synced food-day
+completion state is added by
+`supabase/migrations/20261019000100_nutrition_day_states.sql`.
 
 ## Conventions
 
@@ -260,6 +262,34 @@ transaction, and their idempotent upserts are enqueued in that transaction. A
 removal sets `deleted_at` on the meal and all active items; history queries exclude
 those tombstones, while sync retains them long enough to remove the records on
 other devices.
+
+### `nutrition_day_states`
+
+One optional completion-state row per user-local food-log date. A date with active
+food items and no row is `partial`, which is the default. An active row may record
+`partial` or `complete`; changing either value is a local-first upsert. A date with
+no active food items is always presented and evaluated as `not_logged`, regardless
+of a retained state row, so missing intake is never converted into a zero-calorie
+observation.
+
+Only `complete` days with active food items and at least 800 kcal logged contribute
+calorie and protein values to adaptive-nutrition coverage and averages. The named
+client-side plausibility floor can be changed without altering the stored day state.
+Body-weight observations remain independent and can count on partial, implausibly
+low, or not-logged food days. This state is descriptive user input, not an AI claim
+and not a notification trigger.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id`, `user_id` | `uuid` | PK and owner FK; client-generated ID |
+| `logged_on` | `date` | User-local food-log day; one row per owner and date, including a retained tombstone (local SQLite stores one row per date) |
+| `state` | `nutrition_day_state` | `partial` or `complete` |
+| sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
+
+Local schema version 18 creates the matching SQLite table, its date lookup and sync
+indexes, and the active-date uniqueness rule. Complete JSON exports include the
+active state rows. Nutrition CSV rows repeat the derived day state so each exported
+food record retains whether its day was complete or partial.
 
 ### Local-only `meal_photo_jobs`
 
