@@ -7,7 +7,9 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: [['line']],
+  reporter: process.env.CI
+    ? [['line'], ['html', { open: 'never', outputFolder: 'playwright-report' }]]
+    : [['line']],
   snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}-win32{ext}',
   expect: { timeout: 10_000 },
   timeout: 90_000,
@@ -15,6 +17,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     colorScheme: 'light',
     locale: 'en-SG',
+    timezoneId: 'Asia/Singapore',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     viewport: { width: 390, height: 844 },
