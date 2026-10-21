@@ -4,6 +4,44 @@ JIEN remains a lifting-first, local-first training and nutrition product. Milest
 close one complete user loop at a time; new activity types do not enter the product
 until their measurements and progression rules are explicit.
 
+## Status at a glance — 18 October 2026
+
+Every milestone carries exactly one status. Move it up only when the evidence exists.
+
+- **Built:** merged to `main` and tests pass; may still need a backend deploy step.
+- **Live on web:** on the Vercel production app.
+- **Phone-tested:** checked on a real iPhone and a real Android phone.
+- **Beta-ready:** meets the closed-beta gate below.
+
+| Milestone | Status | Still to do |
+| --- | --- | --- |
+| Alpha 2.0 — foundation | Live on web | Phone testing |
+| Alpha 2.1 — quality and catalogue | Live on web | Phone testing |
+| Alpha 2.2 — advisory-to-plan | Live on web | Phone testing |
+| Alpha 2.3 — logging integrity, programme continuity, session choice | Live on web | Phone testing; production auth and multi-device restore |
+| Alpha 2.3A — trustworthy training accounting | Live on web | Phone testing |
+| Alpha 2.4A — next-session recommendation | Live on web | Phone testing |
+| Alpha 2.4B — chosen training targets | Live on web | Phone testing |
+| Alpha 2.4C — time-aware plans | Live on web | Calibrate estimates against measured sessions |
+| Quick-entry refinement | Live on web | Phone testing |
+| Cardio logging and photo reliability | Live on web | Phone testing |
+| Day-first food logging | Live on web | Phone testing |
+| Private food library (part of Alpha 2.5) | Built | Confirm `20261008000100_private_foods.sql` is applied and run the two-account access check |
+| Food-photo trust (part of Alpha 2.5) | Built | Confirm the Edge Function deploy; run the measured-photo benchmark |
+| Alpha 2.4 — missed sessions, return after a break | Not started | #5 |
+| Alpha 2.4 — plateau review and adherence | Not started | #6 |
+| Alpha 2.5 — partial/complete day state, recipes, food management | Not started | Not yet scoped |
+| Closed beta | Not started | Phone testing, production sync/restore, beta instrumentation |
+
+Nothing is Phone-tested yet, so nothing is Beta-ready.
+
+### Next up
+
+1. #4 — keep Vercel as the only web host
+2. #3 — run the browser tests automatically
+3. #5 — missed sessions and coming back after a break
+4. #6 — plateau review and adherence (after #5)
+
 ## October follow-up: food-photo trust
 
 The next Alpha 2.5 quality gate is grounded, editable photo nutrition—not an
@@ -11,11 +49,11 @@ uncalibrated confidence score. The first local slice adds a runtime analysis rub
 conservative USDA matching, portion/ingredient assumptions and recovery-safe review.
 See [food-photo-quality.md](food-photo-quality.md) for the MacroFactor comparison,
 half-sandwich failure case, implementation limits and measured-photo release gate.
-Local implementation is not yet a deployed or benchmarked accuracy improvement.
+Status: Built. Not yet confirmed as deployed, or benchmarked as an accuracy improvement.
 
 ## October follow-up: day-first food logging
 
-Local implementation: Food is a daily dashboard with calorie/macro totals and one
+Food is a daily dashboard with calorie/macro totals and one
 list of individual foods, including items from existing multi-food meals. Quick add
 uses saved/common foods with a portion preview; search, manual entry, barcode and
 photo review remain available through Add food. Saving returns to the selected day.
@@ -73,7 +111,7 @@ isolated arithmetic. See [training-accounting-release.md](training-accounting-re
 for verification and release status. Implemented is not the same as deployed or
 physically validated.
 
-### Alpha 2.4A — next-session recommendation (local implementation)
+### Alpha 2.4A — next-session recommendation
 
 Completed-workout review now suggests Progress, Repeat, or Ease off with a factual
 reason. Optional fresh feedback can request a lighter plan. The suggestion is not
@@ -88,7 +126,7 @@ This completes the recommendation interaction, not all of Alpha 2.4. The target
 setup below is the next increment; real time budgets, longitudinal adherence/plateau
 decisions and structured relevant-joint feedback remain programme deliverables.
 
-### Alpha 2.4B — chosen training targets (local implementation)
+### Alpha 2.4B — chosen training targets
 
 Training now offers a saved intention, flexible weekly session count and up to six
 priority muscles with user-entered set-credit targets. The summary separates chosen
@@ -104,7 +142,7 @@ They use the existing private profile sync/outbox and complete export. This slic
 requires an additive cloud migration before deployment; it is not a production or
 physical-device validation claim. See [training-programme-targets.md](training-programme-targets.md).
 
-### Alpha 2.4C — time-aware plans (local implementation)
+### Alpha 2.4C — time-aware plans
 
 Routine starters now open in full. A duration estimate uses planned set count,
 editable lifting/rest/between-exercise assumptions and a warm-up allowance. Available
@@ -116,7 +154,7 @@ progression baseline. Settings persist with the saved plan without a new SQL mig
 These estimates are not yet calibrated against measured sessions.
 See [time-aware-planning.md](time-aware-planning.md) for scope and verification.
 
-### Quick-entry refinement — local implementation
+### Quick-entry refinement
 
 Saved plans open directly in the editable set logger from Training and the day
 calendar; a separate review action keeps scheduling and plan management available.
