@@ -21,6 +21,52 @@ export type SavePrivateFoodInput = {
   fibreG?: number | null;
 };
 
+type PrivateFoodRow = {
+  id: string;
+  catalog_id: string;
+  name: string;
+  brand: string | null;
+  barcode: string | null;
+  serving_quantity: number;
+  serving_unit: string;
+  calories_kcal: number;
+  protein_g: number;
+  carbohydrate_g: number;
+  fat_g: number;
+  fibre_g: number | null;
+  created_at: string;
+  updated_at: string;
+  client_updated_at: string;
+  deleted_at: string | null;
+  is_shared: number;
+};
+
+export async function listPrivateFoods(
+  db: SQLiteDatabase,
+  query = '',
+): Promise<FoodCatalogItem[]> {
+  const clean = query.trim();
+  if (clean.length === 1) return [];
+  const where = clean.length === 0
+    ? 'deleted_at IS NULL'
+    : `deleted_at IS NULL AND (
+      name LIKE ? COLLATE NOCASE OR brand LIKE ? COLLATE NOCASE OR barcode = ?
+    )`;
+  const parameters = clean.length === 0
+    ? []
+    : [`%${clean}%`, `%${clean}%`, clean.replace(/[\s-]/g, '')];
+  const rows = await db.getAllAsync<PrivateFoodRow>(
+    `SELECT id, catalog_id, name, brand, barcode, serving_quantity, serving_unit,
+      calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g, created_at,
+      updated_at, client_updated_at, deleted_at, is_shared
+     FROM private_foods
+     WHERE ${where}
+     ORDER BY created_at DESC, id DESC`,
+    parameters,
+  );
+  return rows.map(mapPrivateFood);
+}
+
 export async function savePrivateFood(
   db: SQLiteDatabase,
   input: SavePrivateFoodInput,
@@ -90,6 +136,66 @@ export async function stopSharingPrivateFood(db: SQLiteDatabase, catalogId: stri
       ...row, is_shared: false, updated_at: now, client_updated_at: now,
     });
   });
+}
+
+/** A tombstone also withdraws a shared food; logged meal snapshots remain separate. */
+export async function removePrivateFood(db: SQLiteDatabase, catalogId: string): Promise<void> {
+  await withExclusiveTransaction(db, async (transactionDb) => {
+    const row = await transactionDb.getFirstAsync<PrivateFoodRow>(
+      `SELECT id, catalog_id, name, brand, barcode, serving_quantity, serving_unit,
+        calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g, created_at,
+        updated_at, client_updated_at, deleted_at, is_shared
+       FROM private_foods WHERE catalog_id = ? AND deleted_at IS NULL`,
+      [catalogId],
+    );
+    if (!row) throw new Error('This saved food could not be found.');
+    const now = new Date(Math.max(Date.now(), (Date.parse(row.client_updated_at) || 0) + 1)).toISOString();
+    await transactionDb.runAsync(
+      `UPDATE private_foods
+       SET is_shared = 0, deleted_at = ?, updated_at = ?, client_updated_at = ?
+       WHERE id = ?`,
+      [now, now, now, row.id],
+    );
+    await enqueueUpsert(transactionDb, 'private_foods', row.id, {
+      id: row.id,
+      catalog_id: row.catalog_id,
+      name: row.name,
+      brand: row.brand,
+      barcode: row.barcode,
+      serving_quantity: row.serving_quantity,
+      serving_unit: row.serving_unit,
+      calories_kcal: row.calories_kcal,
+      protein_g: row.protein_g,
+      carbohydrate_g: row.carbohydrate_g,
+      fat_g: row.fat_g,
+      fibre_g: row.fibre_g,
+      created_at: row.created_at,
+      updated_at: now,
+      client_updated_at: now,
+      deleted_at: now,
+      is_shared: false,
+    });
+  });
+}
+
+function mapPrivateFood(row: PrivateFoodRow): FoodCatalogItem {
+  return {
+    id: row.catalog_id,
+    name: row.name,
+    brand: row.brand,
+    barcode: row.barcode,
+    servingQuantity: row.serving_quantity,
+    servingUnit: row.serving_unit,
+    caloriesKcal: row.calories_kcal,
+    proteinG: row.protein_g,
+    carbohydrateG: row.carbohydrate_g,
+    fatG: row.fat_g,
+    fibreG: row.fibre_g,
+    source: 'custom',
+    sourceRef: null,
+    confidence: null,
+    isShared: Boolean(row.is_shared),
+  };
 }
 
 function requiredPrivateFoodText(value: string, field: string, maximumLength: number): string {

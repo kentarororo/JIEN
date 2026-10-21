@@ -63,6 +63,7 @@ function AppNavigator() {
         <Stack.Screen name="cardio" options={{ title: 'Cardio' }} />
         <Stack.Screen name="exercises/index" options={{ title: 'Exercise targets', presentation: 'modal' }} />
         <Stack.Screen name="exercises/[id]" options={{ title: 'Exercise history' }} />
+        <Stack.Screen name="foods/index" options={{ title: 'My foods', presentation: 'modal' }} />
         <Stack.Screen name="meals/new" options={{ title: 'Add food', presentation: 'modal' }} />
         <Stack.Screen name="meals/[id]" options={{ title: 'Meal' }} />
         <Stack.Screen name="wellness/body" options={{ title: 'Body measurements', presentation: 'modal' }} />

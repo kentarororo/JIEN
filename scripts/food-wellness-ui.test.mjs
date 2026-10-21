@@ -12,7 +12,8 @@ test('individual food writes refresh reminders and unclassified entries suppress
 });
 
 test('Food keeps logging primary while progressively disclosing nutrition detail', () => {
-  assert.match(food, /action=\{<Button label="Add food"/);
+  assert.match(food, /action=\{<View style=\{styles\.actionRow\}>[\s\S]*?label="My foods"[\s\S]*?label="Add food"/);
+  assert.match(food, /label="My foods"[\s\S]*?router\.push\('\/foods'/);
   assert.match(food, /const addFood =[\s\S]*?pathname: '\/meals\/new'/);
   assert.match(food, /listDailyFoodItems\(db, selectedDate\)/);
   assert.match(food, /data\.items\.map/);
