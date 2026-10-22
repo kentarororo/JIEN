@@ -23,6 +23,9 @@
 - Online community search supports name + brand terms and exact barcode. Community
   discovery is not cached, so withdrawal/moderation applies on the next search.
   Nutrition already saved in someone's private meal history remains unchanged.
+- My foods lists private foods newest first and filters locally by name, brand or
+  exact barcode. Create, edit and remove are local-first; removal tombstones the
+  reusable food, withdraws a shared food and leaves past meal snapshots unchanged.
 
 ## Privacy and storage architecture
 
@@ -58,9 +61,12 @@ meals or a complete replacement for all nutrition-app features. Community values
 remain unverified until a real review process exists. Never present personal meal
 history, photos or AI estimates as verified product data.
 
-Remaining usability work: a dedicated My foods manager (edit/remove without starting
-a meal), recipes, local aliases/regional metadata, duplicate/barcode resolution,
-label evidence, user reports, moderation UI, rate limiting and revision history.
+Completed usability work: a dedicated My foods manager for creating, editing and
+removing reusable foods without starting a meal.
+
+Remaining usability work: recipes, local aliases/regional metadata,
+duplicate/barcode resolution, label evidence, user reports, moderation UI, rate
+limiting and revision history.
 Multiple entries can share a barcode: own foods take precedence locally; community
 matches have stable name/ID order. The first match is not necessarily authoritative.
 

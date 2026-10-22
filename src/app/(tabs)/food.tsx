@@ -176,7 +176,10 @@ export default function FoodScreen() {
       <ScreenHeading
         title="Food"
         eyebrow={selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}
-        action={<Button label="Add food" accessibilityLabel="Add food" icon="add-circle-outline" onPress={() => addFood()} />}
+        action={<View style={styles.actionRow}>
+          <Button label="My foods" accessibilityLabel="My foods" icon="library-outline" onPress={() => router.push('/foods' as never)} variant="secondary" />
+          <Button label="Add food" accessibilityLabel="Add food" icon="add-circle-outline" onPress={() => addFood()} />
+        </View>}
       />
       <Card style={[styles.dateNavigator, { backgroundColor: colors.surfaceMuted }]}>
         <View style={styles.dateNavigatorRow}>

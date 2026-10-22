@@ -28,7 +28,7 @@ import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './ex
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { saveNutritionTargetAtomically } from './nutrition-target-save.ts';
-import { savePrivateFood, stopSharingPrivateFood } from './private-food.ts';
+import { listPrivateFoods, removePrivateFood, savePrivateFood, stopSharingPrivateFood } from './private-food.ts';
 import { clearRuntimeDiagnostics, getRuntimeDiagnostics, recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { getAccountSyncHealth, recordAccountSyncHealth } from './sync-health.ts';
 import {
@@ -405,6 +405,26 @@ test('main-thread database persists committed work and isolates delayed transact
     );
     assert.equal((await searchLocalFoodCatalog(database, 'SG Test Brand'))[0]?.id, privateFood.id);
     assert.equal((await lookupLocalFoodBarcode(database, '0012345678905'))[0]?.id, privateFood.id);
+    assert.equal((await listPrivateFoods(database, 'protein cereal'))[0]?.id, privateFood.id);
+    assert.equal((await listPrivateFoods(database, 'SG Test Brand'))[0]?.id, privateFood.id);
+    assert.equal((await listPrivateFoods(database, '00 12345678905'))[0]?.id, privateFood.id);
+    assert.deepEqual(await listPrivateFoods(database, '001234567890'), [], 'barcode search requires an exact match');
+    const snapshotMealId = await saveMeal(database, {
+      name: 'Saved food snapshot',
+      type: 'snack',
+      eatenAt: new Date(2026, 0, 2, 12).toISOString(),
+      items: [{
+        name: privateFood.name,
+        quantity: privateFood.servingQuantity,
+        unit: privateFood.servingUnit,
+        caloriesKcal: privateFood.caloriesKcal,
+        proteinG: privateFood.proteinG,
+        carbohydrateG: privateFood.carbohydrateG,
+        fatG: privateFood.fatG,
+        fibreG: privateFood.fibreG,
+        source: 'manual',
+      }],
+    });
     const foodQueue = async () => JSON.parse((await database.getFirstAsync<{ payload_json: string }>(
       "SELECT payload_json FROM sync_queue WHERE table_name = 'private_foods' AND payload_json LIKE ?", ['%custom-protein-cereal%']))!.payload_json);
     const firstFoodPayload = await foodQueue();
@@ -436,6 +456,8 @@ test('main-thread database persists committed work and isolates delayed transact
     );
     assert.equal((await foodQueue()).id, firstFoodPayload.id, 'edits retain cloud UUID');
     assert.ok((await foodQueue()).client_updated_at > firstFoodPayload.client_updated_at);
+    assert.equal((await getMealDetail(database, snapshotMealId))?.items[0]?.caloriesKcal, 210,
+      'editing a reusable food must not rewrite a logged meal snapshot');
     await database.execAsync(`CREATE TEMP TRIGGER reject_private_food_queue BEFORE UPDATE ON sync_queue
       WHEN NEW.table_name = 'private_foods' BEGIN SELECT RAISE(ABORT, 'food queue rejected'); END;`);
     await assert.rejects(savePrivateFood(database, { ...privateFood, caloriesKcal: 999 }), /food queue rejected/);
@@ -463,6 +485,20 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.equal((await foodQueue()).calories_kcal, 215, 'withdrawal preserves saved nutrition');
     assert.equal((await foodQueue()).id, firstFoodPayload.id, 'publication never forks identity');
     assert.equal((await database.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM sync_queue WHERE table_name = 'private_foods'"))?.count, 1);
+    await savePrivateFood(database, { ...sharedFood, isShared: true });
+    await database.execAsync(`CREATE TEMP TRIGGER reject_shared_food_removal BEFORE UPDATE ON sync_queue
+      WHEN NEW.table_name = 'private_foods' BEGIN SELECT RAISE(ABORT, 'removal queue rejected'); END;`);
+    await assert.rejects(removePrivateFood(database, sharedFood.id), /removal queue rejected/);
+    assert.equal((await listPrivateFoods(database, 'SG Test Brand'))[0]?.isShared, true,
+      'failed removal rolls back both the tombstone and community withdrawal');
+    await database.execAsync('DROP TRIGGER reject_shared_food_removal;');
+    await removePrivateFood(database, sharedFood.id);
+    assert.deepEqual(await listPrivateFoods(database, 'SG Test Brand'), [], 'removed foods leave My foods');
+    assert.deepEqual(await searchLocalFoodCatalog(database, 'SG Test Brand'), [], 'removed foods leave Add food search');
+    assert.ok((await foodQueue()).deleted_at, 'removal queues a tombstone');
+    assert.equal((await foodQueue()).is_shared, false, 'removing a shared food also queues community withdrawal');
+    assert.equal((await getMealDetail(database, snapshotMealId))?.items[0]?.caloriesKcal, 210,
+      'removing a reusable food must not delete or rewrite its logged meal snapshot');
     const remoteFood = { ...firstFoodPayload, id: '90000000-0000-4000-8000-000000000111',
       catalog_id: 'custom-cloud-restored', name: 'Cloud tofu', barcode: '88888888', client_updated_at: '2030-01-01T00:00:00Z' };
     const foodCursor = { clientUpdatedAt: remoteFood.client_updated_at, id: remoteFood.id };
