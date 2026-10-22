@@ -33,6 +33,8 @@ import {
 import { reconcileMealGapNotification } from '@/lib/notifications';
 import {
   convertServingQuantity,
+  multipliedPortion,
+  PORTION_MULTIPLIERS,
   scaleServingMacros,
   servingScale,
   servingUnitOptions,
@@ -315,6 +317,18 @@ export default function NewMealScreen() {
     }));
   };
 
+  const usePortionMultiplier = (food: DraftFood, multiplier: number) => {
+    const quantity = multipliedPortion(food.referenceQuantity, multiplier);
+    if (quantity == null) return;
+    setFormError(null);
+    setFoods((current) => current.map((item) => item.key === food.key ? {
+      ...item,
+      unit: item.referenceUnit,
+      quantity: formatFoodNumber(quantity),
+      ...macroStrings(scaleServingMacros(item.referenceMacros, multiplier)),
+    } : item));
+  };
+
   const updateMacro = (key: string, field: 'calories' | 'protein' | 'carbs' | 'fat' | 'fibre', value: string) => {
     setFormError(null);
     setFoods((current) => current.map((food) => {
@@ -354,22 +368,27 @@ export default function NewMealScreen() {
     }
     setSearching(true);
     setToolMessage(null);
+    const localItems = await searchLocalFoodCatalog(db, cleanQuery, 12).catch(() => []);
     try {
-      const items = await searchFoodDatabase(cleanQuery);
+      const onlineItems = await searchFoodDatabase(cleanQuery);
+      const items = dedupeFoodSearchResults([...localItems, ...onlineItems]);
       setResults(items);
       setNoMatchQuery(items.length ? null : cleanQuery);
       setToolMessage(items.length
-        ? `Found ${items.length} online ${items.length === 1 ? 'match' : 'matches'} from ${onlineFoodSourceSummary(items)}.`
+        ? `Found ${items.length} ${items.length === 1 ? 'match' : 'matches'}. Your history and saved foods are ranked first.`
         : 'No database matches found.');
       try {
-        await cacheFoodCatalogItems(db, items);
+        await cacheFoodCatalogItems(db, onlineItems);
       } catch {
         // Search results remain usable if the optional local cache write fails.
       }
     } catch (cause) {
-      setNoMatchQuery(cleanQuery);
       const message = cause instanceof Error ? cause.message : 'Online food search is unavailable.';
-      setToolMessage(`${message} You can still create a private food below.`);
+      setResults(localItems);
+      setNoMatchQuery(localItems.length ? null : cleanQuery);
+      setToolMessage(localItems.length
+        ? `${message} ${localItems.length} local ${localItems.length === 1 ? 'match remains' : 'matches remain'} available.`
+        : `${message} You can still create a private food below.`);
     } finally {
       setSearching(false);
     }
@@ -860,13 +879,13 @@ export default function NewMealScreen() {
         {results.length ? (
           <View style={styles.results}>
             <View style={styles.resultHeading}>
-              <AppText style={styles.resultHeadingTitle}>{query.trim() ? 'Matching foods' : 'Recent & common'}</AppText>
-              <AppText style={{ color: colors.textMuted }}>{query.trim() ? 'Tap a result to add it.' : 'Recent and built-in foods appear here.'}</AppText>
+              <AppText style={styles.resultHeadingTitle}>{query.trim() ? 'Matching foods' : 'Recent & frequent'}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{query.trim() ? 'Your history and saved foods rank first.' : 'Foods used around this time of day appear first.'}</AppText>
             </View>
             {results.map((item) => (
               <Pressable key={item.id} accessibilityRole="button" onPress={() => void addCatalogFood(item)} style={({ pressed }) => pressed && styles.pressed}>
                 <View style={[styles.resultRow, { borderColor: colors.border }]}>
-                  <View style={styles.flex}><AppText style={styles.resultName}>{item.name}</AppText><AppText style={{ color: colors.textMuted }}>{item.brand ? `${item.brand} · ` : ''}{item.servingQuantity} {item.servingUnit} · {sourceName(item.source)}</AppText></View>
+                  <View style={styles.flex}><AppText style={styles.resultName}>{item.name}</AppText><AppText style={{ color: colors.textMuted }}>{item.brand ? `${item.brand} · ` : ''}{item.servingQuantity} {item.servingUnit} · {item.isFromHistory ? 'Your history · last logged portion' : sourceName(item.source)}</AppText></View>
                   <View><AppText style={styles.resultCalories}>{Math.round(item.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>P {roundMacro(item.proteinG)} · C {roundMacro(item.carbohydrateG)} · F {roundMacro(item.fatG)}</AppText></View>
                 </View>
               </Pressable>
@@ -1077,6 +1096,10 @@ export default function NewMealScreen() {
               <View style={styles.typeWrap}>{servingUnitOptions(food.unit).map((unit) => <Pill key={unit} label={unit} active={food.unit === unit} onPress={() => updateUnit(food.key, unit)} />)}</View>
             </View>
           </View>
+          <View style={styles.typeWrap}>{PORTION_MULTIPLIERS.map((multiplier) => <Pill key={multiplier}
+            label={multiplier === 0.5 ? '½×' : multiplier === 1.5 ? '1½×' : `${multiplier}×`}
+            active={food.unit === food.referenceUnit && Number(food.quantity) === multipliedPortion(food.referenceQuantity, multiplier)}
+            onPress={() => usePortionMultiplier(food, multiplier)} />)}</View>
           <AppText style={[styles.autoNote, { color: colors.textMuted }]}>Changing the quantity scales calories and macros automatically. Changing compatible units keeps the same physical portion.</AppText>
           <View style={styles.fieldGrid}>
             <Field label="Calories" value={food.calories} onChangeText={(value) => updateMacro(food.key, 'calories', value)} keyboardType="decimal-pad" placeholder="kcal" containerStyle={styles.macroField} />
@@ -1143,7 +1166,7 @@ export default function NewMealScreen() {
 function toDraftFood(item: FoodCatalogItem): DraftFood {
   return {
     key: Crypto.randomUUID(),
-    catalogId: item.id,
+    catalogId: item.id.startsWith('history:') ? null : item.id,
     name: item.name,
     brand: item.brand ?? '',
     barcode: item.barcode ?? '',
@@ -1156,7 +1179,7 @@ function toDraftFood(item: FoodCatalogItem): DraftFood {
     fat: String(roundMacro(item.fatG)),
     fibre: item.fibreG == null ? '' : String(roundMacro(item.fibreG)),
     source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' || item.source === 'custom' ? 'manual' : 'imported',
-    sourceLabel: item.source === 'ai_photo' ? photoReviewLabel(item.photoReview) : item.isShared ? 'Your community food · unverified' : sourceName(item.source),
+    sourceLabel: item.source === 'ai_photo' ? photoReviewLabel(item.photoReview) : item.isFromHistory ? 'Your history · last logged portion' : item.isShared ? 'Your community food · unverified' : sourceName(item.source),
     confidence: item.confidence,
     photoReview: item.photoReview,
     referenceQuantity: item.servingQuantity,
@@ -1263,10 +1286,14 @@ function sourceName(source: FoodCatalogItem['source']): string {
   return 'Starter estimate';
 }
 
-function onlineFoodSourceSummary(items: FoodCatalogItem[]): string {
-  const sources = [...new Set(items.map((item) => sourceName(item.source)))];
-  if (sources.length <= 1) return sources[0] ?? 'the online database';
-  return `${sources.slice(0, -1).join(', ')} and ${sources.at(-1)}`;
+function dedupeFoodSearchResults(items: FoodCatalogItem[]): FoodCatalogItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.barcode ? `barcode:${item.barcode}` : `${item.name.trim().toLocaleLowerCase()}|${item.brand?.trim().toLocaleLowerCase() ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isCompletedFood(food: DraftFood): boolean {

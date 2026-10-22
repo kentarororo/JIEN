@@ -70,7 +70,18 @@ export {
   updateSleepLog,
 } from './wellness';
 export { retryWellnessMessage, sendWellnessMessage } from './wellness-chat';
-export { listDailyFoodItems, changeDailyFoodPortion, removeDailyFoodItem, type DailyFoodItem } from './daily-food';
+export {
+  addFoodCatalogItemsToDay,
+  changeDailyFoodPortion,
+  copyFoodHistoryToDay,
+  getLatestFoodCopyMeal,
+  listDailyFoodItems,
+  listRecentFoodCopyDays,
+  removeDailyFoodItem,
+  type DailyFoodItem,
+  type FoodCopyDay,
+  type FoodCopyMeal,
+} from './daily-food';
 export {
   deleteMeal,
   ensureStartingNutritionTarget,
@@ -83,6 +94,7 @@ export {
   listMealsForDate,
   listNutritionExportRows,
   saveMeal,
+  saveMeals,
   saveNutritionTarget,
   setNutritionDayState,
   updateMeal,

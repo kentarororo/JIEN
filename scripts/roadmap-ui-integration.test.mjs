@@ -242,7 +242,7 @@ test('Programme continuity stays explicit, local-first, and adaptable to availab
 test('Meal no-match entry saves an editable private food through the SQLite catalog', () => {
   assert.match(mealLogger, /No database matches found/);
   assert.match(mealLogger, /Create private food/);
-  assert.match(mealLogger, /catch \(cause\) \{[\s\S]*?setNoMatchQuery\(cleanQuery\)[\s\S]*?still create a private food below/);
+  assert.match(mealLogger, /catch \(cause\) \{[\s\S]*?setNoMatchQuery\(localItems\.length \? null : cleanQuery\)[\s\S]*?still create a private food below/);
   assert.match(mealLogger, /savePrivateFood\(db, \{/);
   assert.match(mealLogger, /Save as private food/);
   assert.match(mealLogger, /Update private food/);
@@ -257,7 +257,8 @@ test('Meal search reports actual sources and keeps provider attribution concise'
   const openFoodFacts = readFileSync(new URL('../src/lib/db/open-food-facts.ts', import.meta.url), 'utf8');
   const serverSearch = readFileSync(new URL('../supabase/functions/_shared/open-food-facts-search.ts', import.meta.url), 'utf8');
   const edgeFunction = readFileSync(new URL('../supabase/functions/food-search/index.ts', import.meta.url), 'utf8');
-  assert.match(mealLogger, /onlineFoodSourceSummary\(items\)/);
+  assert.match(mealLogger, /Your history and saved foods are ranked first/);
+  assert.match(mealLogger, /sourceName\(item\.source\)/);
   assert.match(mealLogger, /Sources appear on each result/);
   assert.doesNotMatch(mealLogger, /Licensed FatSecret Platform results/);
   assert.match(catalog, /rankOpenFoodFactsProductsForSingapore\(response\.products/);

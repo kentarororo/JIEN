@@ -58,12 +58,10 @@ test('day-first food log adds, scales and removes individual items without chang
   await page.reload();
   await expect(page.getByRole('button', { name: 'Edit Second food QA, 100 calories', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Edit First food QA/ })).toHaveCount(0);
-  await page.getByLabel('Quick add', { exact: true }).fill('banana');
+  await page.getByPlaceholder('Search saved foods').first().fill('banana');
   const banana = page.getByRole('button', { name: /^Add Banana/i }).first();
   await context.setOffline(true);
   await banana.click();
-  await expect(page.getByRole('heading', { name: 'Add food', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Add to day', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Edit Banana/i }).first()).toBeVisible();
   await context.setOffline(false);
   await expect(page.getByRole('button', { name: 'Add Banana', exact: true })).toBeVisible();

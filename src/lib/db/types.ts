@@ -341,6 +341,11 @@ export type FoodCatalogItem = {
   sourceRef: string | null;
   barcode: string | null;
   confidence: number | null;
+  /** Local usage metadata; never sent to food providers or stored in meal snapshots. */
+  isFromHistory?: boolean;
+  usageCount?: number;
+  timeOfDayUsageCount?: number;
+  lastUsedAt?: string | null;
 };
 
 export type SaveMealInput = {
