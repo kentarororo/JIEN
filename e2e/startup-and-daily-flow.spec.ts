@@ -1,12 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import {
-  completeOnboarding,
-  expectNoHorizontalOverflow,
-  fixJienClock,
-  prepareIsolatedJienContext,
-  qaSession,
-} from './helpers';
+import { collectPageErrors, completeOnboarding, expectNoHorizontalOverflow, fixJienClock, isWebKitCancelledFetchNoise, prepareIsolatedJienContext, qaSession } from './helpers';
 
 test('failure and drop work survives save and plans start with fresh effort', async ({ context, page }, testInfo) => {
   await prepareIsolatedJienContext(context, page);
@@ -189,8 +183,7 @@ test('active workout restores performed state, set kind, and rest timer after in
 });
 
 test('completed workout choice builds an inspectable editable next plan', async ({ context, page }, testInfo) => {
-  const pageErrors: string[] = [];
-  page.on('pageerror', (error) => pageErrors.push(error.message));
+  const pageErrors = collectPageErrors(page);
   await prepareIsolatedJienContext(context, page);
   if (testInfo.project.name !== 'ios-webkit') await fixJienClock(page);
   await completeOnboarding(page);
@@ -308,6 +301,7 @@ test('isolated daily loop persists records and hands SQLite to a newer tab', asy
   const capturesVisualBaselines = testInfo.project.name === 'edge-desktop';
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => {
+    if (isWebKitCancelledFetchNoise(error)) return;
     pageErrors.push(`${error.name}: ${error.message}`);
     console.error(`[${testInfo.project.name}] page error: ${error.name}: ${error.message}`);
   });

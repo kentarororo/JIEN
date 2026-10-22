@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienContext } from './helpers';
+import { collectPageErrors, completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienContext } from './helpers';
 
 test.use({ actionTimeout: 10_000 });
 
@@ -49,8 +49,7 @@ function trackSync(page: Page) {
 }
 
 test('time-aware plans stay editable, persist estimates and start without performed sets', async ({ context, page }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = collectPageErrors(page);
   const idle = trackSync(page);
   const visibleText = (text: string) => page.getByText(text, { exact: true }).filter({ visible: true });
   const field = (label: string) => page.getByLabel(label, { exact: true }).filter({ visible: true });

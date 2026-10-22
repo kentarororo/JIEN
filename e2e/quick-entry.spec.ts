@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { completeOnboarding, expectNoHorizontalOverflow, fixJienClock, prepareIsolatedJienContext } from './helpers';
+import { collectPageErrors, completeOnboarding, expectNoHorizontalOverflow, fixJienClock, prepareIsolatedJienContext } from './helpers';
 
 test.use({ actionTimeout: 10_000 });
 function trackSync(page: Page) {
@@ -21,7 +21,7 @@ async function scrollIntoViewAfterRelayout(locator: Locator) {
 }
 
 test('planned workouts open directly in editable sets and recover without logging targets', async ({ context, page }, testInfo) => {
-  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  const errors = collectPageErrors(page);
   const idle = trackSync(page);
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
   await page.getByRole('tab', { name: 'Train', exact: true }).click();
@@ -91,7 +91,7 @@ test('planned workouts open directly in editable sets and recover without loggin
 });
 
 test('food entry starts with tracking and saves without a meal name', async ({ context, page }, testInfo) => {
-  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  const errors = collectPageErrors(page);
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
   await page.getByRole('tab', { name: 'Food', exact: true }).click();
   await page.getByRole('button', { name: 'Add food', exact: true }).click();
@@ -135,7 +135,7 @@ test('calendar plans start in the logger while plan review stays available', asy
 });
 
 test('direct next workouts use live history targets and keep repeat drafts separate', async ({ context, page }) => {
-  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  const errors = collectPageErrors(page);
   const idle = trackSync(page);
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
   await page.getByRole('button', { name: /Log workout/ }).first().click();
