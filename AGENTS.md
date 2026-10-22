@@ -100,6 +100,20 @@ If it isn't written on the issue or PR, the next agent doesn't know it.
 5. **Ken merges** (squash) once the PR check is green and Grok's verdict is PASS.
    Claude updates `docs/roadmap.md` if a milestone moved.
 
+### Keeping the queue moving
+- The work order lives in `docs/roadmap.md` under **Next up**. Pull from it; don't wait
+  to be assigned.
+- **Codex:** before starting anything new, fix any of your PRs with a CHANGES verdict.
+  Then take the next open, unblocked item in your list. After opening a PR, go straight
+  to the next item; don't stop until the list is empty or blocked.
+- **Grok:** the routine tests every `needs-test` PR. Between runs, work your list.
+  End each verdict with a **How Ken checks it** line: two or three taps on the live app
+  after merge, since Vercel previews ask for a login.
+- Blocked on a decision? Comment on the issue, add `needs-ken`, and move on to the next
+  item instead of waiting.
+- Skill packs such as pstack are welcome for *how* you work (TDD, prove it runs, fix
+  root causes). This file still decides *what* gets built and the rules.
+
 ### Grok's verdict format
 ```
 Verdict: PASS | CHANGES

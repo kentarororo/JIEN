@@ -4,7 +4,7 @@ JIEN remains a lifting-first, local-first training and nutrition product. Milest
 close one complete user loop at a time; new activity types do not enter the product
 until their measurements and progression rules are explicit.
 
-## Status at a glance — 18 October 2026
+## Status at a glance — 22 October 2026
 
 Every milestone carries exactly one status. Move it up only when the evidence exists.
 
@@ -28,19 +28,47 @@ Every milestone carries exactly one status. Move it up only when the evidence ex
 | Day-first food logging | Live on web | Phone testing |
 | Private food library (part of Alpha 2.5) | Built | Confirm `20261008000100_private_foods.sql` is applied and run the two-account access check |
 | Food-photo trust (part of Alpha 2.5) | Built | Confirm the Edge Function deploy; run the measured-photo benchmark |
-| Alpha 2.4 — missed sessions, return after a break | Not started | #5 |
-| Alpha 2.4 — plateau review and adherence | Not started | #6 |
-| Alpha 2.5 — partial/complete day state, recipes, food management | Not started | Not yet scoped |
+| Alpha 2.4 — missed sessions, return after a break | Live on web | Phone testing |
+| Alpha 2.4 — plateau review and adherence | In review | PR #17 (fix requested) |
+| Alpha 2.5 — partial/complete day state | Live on web | Phone testing |
+| Alpha 2.5 — My foods manager | In review | PR #16 |
+| Alpha 2.5 — recipes | Not started | #14 |
 | Closed beta | Not started | Phone testing, production sync/restore, beta instrumentation |
 
 Nothing is Phone-tested yet, so nothing is Beta-ready.
 
 ### Next up
 
-1. #4 — keep Vercel as the only web host
-2. #3 — run the browser tests automatically
-3. #5 — missed sessions and coming back after a break
-4. #6 — plateau review and adherence (after #5)
+Agents work this list top to bottom (see "Keeping the queue moving" in `AGENTS.md`).
+
+**Codex**
+1. PR #17 — fix the plateau-review finding
+2. #18 — install JIEN on your phone (installable, offline web app)
+3. #19 — trend weight, expenditure and weekly check-in
+4. #20 — import from Hevy or Strong
+5. #14 — recipes (after PR #16 merges)
+6. #22 — progress charts
+7. #21 — Singapore food starter set
+8. #23 — import from MacroFactor (after #20)
+9. #24 — Android APK
+
+**Grok**
+1. Test every `needs-test` PR (routine)
+2. #25 — daily-driver journey test, nightly alerts, housekeeping
+
+## Road to daily driver
+
+Goal: JIEN replaces a workout logger (Hevy/Strong) and MacroFactor for Ken, used every
+day on his phone. Four gates, in order:
+
+1. **On the phone** (#18, #24): installable and offline, so every day of use is a test.
+2. **Switch in a day** (#20, #23): history comes across, so nothing is lost by moving.
+3. **MacroFactor parity** (#19, #14, #21): trend weight, expenditure, weekly check-in,
+   recipes and Singapore food that is fast to log.
+4. **Lifter parity** (#22): progress charts, on top of the existing volume engine.
+
+Validation: Grok's nightly daily-driver journey (#25) plus Ken's own daily use. Bugs
+Ken hits go to Claude as one line each and become issues.
 
 ## October follow-up: food-photo trust
 
