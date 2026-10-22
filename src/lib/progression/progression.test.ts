@@ -546,27 +546,52 @@ test('joint holds and drop-only sessions stay out of plateau comparisons', () =>
 
 test('flags a muscle week more than one third below its four-week work average', () => {
   const weeks = aggregateWeeklyVolume([
+    ...session('2026-07-20T10:00:00.000Z', 10),
     ...session('2026-07-27T10:00:00.000Z', 10),
     ...session('2026-08-03T10:00:00.000Z', 10),
     ...session('2026-08-10T10:00:00.000Z', 10),
-    ...session('2026-08-17T10:00:00.000Z', 10),
-    { ...session('2026-08-24T10:00:00.000Z', 10)[0]! },
+    { ...session('2026-08-17T10:00:00.000Z', 10)[0]! },
   ]);
   const flags = buildMuscleVolumeDropFlags(weeks, new Date('2026-08-24T12:00:00.000Z'));
   const chest = flags.find((flag) => flag.muscleGroup === 'chest');
   assert.equal(Math.round(chest?.dropPercent ?? 0), 67);
+  assert.equal(chest?.completedWeek, '2026-W34');
   assert.equal(chest?.currentWorkKg, 400);
   assert.equal(chest?.fourWeekAverageWorkKg, 1_200);
 
   const boundary = aggregateWeeklyVolume([
+    ...session('2026-07-20T10:00:00.000Z', 10),
     ...session('2026-07-27T10:00:00.000Z', 10),
     ...session('2026-08-03T10:00:00.000Z', 10),
     ...session('2026-08-10T10:00:00.000Z', 10),
-    ...session('2026-08-17T10:00:00.000Z', 10),
-    ...session('2026-08-24T10:00:00.000Z', 10).slice(0, 2),
+    ...session('2026-08-17T10:00:00.000Z', 10).slice(0, 2),
   ]);
   assert.equal(buildMuscleVolumeDropFlags(boundary, new Date('2026-08-24T12:00:00.000Z'))
     .some((flag) => flag.muscleGroup === 'chest'), false, 'exactly one third below is not more than one third');
+});
+
+test('does not flag an empty in-progress week after steady completed weeks', () => {
+  const weeks = aggregateWeeklyVolume([
+    ...session('2026-09-21T10:00:00.000Z', 10),
+    ...session('2026-09-28T10:00:00.000Z', 10),
+    ...session('2026-10-05T10:00:00.000Z', 10),
+    ...session('2026-10-12T10:00:00.000Z', 10),
+    ...session('2026-10-19T10:00:00.000Z', 10),
+  ]);
+
+  assert.deepEqual(
+    buildMuscleVolumeDropFlags(weeks, new Date('2026-10-26T09:00:00+08:00')),
+    [],
+  );
+});
+
+test('uses the local workout date for ISO week buckets around Singapore Monday', () => {
+  const [week] = aggregateWeeklyVolume([{
+    ...session('2026-10-25T16:30:00.000Z', 10)[0]!,
+    performedOn: '2026-10-26',
+  }]);
+
+  assert.equal(week?.week, '2026-W44');
 });
 
 test('filters workout history by exercise text and normalized muscle group, then preserves month order', () => {

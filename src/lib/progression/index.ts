@@ -13,6 +13,8 @@ export type ProgressionSet = {
 
 export type VolumeSet = ProgressionSet & {
   completedAt: string;
+  /** Local workout calendar day; use this for week buckets when available. */
+  performedOn?: string;
   movementPattern: string;
   primaryMuscleGroup: string;
   secondaryMuscleGroups: string[];
@@ -167,6 +169,7 @@ export type ExercisePlateauReview = {
 export type MuscleVolumeDropFlag = {
   muscleGroup: string;
   label: string;
+  completedWeek: string;
   currentWorkKg: number;
   fourWeekAverageWorkKg: number;
   dropPercent: number;
@@ -212,8 +215,20 @@ export function calculateRecentExerciseBaseline(
 }
 
 export function isoWeekKey(value: string): string {
+  const calendarDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (calendarDate) {
+    return isoWeekKeyForCalendarDate(
+      Number(calendarDate[1]),
+      Number(calendarDate[2]) - 1,
+      Number(calendarDate[3]),
+    );
+  }
   const date = new Date(value);
-  const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return isoWeekKeyForCalendarDate(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isoWeekKeyForCalendarDate(year: number, month: number, dayOfMonth: number): string {
+  const utc = new Date(Date.UTC(year, month, dayOfMonth));
   const day = utc.getUTCDay() || 7;
   utc.setUTCDate(utc.getUTCDate() + 4 - day);
   const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
@@ -226,7 +241,7 @@ export function aggregateWeeklyVolume(sets: VolumeSet[]): WeeklyVolume[] {
   for (const set of sets) {
     if (!countsTowardTraining(set.kind)) continue;
     const volume = calculateSetVolumeKg(set);
-    const week = isoWeekKey(set.completedAt);
+    const week = volumeSetWeek(set);
     const aggregate = weeks.get(week) ?? {
       week,
       movementPatterns: {},
@@ -260,7 +275,7 @@ export function buildMuscleGroupTrends(
   const current = recent.at(-1);
   if (!current) return [];
   const previous = recent.at(-2) ?? null;
-  const isPartialWeek = current.week === isoWeekKey(asOf.toISOString());
+  const isPartialWeek = current.week === localIsoWeekKey(asOf);
   const groups = new Set<string>();
   for (const week of recent) {
     Object.keys(week.muscleGroupSets).forEach((group) => groups.add(group));
@@ -305,16 +320,17 @@ export function buildMuscleGroupTrends(
 }
 
 /**
- * Compares the current ISO week's muscle work with the four preceding calendar
- * weeks. Missing weeks inside an established history window count as zero.
+ * Compares the latest completed local ISO week's muscle work with the four
+ * preceding calendar weeks. Missing weeks inside an established history window count as zero.
  * The result is descriptive only and never changes a plan.
  */
 export function buildMuscleVolumeDropFlags(
   weeks: WeeklyVolume[],
   asOf = new Date(),
 ): MuscleVolumeDropFlag[] {
-  const currentWeek = isoWeekKey(asOf.toISOString());
-  const priorWeeks = previousIsoWeeks(asOf, 4);
+  const completedWindow = previousIsoWeeks(asOf, 5);
+  const completedWeek = completedWindow.at(-1)!;
+  const priorWeeks = completedWindow.slice(0, 4);
   const sorted = weeks.slice().sort((a, b) => a.week.localeCompare(b.week));
   const earliestWeek = sorted[0]?.week ?? null;
   if (!earliestWeek || earliestWeek > priorWeeks[0]!) return [];
@@ -329,12 +345,13 @@ export function buildMuscleVolumeDropFlags(
     const prior = priorWeeks.map((week) => byWeek.get(week)?.muscleGroups[muscleGroup] ?? 0);
     const average = prior.reduce((sum, value) => sum + value, 0) / prior.length;
     if (average <= 0) return [];
-    const current = byWeek.get(currentWeek)?.muscleGroups[muscleGroup] ?? 0;
+    const current = byWeek.get(completedWeek)?.muscleGroups[muscleGroup] ?? 0;
     const dropFraction = (average - current) / average;
     if (dropFraction <= MUSCLE_VOLUME_DROP_FRACTION) return [];
     return [{
       muscleGroup,
       label: muscleGroupLabel(muscleGroup),
+      completedWeek,
       currentWorkKg: current,
       fourWeekAverageWorkKg: average,
       dropPercent: dropFraction * 100,
@@ -354,10 +371,10 @@ export function buildMuscleGroupAdvisory(
 ): MuscleGroupAdvisory {
   const validSets = sets.filter((set) => countsTowardTraining(set.kind)
     && Number.isFinite(new Date(set.completedAt).getTime()));
-  const currentWeek = isoWeekKey(asOf.toISOString());
+  const currentWeek = localIsoWeekKey(asOf);
   const priorWeeks = previousIsoWeeks(asOf, 4);
   const earliestWeek = validSets.length
-    ? validSets.map((set) => isoWeekKey(set.completedAt)).sort()[0] ?? null
+    ? validSets.map(volumeSetWeek).sort()[0] ?? null
     : null;
   const baselineWeeks = earliestWeek == null
     ? []
@@ -366,7 +383,7 @@ export function buildMuscleGroupAdvisory(
   const lastTrainedAt = new Map<string, string>();
 
   for (const set of validSets) {
-    const week = isoWeekKey(set.completedAt);
+    const week = volumeSetWeek(set);
     const credits = weekCredits.get(week) ?? new Map<string, number>();
     const primary = muscleGroupFamilyKey(set.primaryMuscleGroup);
     const secondary = [...new Set(set.secondaryMuscleGroups.map(muscleGroupFamilyKey))]
@@ -442,16 +459,28 @@ function addSetCredit(credits: Map<string, number>, muscleGroup: string, value: 
 }
 
 function previousIsoWeeks(asOf: Date, count: number): string[] {
-  const cursor = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
-  const day = cursor.getUTCDay() || 7;
-  cursor.setUTCDate(cursor.getUTCDate() - day + 1);
+  const cursor = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  const day = cursor.getDay() || 7;
+  cursor.setDate(cursor.getDate() - day + 1);
   const weeks: string[] = [];
   for (let offset = count; offset >= 1; offset -= 1) {
     const week = new Date(cursor);
-    week.setUTCDate(week.getUTCDate() - offset * 7);
-    weeks.push(isoWeekKey(week.toISOString()));
+    week.setDate(week.getDate() - offset * 7);
+    weeks.push(localIsoWeekKey(week));
   }
   return weeks;
+}
+
+function localIsoWeekKey(value: Date): string {
+  return isoWeekKeyForCalendarDate(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function volumeSetWeek(set: Pick<VolumeSet, 'completedAt' | 'performedOn'>): string {
+  if (set.performedOn && /^\d{4}-\d{2}-\d{2}$/.test(set.performedOn)) {
+    const [year, month, day] = set.performedOn.split('-').map(Number);
+    return isoWeekKeyForCalendarDate(year!, month! - 1, day!);
+  }
+  return isoWeekKey(set.completedAt);
 }
 
 function roundSetCredits(value: number): number {
@@ -839,10 +868,10 @@ export function detectExercisePlateau(
   const topLoadIncrease = latest.slice(1).some((entry, index) => entry.topLoadKg > latest[index]!.topLoadKg);
   const weeklyTotals = new Map<string, number>();
   for (const entry of comparable) {
-    const week = isoWeekKey(entry.session.completedAt);
+    const week = isoWeekKey(entry.session.performedOn);
     weeklyTotals.set(week, (weeklyTotals.get(week) ?? 0) + entry.volumeKg);
   }
-  const reviewWeeks = [...new Set(latest.map((entry) => isoWeekKey(entry.session.completedAt)))].sort();
+  const reviewWeeks = [...new Set(latest.map((entry) => isoWeekKey(entry.session.performedOn)))].sort();
   const weeklyVolumeIncrease = reviewWeeks.slice(1).some((week, index) => (
     (weeklyTotals.get(week) ?? 0) > (weeklyTotals.get(reviewWeeks[index]!) ?? 0)
   ));

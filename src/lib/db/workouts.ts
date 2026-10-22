@@ -1168,11 +1168,12 @@ export async function listVolumeHistory(
     load_unit: LoadUnit;
     kind: SetKind;
     completed_at: string;
+    performed_on: string;
     movement_pattern: string;
     primary_muscle_group: string;
     secondary_muscle_groups: string;
   }>(
-    `SELECT s.reps, s.load_value, s.load_unit, s.kind, s.completed_at,
+    `SELECT s.reps, s.load_value, s.load_unit, s.kind, s.completed_at, w.performed_on,
       e.movement_pattern,
       COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS primary_muscle_group,
       COALESCE(s.secondary_muscle_groups, e.secondary_muscle_groups) AS secondary_muscle_groups
@@ -1189,6 +1190,7 @@ export async function listVolumeHistory(
     loadUnit: row.load_unit,
     kind: row.kind,
     completedAt: row.completed_at,
+    performedOn: row.performed_on,
     movementPattern: row.movement_pattern,
     primaryMuscleGroup: row.primary_muscle_group,
     secondaryMuscleGroups: JSON.parse(row.secondary_muscle_groups) as string[],

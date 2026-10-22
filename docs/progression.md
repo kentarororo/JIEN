@@ -72,9 +72,11 @@ a physiological diagnosis.
 For scheduled plans, Training shows completed versus scheduled session counts over
 the last 28 days. Flexible completed workouts count as completed work without
 adding to the number scheduled; with no scheduled plan in the window, the count is
-hidden. Separately, current muscle work more than one third below its preceding
-four-calendar-week average is labelled `possible deload or missed week`. This is
-descriptive logged-work information and never applies a deload or rewrites a plan.
+hidden. Separately, muscle work in the last completed local calendar week that is
+more than one third below its preceding four-calendar-week average is labelled
+`possible deload or missed week`. The in-progress week is never compared with full
+weeks. This is descriptive logged-work information and never applies a deload or
+rewrites a plan.
 
 AI receives the same bounded four-week body-part summary alongside recent recovery,
 each logged nutrition day's macro totals, logged-day averages, and the current macro

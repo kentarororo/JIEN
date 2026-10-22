@@ -160,7 +160,7 @@ export default function TrainScreen() {
           {data.volumeDropFlags.length ? <View style={styles.volumeFlags}>
             {data.volumeDropFlags.map((flag) => <View key={flag.muscleGroup} style={[styles.volumeFlag, { backgroundColor: colors.warningSoft }]}>
               <AppText style={{ color: colors.warning, fontWeight: '700' }}>{flag.label}: possible deload or missed week</AppText>
-              <AppText style={{ color: colors.textMuted }}>{formatWork(flag.currentWorkKg)} this week versus a {formatWork(flag.fourWeekAverageWorkKg)} four-week average. This is logged work information, not a plan change.</AppText>
+              <AppText style={{ color: colors.textMuted }}>{formatWork(flag.currentWorkKg)} in the last completed week versus a {formatWork(flag.fourWeekAverageWorkKg)} four-week average. This is logged work information, not a plan change.</AppText>
             </View>)}
           </View> : null}
           <View style={styles.muscleGrid}>

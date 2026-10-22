@@ -43,7 +43,7 @@ function AdherenceSummary({ adherence }: {
 }) {
   const { colors } = useJienTheme();
   return <View style={{ gap: spacing.xxs }}>
-    <AppText style={{ fontWeight: '700' }}>{adherence.completedSessions} of {adherence.scheduledSessions} planned sessions done</AppText>
+    <AppText style={{ fontWeight: '700' }}>{adherence.completedSessions} completed · {adherence.scheduledSessions} planned sessions</AppText>
     <AppText style={{ color: colors.textMuted }}>Last {adherence.windowDays} days · Flexible completed workouts count as completed work and do not add a planned session.</AppText>
   </View>;
 }

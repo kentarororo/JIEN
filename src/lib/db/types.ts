@@ -478,6 +478,7 @@ export type VolumeHistorySet = {
   loadUnit: LoadUnit;
   kind: SetKind;
   completedAt: string;
+  performedOn: string;
   movementPattern: string;
   primaryMuscleGroup: string;
   secondaryMuscleGroups: string[];
