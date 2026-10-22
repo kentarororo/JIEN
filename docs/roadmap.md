@@ -43,32 +43,37 @@ Agents work this list top to bottom (see "Keeping the queue moving" in `AGENTS.m
 
 **Codex**
 1. PR #17 — fix the plateau-review finding
-2. #18 — install JIEN on your phone (installable, offline web app)
-3. #19 — trend weight, expenditure and weekly check-in
-4. #20 — import from Hevy or Strong
-5. #14 — recipes (after PR #16 merges)
-6. #22 — progress charts
-7. #21 — Singapore food starter set
-8. #23 — import from MacroFactor (after #20)
-9. #24 — Android APK
+2. #23 — import from MacroFactor in one step
+3. #28 — food logging faster than MacroFactor (a full day in under 60 seconds)
+4. #19 — trend weight, expenditure and weekly check-in
+5. #21 — Singapore food starter set
+6. #14 — recipes (after PR #16 merges)
+7. #18 — installable, offline web app (home screen, works with no signal in the gym)
+8. #22 — progress charts
+9. #20 — import from Hevy or Strong
+10. #24 — Android APK
 
 **Grok**
 1. Test every `needs-test` PR (routine)
-2. #25 — daily-driver journey test, nightly alerts, housekeeping
+2. #27 — persona testing on dummy accounts (founder-type lifter first, food friction first)
+3. #25 — daily-driver journey test, nightly alerts, housekeeping
 
 ## Road to daily driver
 
-Goal: JIEN replaces a workout logger (Hevy/Strong) and MacroFactor for Ken, used every
-day on his phone. Four gates, in order:
+Goal: JIEN replaces a workout logger and MacroFactor for Ken, every day on his phone.
+Training is already in daily use on mobile; food is the gap. Gates, in order:
 
-1. **On the phone** (#18, #24): installable and offline, so every day of use is a test.
-2. **Switch in a day** (#20, #23): history comes across, so nothing is lost by moving.
-3. **MacroFactor parity** (#19, #14, #21): trend weight, expenditure, weekly check-in,
-   recipes and Singapore food that is fast to log.
-4. **Lifter parity** (#22): progress charts, on top of the existing volume engine.
+1. **Food beats MacroFactor** (#23, #28, #19, #21, #14): history comes across in one
+   step, a full day logs in under a minute, trend weight and expenditure are visible,
+   Singapore food is quick, recipes and repeat meals are one tap.
+2. **Validated like real use** (#27, #25): Grok tests as three personas on dummy
+   accounts and measures taps and seconds, plus a nightly full-day journey.
+3. **Offline and native** (#18, #24): home-screen install with no-signal gym use, then
+   an Android build.
+4. **Lifter extras** (#22, #20): progress charts, and import for people coming from
+   Hevy or Strong.
 
-Validation: Grok's nightly daily-driver journey (#25) plus Ken's own daily use. Bugs
-Ken hits go to Claude as one line each and become issues.
+Bugs and annoyances Ken hits go to Claude as one line each and become issues.
 
 ## October follow-up: food-photo trust
 
