@@ -4,7 +4,7 @@ JIEN remains a lifting-first, local-first training and nutrition product. Milest
 close one complete user loop at a time; new activity types do not enter the product
 until their measurements and progression rules are explicit.
 
-## Status at a glance — 22 October 2026
+## Status at a glance — 23 October 2026
 
 Every milestone carries exactly one status. Move it up only when the evidence exists.
 
@@ -31,7 +31,7 @@ Every milestone carries exactly one status. Move it up only when the evidence ex
 | Alpha 2.4 — missed sessions, return after a break | Live on web | Phone testing |
 | Alpha 2.4 — plateau review and adherence | In review | PR #17 (fix requested) |
 | Alpha 2.5 — partial/complete day state | Live on web | Phone testing |
-| Alpha 2.5 — My foods manager | In review | PR #16 |
+| Alpha 2.5 — My foods manager | Live on web | Phone testing |
 | Alpha 2.5 — recipes | Not started | #14 |
 | Closed beta | Not started | Phone testing, production sync/restore, beta instrumentation |
 
@@ -42,19 +42,23 @@ Nothing is Phone-tested yet, so nothing is Beta-ready.
 Agents work this list top to bottom (see "Keeping the queue moving" in `AGENTS.md`).
 
 **Codex**
-1. PR #17 — fix the plateau-review finding
-2. #18 — install JIEN on your phone (installable, offline web app)
-3. #19 — trend weight, expenditure and weekly check-in
-4. #20 — import from Hevy or Strong
-5. #14 — recipes (after PR #16 merges)
-6. #22 — progress charts
-7. #21 — Singapore food starter set
-8. #23 — import from MacroFactor (after #20)
-9. #24 — Android APK
+1. PR #32 — fix Grok's ranking finding (your history first)
+2. #29 — "Log again" from a past day goes to the day being browsed
+3. #30 — keep the meal draft and Add to day within reach
+4. #21 — Singapore food starter set (top friction in the persona run)
+5. #19 — trend weight, expenditure and weekly check-in
+6. #23 — import from MacroFactor (waiting on Ken's export headers)
+7. #14 — recipes
+8. #18 — installable, offline web app
+9. #22 — progress charts
+10. #20 — import from Hevy or Strong
+11. #24 — Android APK
 
 **Grok**
 1. Test every `needs-test` PR (routine)
-2. #25 — daily-driver journey test, nightly alerts, housekeeping
+2. #35 — get `main`'s browser tests green
+3. #27 — persona run 2 after PR #32 merges (before/after numbers)
+4. #15 — close with findings
 
 ## Road to daily driver
 
