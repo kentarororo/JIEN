@@ -105,6 +105,22 @@ export async function prepareIsolatedJienContext(context: BrowserContext, page: 
   }, { key: AUTH_STORAGE_KEY, value: session });
 }
 
+// WebKit reports a fetch that is cut off by context.setOffline() as a page error
+// ("Fetch API cannot load <url> due to access control checks.") even though the app
+// handles the failure and no error or unhandledrejection event reaches the page.
+// Ignore only that message, and only for the fake Supabase origin (#35).
+const WEBKIT_OFFLINE_FETCH_NOISE = new RegExp(`^Fetch API cannot load ${SUPABASE_ORIGIN.replaceAll('.', '\\.')}/\\S* due to access control checks\\.$`);
+
+export function collectPageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => {
+    const firstLine = (error.stack ?? '').split('\n')[0] ?? '';
+    if (WEBKIT_OFFLINE_FETCH_NOISE.test(firstLine)) return;
+    errors.push(error.message);
+  });
+  return errors;
+}
+
 export async function fixJienClock(page: Page, offsetMs = 0) {
   await page.clock.setFixedTime(new Date(FIXED_NOW.getTime() + offsetMs));
 }

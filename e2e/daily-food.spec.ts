@@ -1,11 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienContext } from './helpers';
+import { collectPageErrors, completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienContext } from './helpers';
 
 test.use({ actionTimeout: 10_000 });
 
 test('day-first food log adds, scales and removes individual items without changing siblings or dates', async ({ context, page }, info) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = collectPageErrors(page);
   await prepareIsolatedJienContext(context, page);
   await completeOnboarding(page);
   await page.getByRole('button', { name: /^Food log\./ }).click();
