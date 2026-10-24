@@ -39,11 +39,16 @@ export function rankFoodCandidates<T extends FoodRankingCandidate>(
   return candidates
     .map((candidate) => ({ candidate, score: foodCandidateScore(candidate, normalizedQuery, now) }))
     .filter((ranked) => !normalizedQuery || ranked.score > 0)
-    .sort((a, b) => b.score - a.score
+    .sort((a, b) => localFoodPriority(b.candidate) - localFoodPriority(a.candidate)
+      || b.score - a.score
       || (b.candidate.lastUsedAt ?? '').localeCompare(a.candidate.lastUsedAt ?? '')
       || a.candidate.name.localeCompare(b.candidate.name))
     .slice(0, Math.max(0, limit))
     .map(({ candidate }) => candidate);
+}
+
+function localFoodPriority(candidate: FoodRankingCandidate): number {
+  return candidate.isFromHistory || candidate.source === 'custom' ? 1 : 0;
 }
 
 function foodCandidateScore(candidate: FoodRankingCandidate, query: string, now: Date): number {
