@@ -8,7 +8,8 @@ import { AppText, Button, Card, Field, Screen, ScreenHeading, SectionHeading, St
 import { useScreenData } from '@/hooks/use-screen-data';
 import { deleteMeal, getMealDetail, updateMeal, type MealDetail, type MealItemSnapshot } from '@/lib/db';
 import { calculateMealTotals, localMealTimestamp } from '@/lib/nutrition/meal-record';
-import { formatTime, toLocalDateKey } from '@/lib/time';
+import { resolveRepeatMealTarget } from '@/lib/nutrition/meal-template';
+import { formatTime } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 type ItemDraft = {
@@ -28,7 +29,7 @@ type ItemDraft = {
 type MealDraft = { name: string; date: string; time: string; items: ItemDraft[] };
 
 export default function MealDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, repeatDate } = useLocalSearchParams<{ id: string; repeatDate?: string }>();
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
@@ -39,6 +40,8 @@ export default function MealDetailScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const repeatTarget = resolveRepeatMealTarget(repeatDate);
+  const repeatDateLabel = formatRepeatDate(repeatTarget.date);
 
   const draftTotals = useMemo(() => calculateMealTotals((draft?.items ?? []).map((item) => ({
     id: item.id,
@@ -160,10 +163,12 @@ export default function MealDetailScreen() {
           <MacroSummary totals={detail} />
           <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}>
             <AppText style={styles.itemTitle}>Eat this often?</AppText>
-            <AppText style={{ color: colors.textMuted }}>Copy these portions and macros into a new meal for today. The saved record stays unchanged.</AppText>
+            <AppText style={{ color: colors.textMuted }}>
+              Copy these portions and macros into a new meal for {repeatTarget.fromViewedFoodDay ? repeatDateLabel : 'today'}. The saved record stays unchanged.
+            </AppText>
             <Button
-              label="Log this again today"
-              onPress={() => router.push({ pathname: '/meals/new', params: { templateMealId: detail.id, date: toLocalDateKey() } })}
+              label={repeatTarget.fromViewedFoodDay ? `Log again on ${repeatDateLabel}` : 'Log this again today'}
+              onPress={() => router.push({ pathname: '/meals/new', params: { templateMealId: detail.id, date: repeatTarget.date } })}
               variant="secondary"
             />
           </Card>
@@ -261,6 +266,14 @@ function formatNumber(value: number): string {
 function formatMealDate(dateKey: string): string {
   return new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
     .format(new Date(`${dateKey}T12:00:00`));
+}
+
+function formatRepeatDate(dateKey: string): string {
+  const date = new Date(`${dateKey}T12:00:00`);
+  const weekday = new Intl.DateTimeFormat('en-SG', { weekday: 'short' }).format(date);
+  const day = new Intl.DateTimeFormat('en-SG', { day: 'numeric' }).format(date);
+  const month = new Intl.DateTimeFormat('en-SG', { month: 'short' }).format(date);
+  return `${weekday} ${day} ${month}`;
 }
 
 function sourceLabel(source: MealDetail['source']): string {

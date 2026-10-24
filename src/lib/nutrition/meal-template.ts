@@ -1,4 +1,5 @@
 import type { MealDraftFood, MealDraftType } from '../meal-draft.ts';
+import { historicalDateKey, toLocalDateKey } from '../time.ts';
 
 export type RepeatMealSnapshot = {
   name: string;
@@ -14,6 +15,20 @@ export type RepeatMealSnapshot = {
     fibreG: number | null;
   }>;
 };
+
+export type RepeatMealTarget = {
+  date: string;
+  fromViewedFoodDay: boolean;
+};
+
+export function resolveRepeatMealTarget(
+  viewedFoodDate: string | undefined,
+  today = toLocalDateKey(),
+): RepeatMealTarget {
+  if (!viewedFoodDate) return { date: today, fromViewedFoodDay: false };
+  const date = historicalDateKey(viewedFoodDate, today);
+  return { date, fromViewedFoodDay: date === viewedFoodDate };
+}
 
 export function buildRepeatMealDraft(
   meal: RepeatMealSnapshot,

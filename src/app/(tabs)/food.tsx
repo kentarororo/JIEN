@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -323,7 +323,10 @@ export default function FoodScreen() {
           setSelection(null); setFoodMessage(message); void reload();
           void reconcileMealGapNotification(db).catch(() => undefined);
         }}
-        onDetails={(mealId) => { setSelection(null); router.push(`/meals/${mealId}` as Href); }} /> : null}
+        onDetails={(mealId) => {
+          setSelection(null);
+          router.push({ pathname: '/meals/[id]', params: { id: mealId, repeatDate: selectedDate } });
+        }} /> : null}
     </Screen>
   );
 }
