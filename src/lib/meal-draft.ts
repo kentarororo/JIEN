@@ -119,15 +119,13 @@ export function summarizeMealDraft(foods: MealDraftFood[]): MealDraftSummary {
     const quantity = Number(food.quantity);
     const caloriesKcal = Number(food.calories);
     const proteinG = Number(food.protein);
-    const carbohydrateG = Number(food.carbs);
-    const fatG = Number(food.fat);
+    const carbohydrateG = food.carbs.trim() ? Number(food.carbs) : 0;
+    const fatG = food.fat.trim() ? Number(food.fat) : 0;
     const fibreG = food.fibre.trim() ? Number(food.fibre) : 0;
     const valid = food.name.trim().length > 0
       && food.quantity.trim().length > 0
       && food.calories.trim().length > 0
       && food.protein.trim().length > 0
-      && food.carbs.trim().length > 0
-      && food.fat.trim().length > 0
       && Number.isFinite(quantity)
       && quantity > 0
       && [caloriesKcal, proteinG, carbohydrateG, fatG, fibreG]
