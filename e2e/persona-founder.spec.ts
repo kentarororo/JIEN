@@ -60,8 +60,7 @@ async function enterFood(m: Meter, page: Page, index: number, food: Food, saveFo
     await m.type(page.getByLabel(label, { exact: true }).nth(index), value);
   }
   if (saveForReuse) {
-    // Since #30 the reuse controls sit under each row's collapsed More details (one extra tap).
-    await m.tap(page.getByRole('button', { name: 'More details', exact: true }).last());
+    // Since #30 Save as private food sits on the row beside More details (no extra tap).
     await m.tap(page.getByRole('button', { name: 'Save as private food', exact: true }).last());
     await expect(page.getByText(new RegExp(`${food.name.replace(/[()]/g, '\\$&')}.*saved|Saved`, 'i')).first()).toBeVisible();
   }
@@ -132,7 +131,10 @@ test('persona 1 founder-type lifter: hawker food first, then a push day', async 
   await enterFood(m, page, 0, CHICKEN_RICE, true);
   await enterFood(m, page, 1, KOPI_C, true);
   await addToDay(m, page);
-  m.stop('(a) Hawker meal, first time: chicken rice + kopi C, saved for reuse');
+  const savedHawker = m.stop('(a) Hawker meal, first time: chicken rice + kopi C, saved for reuse');
+  // #30 AC5: no worse than run 1's 17 taps, now without the ~2 screens of scrolling run 1 needed
+  // (Save as private food stays on the row, so no More details tap).
+  expect(savedHawker.taps).toBeLessThanOrEqual(17);
 
   // Day 1 dinner: single hawker dish, first time, not saved (what a hurried user does).
   m.start();

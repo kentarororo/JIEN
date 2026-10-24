@@ -23,7 +23,8 @@ test('cardio is a main training action in both views; private branded foods pers
   await page.getByLabel('Protein (g)', { exact: true }).fill('10');
   await page.getByLabel('Carbs (g)', { exact: true }).fill('12');
   await page.getByLabel('Fat (g)', { exact: true }).fill('4');
-  // #30: brand, barcode and reuse controls sit under a collapsed More details.
+  // #30: brand and barcode sit under a collapsed More details; Save as private food stays on the row.
+  await expect(page.getByRole('button', { name: 'Save as private food', exact: true })).toBeVisible();
   await expect(page.getByLabel('Brand (optional)', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'More details', exact: true }).click();
   await page.getByLabel('Brand (optional)', { exact: true }).fill('SG Test Brand');

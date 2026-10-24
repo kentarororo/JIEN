@@ -43,14 +43,17 @@ test('Add food keeps Add to day in reach, focuses the new row and hides optional
   for (const label of ['Fibre (g)', 'Brand (optional)', 'Product barcode (optional)']) {
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
   }
-  for (const name of ['Save as private food', 'Share with community']) {
-    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
-  }
+  // Save as private food stays beside More details (it's a reuse action, not a sharing control);
+  // community sharing waits under More details.
+  await expect(page.getByRole('button', { name: 'Share with community', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save as private food', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save as private food', exact: true })).toBeDisabled();
 
   // AC4: name + kcal + protein is enough; carbs and fat are optional.
   await food.fill('Layout QA laksa');
   await page.getByLabel('Calories', { exact: true }).fill('550');
   await page.getByLabel('Protein (g)', { exact: true }).fill('22');
+  await expect(page.getByRole('button', { name: 'Save as private food', exact: true })).toBeEnabled();
 
   // AC1: a pinned footer with item count and kcal stays in view while scrolling either way.
   await expect(page.getByText('1 food · 550 kcal', { exact: true })).toBeInViewport();
@@ -69,7 +72,6 @@ test('Add food keeps Add to day in reach, focuses the new row and hides optional
   for (const label of ['Fibre (g)', 'Brand (optional)', 'Product barcode (optional)']) {
     await expect(page.getByLabel(label, { exact: true })).toBeVisible();
   }
-  await expect(page.getByRole('button', { name: 'Save as private food', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Share with community', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Hide details', exact: true }).click();
   await expect(page.getByLabel('Brand (optional)', { exact: true })).toHaveCount(0);
