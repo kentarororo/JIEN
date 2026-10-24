@@ -48,17 +48,26 @@ digits remain visible if no product matches.
 
 ## Singapore and regional coverage
 
-JIEN includes a small offline set of public-domain FoodData Central records for rice
-noodles, tempeh, edamame, chicken curry with rice, and congee. These records retain
-their USDA identifiers and remain editable. They improve first-run regional search
-without presenting a generic record as a precise hawker-stall portion.
+JIEN ships 155 offline Singapore hawker, kopitiam, drink, snack, and side-dish starter
+records. Each record is labelled `JIEN estimate (SG)`, uses a named standard portion,
+and stores the ingredient-and-gram breakdown used to calculate it. Nutrients are
+derived from USDA FoodData Central ingredients and the calorie value is recomputed
+from protein, carbohydrate, and fat. FoodData Central data are United States
+government works released under CC0/public domain; JIEN retains the supporting FDC
+identifiers in the recipe metadata and credits the source here.
 
-The Health Promotion Board's Singapore Food Insights Database is the preferred
-authoritative source for prepared Singapore dishes, but it is not copied into JIEN.
-HPB's published website terms restrict reproduction and commercial use without prior
-written permission. Direct SG FoodID ingestion therefore remains blocked on a written
-data licence. Meal-photo estimates and private foods cover local dishes in the meantime;
-both preserve the user's editable serving and nutrition values.
+These are recipe-derived reference estimates, not measurements of a particular stall.
+Oil, sauces, portion size, and preparation vary substantially, so every value remains
+editable before logging and can be saved as a private food. Local Singapore estimates
+rank ahead of generic online-provider matches, work in both Add Food and Quick Add,
+and stay available with no connection. User-created private foods still rank first.
+
+The original small offline set of public-domain FoodData Central records for rice
+noodles, tempeh, edamame, chicken curry with rice, and congee remains available with
+its USDA identifiers. The Health Promotion Board's Singapore Food Insights Database
+is not copied into JIEN because its published website terms restrict reproduction and
+commercial use without prior written permission. No HPB values are used by the SG
+starter set.
 
 When an online name search returns no match—or the provider is temporarily
 unavailable—the meal logger offers to carry that name into an editable blank row.
