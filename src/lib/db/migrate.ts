@@ -1,11 +1,12 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { SINGAPORE_FOOD_ESTIMATES } from '../../data/singapore-food-estimates.ts';
 import { resolveDatabaseJournalMode } from './database-journal-mode.ts';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 import { migratePrivateFoods } from './private-food-migration.ts';
 
-export const LATEST_DATABASE_VERSION = 18;
+export const LATEST_DATABASE_VERSION = 19;
 
 const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -421,6 +422,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         source TEXT NOT NULL,
         source_ref TEXT,
         barcode TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
         updated_at TEXT NOT NULL,
         last_used_at TEXT
       );
@@ -740,6 +742,31 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
           ON nutrition_day_states(client_updated_at, id);
       `);
       await db.execAsync('PRAGMA user_version = 18;');
+    });
+  }
+  if (currentVersion < 19) {
+    await withExclusiveTransaction(db, async (db) => {
+      await addColumnIfMissing(db, 'food_catalog_cache', 'metadata_json', "TEXT NOT NULL DEFAULT '{}'");
+      const foodNow = new Date().toISOString();
+      for (const food of SINGAPORE_FOOD_ESTIMATES) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO food_catalog_cache (
+            id, name, brand, serving_quantity, serving_unit, calories_kcal,
+            protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref,
+            metadata_json, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sg_estimate', ?, ?, ?)`,
+          [
+            food.id, food.name, food.brand, food.servingQuantity, food.servingUnit,
+            food.caloriesKcal, food.proteinG, food.carbohydrateG, food.fatG,
+            food.fibreG, food.sourceRef, JSON.stringify({
+              method: 'recipe-derived estimate',
+              source: 'USDA FoodData Central (CC0 1.0)',
+              ingredients: food.ingredients,
+            }), foodNow,
+          ],
+        );
+      }
+      await db.execAsync('PRAGMA user_version = 19;');
     });
   }
 }

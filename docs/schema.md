@@ -509,10 +509,12 @@ search; previously saved personal meal snapshots remain intact. See
 
 `food_catalog_cache` is a SQLite-only read-through cache, not a Supabase-owned user
 table. It stores normalized food names, brands, portions, macros, optional barcodes,
-provider attribution, and source identifiers. Starter entries keep core food search
-useful offline. Migration 13 also seeds a small set of public-domain USDA regional
-records, retaining each FoodData Central identifier; other Open Food Facts and USDA
-results are cached only after retrieval. User-created foods now live in the private
+provider attribution, source identifiers, and a `metadata_json` object. Starter
+entries keep core food search useful offline. Migration 13 also seeds a small set of
+public-domain USDA regional records, retaining each FoodData Central identifier;
+migration 19 adds recipe-derived Singapore estimates whose metadata retains every
+ingredient's gram weight and USDA FoodData Central reference. Other Open Food Facts
+and USDA results are cached only after retrieval. User-created foods now live in the private
 food library above, not the provider cache. Any meal saved from one is still captured
 and synced as its own editable meal-item snapshot. FatSecret search results are never bulk-written to this discovery cache;
 only a result the user selects and saves can persist inside the meal's editable

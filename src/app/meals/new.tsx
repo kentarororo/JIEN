@@ -25,6 +25,7 @@ import {
   saveMeal,
   savePrivateFood,
   stopSharingPrivateFood,
+  rankFoodCatalogMatches,
   searchFoodDatabase,
   searchLocalFoodCatalog,
   type FoodCatalogItem,
@@ -355,14 +356,21 @@ export default function NewMealScreen() {
     setSearching(true);
     setToolMessage(null);
     try {
-      const items = await searchFoodDatabase(cleanQuery);
+      const [localItems, onlineItems] = await Promise.all([
+        searchLocalFoodCatalog(db, cleanQuery, 12),
+        searchFoodDatabase(cleanQuery),
+      ]);
+      const seen = new Set<string>();
+      const items = rankFoodCatalogMatches(cleanQuery, [...localItems, ...onlineItems])
+        .filter((item) => seen.has(item.id) ? false : (seen.add(item.id), true))
+        .slice(0, 20);
       setResults(items);
       setNoMatchQuery(items.length ? null : cleanQuery);
       setToolMessage(items.length
-        ? `Found ${items.length} online ${items.length === 1 ? 'match' : 'matches'} from ${onlineFoodSourceSummary(items)}.`
+        ? `Found ${items.length} local and online ${items.length === 1 ? 'match' : 'matches'} from ${onlineFoodSourceSummary(items)}. Singapore estimates stay ahead of generic provider results.`
         : 'No database matches found.');
       try {
-        await cacheFoodCatalogItems(db, items);
+        await cacheFoodCatalogItems(db, onlineItems);
       } catch {
         // Search results remain usable if the optional local cache write fails.
       }
@@ -1256,6 +1264,7 @@ function MealSummaryMetric({ label, value }: { label: string; value: string }) {
 function sourceName(source: FoodCatalogItem['source']): string {
   if (source === 'community') return 'Community · unverified';
   if (source === 'custom') return 'Private food';
+  if (source === 'sg_estimate') return 'JIEN estimate (SG)';
   if (source === 'usda_fdc') return 'USDA FoodData Central';
   if (source === 'open_food_facts') return 'Open Food Facts';
   if (source === 'fatsecret') return 'FatSecret Platform';

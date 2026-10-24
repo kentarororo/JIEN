@@ -27,6 +27,7 @@ export {
   lookupFoodBarcode,
   lookupLocalFoodBarcode,
   markFoodCatalogItemUsed,
+  rankFoodCatalogMatches,
   searchFoodDatabase,
   searchLocalFoodCatalog,
 } from './food-catalog';
