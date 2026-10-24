@@ -493,6 +493,22 @@ saving or editing a meal alone does not overwrite product definitions. Meal hist
 remains a separate nutrition snapshot. No personal meal, photo, context or notes
 are pooled into a public food database.
 
+## Private recipes
+
+Migration `20261024000200_recipes.sql` adds owner-only `recipes` and
+`recipe_ingredients`. A recipe stores its name and positive total serving count;
+ordered ingredients store a nutrition snapshot, source label, source reference and
+the number of source servings used. Per-serving nutrition is derived as the sum of
+ingredient snapshots divided by the recipe serving count. Editing a recipe never
+rewrites a `food_items` row already logged from it.
+
+Both tables use UUID owner keys, logical sync timestamps and soft-delete tombstones.
+`recipe_ingredients` belongs to both its recipe and owner, with a composite foreign
+key preventing cross-account attachment. Owner-only RLS is enabled and forced;
+recipes have no community projection or sharing column. SQLite version 19 mirrors
+the tables, writes recipe plus ingredient outbox records in one transaction, and
+includes them in cloud restore, account reset and complete JSON export.
+
 An explicit `is_shared` boolean defaults to false and syncs with the owner's row.
 `search_community_foods` is a deliberate RLS exception: an authenticated, bounded
 security-definer RPC with an empty search path returns only opted-in product fields

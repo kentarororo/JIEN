@@ -5,7 +5,7 @@ import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 import { migratePrivateFoods } from './private-food-migration.ts';
 
-export const LATEST_DATABASE_VERSION = 18;
+export const LATEST_DATABASE_VERSION = 19;
 
 const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -274,6 +274,39 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       deleted_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS recipes (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT,
+      name TEXT NOT NULL,
+      servings REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      client_updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS recipe_ingredients (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT,
+      recipe_id TEXT NOT NULL REFERENCES recipes(id),
+      sort_order INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      quantity REAL NOT NULL,
+      serving_quantity REAL NOT NULL,
+      serving_unit TEXT NOT NULL,
+      calories_kcal REAL NOT NULL,
+      protein_g REAL NOT NULL,
+      carbohydrate_g REAL NOT NULL,
+      fat_g REAL NOT NULL,
+      fibre_g REAL,
+      source TEXT NOT NULL,
+      source_ref TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      client_updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS nutrition_targets (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT,
@@ -335,6 +368,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS workout_sets_exercise_idx ON workout_sets(exercise_id, completed_at DESC);
     CREATE INDEX IF NOT EXISTS meals_timeline_idx ON meals(eaten_on DESC, eaten_at DESC);
     CREATE INDEX IF NOT EXISTS food_items_meal_idx ON food_items(meal_id, sort_order);
+    CREATE INDEX IF NOT EXISTS recipe_ingredients_recipe_idx ON recipe_ingredients(recipe_id, sort_order);
     CREATE INDEX IF NOT EXISTS sync_queue_retry_idx ON sync_queue(next_attempt_at, created_at);
     `);
 
@@ -740,6 +774,47 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
           ON nutrition_day_states(client_updated_at, id);
       `);
       await db.execAsync('PRAGMA user_version = 18;');
+    });
+  }
+  if (currentVersion < 19) {
+    await withExclusiveTransaction(db, async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS recipes (
+          id TEXT PRIMARY KEY NOT NULL,
+          user_id TEXT,
+          name TEXT NOT NULL,
+          servings REAL NOT NULL CHECK (servings > 0),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          client_updated_at TEXT NOT NULL,
+          deleted_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS recipe_ingredients (
+          id TEXT PRIMARY KEY NOT NULL,
+          user_id TEXT,
+          recipe_id TEXT NOT NULL REFERENCES recipes(id),
+          sort_order INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          quantity REAL NOT NULL CHECK (quantity > 0),
+          serving_quantity REAL NOT NULL CHECK (serving_quantity > 0),
+          serving_unit TEXT NOT NULL,
+          calories_kcal REAL NOT NULL,
+          protein_g REAL NOT NULL,
+          carbohydrate_g REAL NOT NULL,
+          fat_g REAL NOT NULL,
+          fibre_g REAL,
+          source TEXT NOT NULL,
+          source_ref TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          client_updated_at TEXT NOT NULL,
+          deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS recipes_sync_idx ON recipes(client_updated_at, id);
+        CREATE INDEX IF NOT EXISTS recipe_ingredients_recipe_idx
+          ON recipe_ingredients(recipe_id, sort_order);
+      `);
+      await db.execAsync('PRAGMA user_version = 19;');
     });
   }
 }

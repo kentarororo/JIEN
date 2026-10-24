@@ -13,6 +13,8 @@ export type CompleteExportSnapshot = {
   foodItems: ExportDatabaseRow[];
   nutritionDayStates: ExportDatabaseRow[];
   privateFoods?: ExportDatabaseRow[];
+  recipes?: ExportDatabaseRow[];
+  recipeIngredients?: ExportDatabaseRow[];
   nutritionTargets: ExportDatabaseRow[];
   wellnessLogs: ExportDatabaseRow[];
   aiConversations: ExportDatabaseRow[];
@@ -47,6 +49,8 @@ export async function getCompleteExportSnapshot(
     aiMessages,
     notificationPreferences,
     privateFoods,
+    recipes,
+    recipeIngredients,
   ] = await Promise.all([
     db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'),
     db.getFirstAsync<{ value: string }>(
@@ -152,6 +156,12 @@ export async function getCompleteExportSnapshot(
     db.getAllAsync<ExportDatabaseRow>(`SELECT id, catalog_id, name, brand, barcode, serving_quantity, serving_unit,
       calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g, is_shared, created_at, updated_at, client_updated_at
       FROM private_foods WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE, id`),
+    db.getAllAsync<ExportDatabaseRow>(`SELECT id, name, servings, created_at, updated_at, client_updated_at
+      FROM recipes WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE, id`),
+    db.getAllAsync<ExportDatabaseRow>(`SELECT id, recipe_id, sort_order, name, quantity, serving_quantity,
+      serving_unit, calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref,
+      created_at, updated_at, client_updated_at FROM recipe_ingredients
+      WHERE deleted_at IS NULL ORDER BY recipe_id, sort_order, id`),
   ]);
 
   return {
@@ -165,6 +175,8 @@ export async function getCompleteExportSnapshot(
     foodItems,
     nutritionDayStates,
     privateFoods,
+    recipes,
+    recipeIngredients,
     nutritionTargets,
     wellnessLogs,
     aiConversations,

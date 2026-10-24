@@ -1155,7 +1155,7 @@ function toDraftFood(item: FoodCatalogItem): DraftFood {
     carbs: String(roundMacro(item.carbohydrateG)),
     fat: String(roundMacro(item.fatG)),
     fibre: item.fibreG == null ? '' : String(roundMacro(item.fibreG)),
-    source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' || item.source === 'custom' ? 'manual' : 'imported',
+    source: item.source === 'ai_photo' ? 'ai_photo' : item.source === 'starter' || item.source === 'custom' || item.source === 'recipe' ? 'manual' : 'imported',
     sourceLabel: item.source === 'ai_photo' ? photoReviewLabel(item.photoReview) : item.isShared ? 'Your community food · unverified' : sourceName(item.source),
     confidence: item.confidence,
     photoReview: item.photoReview,
@@ -1256,6 +1256,7 @@ function MealSummaryMetric({ label, value }: { label: string; value: string }) {
 function sourceName(source: FoodCatalogItem['source']): string {
   if (source === 'community') return 'Community · unverified';
   if (source === 'custom') return 'Private food';
+  if (source === 'recipe') return 'Recipe';
   if (source === 'usda_fdc') return 'USDA FoodData Central';
   if (source === 'open_food_facts') return 'Open Food Facts';
   if (source === 'fatsecret') return 'FatSecret Platform';

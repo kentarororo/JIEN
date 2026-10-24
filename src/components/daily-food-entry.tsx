@@ -78,7 +78,7 @@ export function DailyFoodEntry({ selection, date, onClose, onSaved, onDetails }:
         await saveMeal(db, {
           name: food.name, type: 'other', eatenAt: localTimestampForDate(date),
           items: [{ name: food.name, quantity: Number(quantity), unit, ...totals,
-            source: food.source === 'starter' || food.source === 'custom' ? 'manual' : 'imported', confidence: null }],
+            source: food.source === 'starter' || food.source === 'custom' || food.source === 'recipe' ? 'manual' : 'imported', confidence: null }],
         });
         // A cache failure must not turn a committed food into a duplicate on retry.
         void markFoodCatalogItemUsed(db, food.id).catch(() => undefined);
@@ -97,7 +97,7 @@ export function DailyFoodEntry({ selection, date, onClose, onSaved, onDetails }:
           <AppText style={styles.title}>{food.name}</AppText>
           {selection.kind === 'catalog' && selection.food.brand ? <AppText>{selection.food.brand}</AppText> : null}
           {selection.kind === 'catalog' ? <AppText style={{ color: colors.textMuted }}>{({
-            starter: 'JIEN starter estimate', custom: 'Your saved food', community: 'JIEN community · unverified',
+            starter: 'JIEN starter estimate', custom: 'Your saved food', recipe: 'Your recipe', community: 'JIEN community · unverified',
             usda_fdc: 'USDA FoodData Central · public domain', open_food_facts: 'Open Food Facts contributors · ODbL',
             fatsecret: 'FatSecret Platform', ai_photo: 'Photo estimate',
           })[selection.food.source]}</AppText> : null}

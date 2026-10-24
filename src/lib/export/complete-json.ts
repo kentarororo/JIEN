@@ -219,6 +219,24 @@ export function buildCompleteJsonExport(
       carbohydrateG: value(row, 'carbohydrate_g'), fatG: value(row, 'fat_g'), fibreG: value(row, 'fibre_g'),
       createdAt: value(row, 'created_at'), updatedAt: value(row, 'updated_at'), clientUpdatedAt: value(row, 'client_updated_at'),
     })),
+    recipes: [...(snapshot.recipes ?? [])].sort(compare('name', 'id')).map((row) => ({
+      id: value(row, 'id'), name: value(row, 'name'), servings: value(row, 'servings'),
+      createdAt: value(row, 'created_at'), updatedAt: value(row, 'updated_at'),
+      clientUpdatedAt: value(row, 'client_updated_at'),
+      ingredients: [...(snapshot.recipeIngredients ?? [])]
+        .filter((ingredient) => ingredient.recipe_id === row.id)
+        .sort(compare('sort_order', 'id'))
+        .map((ingredient) => ({
+          id: value(ingredient, 'id'), sortOrder: value(ingredient, 'sort_order'),
+          name: value(ingredient, 'name'), quantity: value(ingredient, 'quantity'),
+          servingQuantity: value(ingredient, 'serving_quantity'), servingUnit: value(ingredient, 'serving_unit'),
+          caloriesKcal: value(ingredient, 'calories_kcal'), proteinG: value(ingredient, 'protein_g'),
+          carbohydrateG: value(ingredient, 'carbohydrate_g'), fatG: value(ingredient, 'fat_g'),
+          fibreG: value(ingredient, 'fibre_g'), source: value(ingredient, 'source'),
+          sourceRef: value(ingredient, 'source_ref'), createdAt: value(ingredient, 'created_at'),
+          updatedAt: value(ingredient, 'updated_at'), clientUpdatedAt: value(ingredient, 'client_updated_at'),
+        })),
+    })),
     nutritionTargets: [...snapshot.nutritionTargets].sort(compare('effective_from', 'id')).map(mapNutritionTarget),
     wellnessLogs: [...snapshot.wellnessLogs].sort(compare('logged_at', 'id')).map(mapWellnessLog),
     ai: {

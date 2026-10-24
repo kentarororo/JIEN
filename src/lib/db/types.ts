@@ -337,7 +337,7 @@ export type FoodCatalogItem = {
   carbohydrateG: number;
   fatG: number;
   fibreG: number | null;
-  source: 'starter' | 'custom' | 'community' | 'usda_fdc' | 'open_food_facts' | 'fatsecret' | 'ai_photo';
+  source: 'starter' | 'custom' | 'recipe' | 'community' | 'usda_fdc' | 'open_food_facts' | 'fatsecret' | 'ai_photo';
   isShared?: boolean;
   sourceRef: string | null;
   barcode: string | null;
