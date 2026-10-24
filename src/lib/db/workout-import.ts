@@ -129,6 +129,12 @@ export async function importWorkoutHistory(
 }
 
 async function getImportNamespace(database: SQLiteDatabase, changedAt: string): Promise<string> {
+  const accountOwner = await database.getFirstAsync<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'cloud_owner_user_id'",
+  );
+  if (accountOwner?.value.trim()) {
+    return deterministicImportUuid(`account\u001f${accountOwner.value.trim()}`);
+  }
   const existing = await database.getFirstAsync<{ value: string }>(
     "SELECT value FROM app_settings WHERE key = 'workout_import_namespace'",
   );

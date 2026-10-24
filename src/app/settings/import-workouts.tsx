@@ -8,8 +8,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { importWorkoutHistory, listExercises, type Exercise, type WorkoutImportExerciseChoice, type WorkoutImportResult } from '@/lib/db';
-import { autoMatchImportedExercises, parseWorkoutCsv, WorkoutCsvError, type WorkoutImportPreview } from '@/lib/import/workout-csv';
-import { formatShortDate } from '@/lib/time';
+import { autoMatchImportedExercises, importedExerciseSearchText, parseWorkoutCsv, WorkoutCsvError, type WorkoutImportPreview } from '@/lib/import/workout-csv';
 import { spacing, typography, useJienTheme } from '@/theme';
 
 export default function ImportWorkoutsScreen() {
@@ -101,7 +100,7 @@ export default function ImportWorkoutsScreen() {
           <View style={styles.metrics}>
             <PreviewMetric label="Workouts" value={preview.workoutCount.toLocaleString()} />
             <PreviewMetric label="Sets" value={preview.setCount.toLocaleString()} />
-            <PreviewMetric label="Date range" value={`${formatShortDate(preview.firstDate)} – ${formatShortDate(preview.lastDate)}`} />
+            <PreviewMetric label="Date range" value={formatImportDateRange(preview.firstDate, preview.lastDate)} />
           </View>
         </Card>
 
@@ -163,16 +162,16 @@ function ExerciseResolution({
   onChoice: (choice: WorkoutImportExerciseChoice) => void;
 }) {
   const { colors } = useJienTheme();
-  const normalized = search.trim().toLowerCase();
-  const matches = useMemo(() => normalized
-    ? exercises.filter((exercise) => exercise.name.toLowerCase().includes(normalized)).slice(0, 6)
-    : [], [exercises, normalized]);
+  const normalizedTerms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = useMemo(() => normalizedTerms.length
+    ? exercises.filter((exercise) => normalizedTerms.every((term) => exercise.name.toLowerCase().includes(term))).slice(0, 6)
+    : [], [exercises, normalizedTerms]);
   return (
     <Card>
       <AppText style={styles.cardTitle}>{importedName}</AppText>
       <View style={styles.actions}>
         <Pill label="Create as custom" active={choice?.kind === 'create'} onPress={() => onChoice({ kind: 'create', name: importedName })} />
-        <Pill label="Map to existing" active={choice?.kind === 'existing'} onPress={() => onSearch(importedName)} />
+        <Pill label="Map to existing" active={choice?.kind === 'existing'} onPress={() => onSearch(importedExerciseSearchText(importedName))} />
       </View>
       {choice?.kind === 'existing' ? <AppText style={{ color: colors.success }}>Mapped to {choice.exercise.name}</AppText> : null}
       {search || choice?.kind === 'existing' ? <>
@@ -182,6 +181,17 @@ function ExerciseResolution({
       {choice?.kind === 'create' ? <AppText style={{ color: colors.textMuted }}>Created with “other” muscle targets. Review its targets after import so progression can categorize it precisely.</AppText> : null}
     </Card>
   );
+}
+
+function formatImportDateRange(firstDate: string, lastDate: string): string {
+  const formatter = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+  const first = new Date(`${firstDate}T12:00:00`);
+  const last = new Date(`${lastDate}T12:00:00`);
+  const firstLabel = formatter.format(first);
+  const lastLabel = formatter.format(last);
+  return first.getFullYear() === last.getFullYear()
+    ? `${firstLabel} – ${lastLabel} (${first.getFullYear()})`
+    : `${firstLabel} ${first.getFullYear()} – ${lastLabel} ${last.getFullYear()}`;
 }
 
 const styles = StyleSheet.create({

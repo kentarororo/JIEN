@@ -92,13 +92,17 @@ export function parseWorkoutCsv(csv: string): WorkoutImportPreview {
 }
 
 export function autoMatchImportedExercises(importedNames: readonly string[], catalogue: readonly { id: string; name: string }[]): Record<string, string> {
-  const exact = new Map(catalogue.map((exercise) => [normalizeExerciseName(exercise.name), exercise.id]));
+  const exact = new Map(catalogue.map((exercise) => [canonicalExerciseName(exercise.name), exercise.id]));
   const result: Record<string, string> = {};
   for (const importedName of importedNames) {
-    const match = exact.get(normalizeExerciseName(importedName));
+    const match = exact.get(canonicalExerciseName(importedName));
     if (match) result[importedName] = match;
   }
   return result;
+}
+
+export function importedExerciseSearchText(value: string): string {
+  return value.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
 export function deterministicImportUuid(value: string): string {
@@ -190,6 +194,10 @@ function normalizeHeader(value: string): string {
 
 function normalizeExerciseName(value: string): string {
   return value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function canonicalExerciseName(value: string): string {
+  return normalizeExerciseName(value).split(' ').filter(Boolean).sort().join(' ');
 }
 
 function valueFor(row: string[], headers: string[], aliases: string[]): string {
