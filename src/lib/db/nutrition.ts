@@ -623,6 +623,7 @@ export async function ensureStartingNutritionTarget(
         goals: profile.goals,
       }),
       desiredWeeklyWeightChangePercent: 0,
+      weeklyCheckInDay: null,
     },
     {
       source: 'adaptive',
@@ -644,9 +645,10 @@ export async function getNutritionTarget(
     fat_g: number;
     fibre_g: number | null;
     desired_weekly_weight_change_percent: number;
+    weekly_check_in_day: number | null;
   }>(
     `SELECT id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g,
-      desired_weekly_weight_change_percent
+      desired_weekly_weight_change_percent, weekly_check_in_day
      FROM nutrition_targets
      WHERE effective_from <= ?
        AND (effective_to IS NULL OR effective_to >= ?)
@@ -665,23 +667,26 @@ export async function getNutritionTarget(
     fatG: row.fat_g,
     fibreG: row.fibre_g ?? 0,
     desiredWeeklyWeightChangePercent: row.desired_weekly_weight_change_percent,
+    weeklyCheckInDay: row.weekly_check_in_day,
   };
 }
 
 export async function getAdaptiveNutritionHistory(
   db: SQLiteDatabase,
   days = 35,
+  end = new Date(),
 ): Promise<AdaptiveNutritionHistoryDay[]> {
   const safeDays = Math.max(21, Math.min(90, Math.floor(days)));
-  const start = new Date();
+  const start = new Date(end);
   start.setDate(start.getDate() - safeDays + 1);
   const startDate = toLocalDateKey(start);
+  const endDate = toLocalDateKey(end);
   const [weights, nutrition] = await Promise.all([
     db.getAllAsync<{ date: string; body_weight_kg: number }>(
       `SELECT w.logged_on AS date, w.body_weight_kg
        FROM wellness_logs w
        WHERE w.kind = 'body_measurement'
-         AND w.logged_on >= ?
+         AND w.logged_on BETWEEN ? AND ?
          AND w.deleted_at IS NULL
          AND w.logged_at = (
            SELECT MAX(latest.logged_at)
@@ -691,7 +696,7 @@ export async function getAdaptiveNutritionHistory(
              AND latest.deleted_at IS NULL
          )
        ORDER BY w.logged_on`,
-      [startDate],
+      [startDate, endDate],
     ),
     db.getAllAsync<{
       date: string;
@@ -707,10 +712,10 @@ export async function getAdaptiveNutritionHistory(
        JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
        LEFT JOIN nutrition_day_states s
          ON s.logged_on = m.eaten_on AND s.deleted_at IS NULL
-       WHERE m.eaten_on >= ? AND m.deleted_at IS NULL
+       WHERE m.eaten_on BETWEEN ? AND ? AND m.deleted_at IS NULL
        GROUP BY m.eaten_on, s.state
        ORDER BY m.eaten_on`,
-      [startDate],
+      [startDate, endDate],
     ),
   ]);
   const byDate = new Map<string, AdaptiveNutritionHistoryDay>();
@@ -743,7 +748,7 @@ export async function getAdaptiveNutritionHistory(
 
 export async function saveNutritionTarget(
   db: SQLiteDatabase,
-  input: Omit<NutritionTarget, 'id' | 'effectiveFrom'>,
+  input: Omit<NutritionTarget, 'id' | 'effectiveFrom' | 'weeklyCheckInDay'> & { weeklyCheckInDay?: number | null },
   options: { source?: 'manual' | 'adaptive'; rationale?: string | null } = {},
 ): Promise<NutritionTarget> {
   if (input.caloriesKcal <= 0 || input.proteinG < 0 || input.carbohydrateG < 0 || input.fatG < 0) {
@@ -753,6 +758,10 @@ export async function saveNutritionTarget(
     || input.desiredWeeklyWeightChangePercent < -1
     || input.desiredWeeklyWeightChangePercent > 1) {
     throw new Error('Desired weekly weight change must be between -1% and 1%.');
+  }
+  if (input.weeklyCheckInDay != null
+    && (!Number.isInteger(input.weeklyCheckInDay) || input.weeklyCheckInDay < 0 || input.weeklyCheckInDay > 6)) {
+    throw new Error('Weekly check-in day must be Sunday through Saturday.');
   }
   return saveNutritionTargetAtomically(db, input, options, {
     createId: Crypto.randomUUID,

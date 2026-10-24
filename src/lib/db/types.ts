@@ -1,4 +1,5 @@
 import type { MuscleGroupAdvisory } from '@/lib/progression';
+import type { AdaptiveNutritionMetrics } from '@/lib/nutrition/adaptive-metrics';
 import type { TrainingProgramme } from '../planning/training-programme';
 
 export type LoadUnit = 'kg' | 'lb';
@@ -403,6 +404,7 @@ export type NutritionTarget = MacroTotals & {
   id: string;
   effectiveFrom: string;
   desiredWeeklyWeightChangePercent: number;
+  weeklyCheckInDay: number | null;
 };
 
 export type DailyNutrition = {
@@ -455,6 +457,7 @@ export type DashboardSummary = {
   trainingAdvisory: MuscleGroupAdvisory;
   latestBodyMeasurement: BodyMeasurement | null;
   nutrition: DailyNutrition;
+  adaptiveNutrition: AdaptiveNutritionMetrics;
 };
 
 export type WorkoutExportRow = {

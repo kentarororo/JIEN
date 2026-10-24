@@ -223,7 +223,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 18);
+    assert.equal(version?.user_version, 19);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -317,6 +317,7 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.equal(exercises?.count, 132);
     assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
+    assert.equal(targetColumns.some((column) => column.name === 'weekly_check_in_day'), true, 'migration 19 adds the weekly check-in weekday');
     assert.equal(setColumns.some((column) => column.name === 'primary_muscle_group'), true);
     assert.equal(setColumns.some((column) => column.name === 'secondary_muscle_groups'), true);
     await recordAccountSyncHealth(database, {
@@ -985,7 +986,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 18 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 19 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 
