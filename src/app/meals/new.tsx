@@ -1131,32 +1131,26 @@ export default function NewMealScreen() {
             <Field label="Carbs (g)" value={food.carbs} onChangeText={(value) => updateMacro(food.key, 'carbs', value)} keyboardType="decimal-pad" placeholder="Optional · 0" containerStyle={styles.macroField} />
             <Field label="Fat (g)" value={food.fat} onChangeText={(value) => updateMacro(food.key, 'fat', value)} keyboardType="decimal-pad" placeholder="Optional · 0" containerStyle={styles.macroField} />
           </View>
-          <Button
-            label={expandedFoodDetails.includes(food.key) ? 'Hide details' : 'More details'}
-            expanded={expandedFoodDetails.includes(food.key)}
-            onPress={() => toggleFoodDetails(food.key)}
-            variant="quiet"
-          />
+          <View style={styles.foodQuickActions}>
+            <Button
+              label={expandedFoodDetails.includes(food.key) ? 'Hide details' : 'More details'}
+              expanded={expandedFoodDetails.includes(food.key)}
+              onPress={() => toggleFoodDetails(food.key)}
+              variant="quiet"
+            />
+            <Button
+              label={food.isShared ? 'Update community food' : food.catalogId?.startsWith('custom-') ? 'Update private food' : 'Save as private food'}
+              onPress={() => void saveFoodForReuse(food)}
+              busy={savingPrivateFoodKey === food.key}
+              disabled={!isCompletedFood(food) || (savingPrivateFoodKey != null && savingPrivateFoodKey !== food.key)}
+              variant="quiet"
+            />
+          </View>
           {expandedFoodDetails.includes(food.key) ? (
             <View style={styles.foodDetails}>
               <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => updateMacro(food.key, 'fibre', value)} keyboardType="decimal-pad" placeholder="Optional · 0" />
               <Field label="Brand (optional)" value={food.brand ?? ''} onChangeText={(value) => update(food.key, 'brand', value)} maxLength={160} placeholder="Brand on the package" />
               <Field label="Product barcode (optional)" value={food.barcode ?? ''} onChangeText={(value) => update(food.key, 'barcode', value)} maxLength={32} inputMode="numeric" placeholder="8–14 digits" hint="Brand and barcode are retained when you save a reusable food." />
-              <View style={[styles.privateFoodAction, { borderColor: colors.border }]}>
-                <View style={styles.flex}>
-                  <AppText style={styles.resultHeadingTitle}>{food.isShared ? 'Community sharing selected' : food.catalogId?.startsWith('custom-') ? 'Private food saved' : 'Reuse this food'}</AppText>
-                  <AppText style={{ color: colors.textMuted }}>{food.catalogId?.startsWith('custom-')
-                    ? 'Update the saved serving after changing these values.'
-                    : 'Save a reusable food to your account. Save the meal separately.'}</AppText>
-                </View>
-                <Button
-                  label={food.isShared ? 'Update community food' : food.catalogId?.startsWith('custom-') ? 'Update private food' : 'Save as private food'}
-                  onPress={() => void saveFoodForReuse(food)}
-                  busy={savingPrivateFoodKey === food.key}
-                  disabled={!isCompletedFood(food) || (savingPrivateFoodKey != null && savingPrivateFoodKey !== food.key)}
-                  variant="quiet"
-                />
-              </View>
               {food.source === 'manual' && (!food.catalogId || food.catalogId.startsWith('custom-')) ? <>
                 <AppText style={{ color: colors.textMuted }}>Community sharing makes the name, brand, barcode, serving and nutrition searchable by all signed-in accounts. Check the package or recipe first; share only details you can publish. Meal dates, notes and photos stay private.</AppText>
                 <Button label={food.isShared ? 'Stop sharing' : 'Share with community'}
@@ -1369,7 +1363,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },
   fieldGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  privateFoodAction: { minHeight: 76, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  foodQuickActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
   portionSection: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.md },
   quantityField: { flexBasis: 160, flexGrow: 0 },
   unitSection: { flex: 1, minWidth: 220, gap: spacing.xs },
