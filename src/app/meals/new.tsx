@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { createElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import { getAccountState } from '@/lib/auth';
@@ -81,6 +81,9 @@ export default function NewMealScreen() {
   const cameraRef = useRef<CameraView>(null);
   const screenRef = useRef<ScrollView>(null);
   const mealItemsYRef = useRef(0);
+  const foodInputRefs = useRef<Record<string, TextInput | null>>({});
+  const foodRowYRefs = useRef<Record<string, number>>({});
+  const pendingFocusFoodKeyRef = useRef<string | null>(null);
   const photoAnalysisLockRef = useRef(false);
   const photoQueueLockRef = useRef(false);
   const submitLockRef = useRef(false);
@@ -95,6 +98,7 @@ export default function NewMealScreen() {
   const todayKeyRef = useRef(toLocalDateKey(now));
   const [name, setName] = useState('Meal');
   const [showMealDetails, setShowMealDetails] = useState(false);
+  const [expandedFoodDetails, setExpandedFoodDetails] = useState<string[]>([]);
   const [type, setType] = useState<MealType>('other');
   const [foods, setFoods] = useState<DraftFood[]>([emptyFood()]);
   const [query, setQuery] = useState(initialQuery ?? '');
@@ -334,6 +338,9 @@ export default function NewMealScreen() {
   const addCatalogFood = async (item: FoodCatalogItem) => {
     const draft = toDraftFood(item);
     setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? [draft] : [...current, draft]);
+    if (draft.brand?.trim() || draft.barcode?.trim()) {
+      setExpandedFoodDetails((current) => current.includes(draft.key) ? current : [...current, draft.key]);
+    }
     setQuery('');
     setResults([]);
     setToolMessage(`${item.name} added. Adjust the portion or macros if needed.`);
@@ -378,18 +385,38 @@ export default function NewMealScreen() {
   const beginPrivateFood = (barcode = '') => {
     const seedName = (noMatchQuery ?? query).trim();
     const nextFood = { ...emptyFood(), name: seedName, barcode };
+    pendingFocusFoodKeyRef.current = nextFood.key;
     setFoods((current) => {
       const blankIndex = current.findIndex(isBlankFood);
       if (blankIndex < 0) return [...current, nextFood];
       return current.map((food, index) => index === blankIndex ? nextFood : food);
     });
+    if (barcode.trim()) {
+      setExpandedFoodDetails((current) => current.includes(nextFood.key) ? current : [...current, nextFood.key]);
+    }
     setQuery('');
     setResults([]);
     setNoMatchQuery(null);
-    setToolMessage('Add the serving and label values below. Save privately or share the food with the community.');
+    setToolMessage('Add a food name, calories and protein. Carbs, fat and More details are optional.');
+  };
+
+  const handleFoodRowLayout = (key: string, y: number) => {
+    foodRowYRefs.current[key] = y;
+    if (pendingFocusFoodKeyRef.current !== key) return;
+    pendingFocusFoodKeyRef.current = null;
     setTimeout(() => {
-      screenRef.current?.scrollTo({ y: Math.max(0, mealItemsYRef.current - spacing.md), animated: true });
+      screenRef.current?.scrollTo({
+        y: Math.max(0, mealItemsYRef.current + (foodRowYRefs.current[key] ?? 0) - spacing.md),
+        animated: true,
+      });
+      foodInputRefs.current[key]?.focus();
     }, 80);
+  };
+
+  const toggleFoodDetails = (key: string) => {
+    setExpandedFoodDetails((current) => current.includes(key)
+      ? current.filter((item) => item !== key)
+      : [...current, key]);
   };
 
   const saveFoodForReuse = async (food: DraftFood, isShared?: boolean) => {
@@ -754,7 +781,7 @@ export default function NewMealScreen() {
         throw new Error('Add at least one food before saving.');
       }
       if (draftSummary.needsAttentionCount) {
-        throw new Error('Enter a food name, positive portion, and valid non-negative calories and macros for every started row.');
+        throw new Error('Enter a food name, positive portion, calories and protein for every started row. Optional macros must be non-negative.');
       }
       const completedFoods = foods.filter((food) => !isBlankFood(food));
       const items = completedFoods.map((food) => ({
@@ -805,7 +832,21 @@ export default function NewMealScreen() {
   }
 
   return (
-    <Screen scrollViewRef={screenRef} contentContainerStyle={styles.screenContent}>
+    <Screen
+      scrollViewRef={screenRef}
+      contentContainerStyle={styles.screenContent}
+      footer={draftSummary.completedFoodCount > 0 ? (
+        <View style={styles.stickySubmitRow}>
+          <View style={styles.stickySubmitCopy}>
+            <AppText style={styles.stickySubmitTitle}>
+              {draftSummary.completedFoodCount} food{draftSummary.completedFoodCount === 1 ? '' : 's'} · {formatFoodNumber(draftSummary.totals.caloriesKcal)} kcal
+            </AppText>
+            <AppText style={{ color: colors.textMuted }}>Ready to add to this day</AppText>
+          </View>
+          <Button label="Add to day" onPress={() => void submit()} busy={saving} />
+        </View>
+      ) : undefined}
+    >
       {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
       {draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Your unfinished meal was restored. The draft remains available until you save it.</AppText></View> : null}
       {templateLoaded && !draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Saved meal copied. Adjust any portion or macro, then save it as a new log.</AppText></View> : null}
@@ -1063,13 +1104,19 @@ export default function NewMealScreen() {
       <View onLayout={(event) => { mealItemsYRef.current = event.nativeEvent.layout.y; }} style={styles.mealItemsSection}>
       <SectionHeading title="Meal items" detail="Database and photo-analysis values remain editable" />
       {foods.map((food, index) => (
-        <Card key={food.key}>
+        <Card key={food.key} onLayout={(event) => handleFoodRowLayout(food.key, event.nativeEvent.layout.y)}>
           <View style={styles.header}><View style={styles.flex}><AppText style={styles.foodTitle}>Food {index + 1}</AppText>{food.sourceLabel ? <AppText style={{ color: colors.textMuted }}>{food.sourceLabel}</AppText> : null}</View>{foods.length > 1 ? <Button label="Remove" onPress={() => setFoods((current) => current.filter((item) => item.key !== food.key))} variant="quiet" /> : null}</View>
           {food.source === 'ai_photo' && food.photoReview ? <View style={styles.photoReviewNotes}>
             {food.photoReview.notes.map((note, noteIndex) => <AppText key={noteIndex} style={{ color: colors.textMuted }}>{note}</AppText>)}
             {food.photoReview.referenceDescription ? <AppText style={{ color: colors.textMuted }}>USDA reference {food.photoReview.referenceId}: {food.photoReview.referenceDescription}</AppText> : null}
           </View> : null}
-          <Field label="Food" value={food.name} onChangeText={(value) => update(food.key, 'name', value)} placeholder="Chicken rice" />
+          <Field
+            label="Food"
+            value={food.name}
+            onChangeText={(value) => update(food.key, 'name', value)}
+            placeholder="Chicken rice"
+            inputRef={(input) => { foodInputRefs.current[food.key] = input; }}
+          />
           <View style={styles.portionSection}>
             <Field label="Quantity" value={food.quantity} onChangeText={(value) => updateQuantity(food.key, value)} keyboardType="decimal-pad" containerStyle={styles.quantityField} />
             <View style={styles.unitSection}>
@@ -1081,19 +1128,16 @@ export default function NewMealScreen() {
           <View style={styles.fieldGrid}>
             <Field label="Calories" value={food.calories} onChangeText={(value) => updateMacro(food.key, 'calories', value)} keyboardType="decimal-pad" placeholder="kcal" containerStyle={styles.macroField} />
             <Field label="Protein (g)" value={food.protein} onChangeText={(value) => updateMacro(food.key, 'protein', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
-            <Field label="Carbs (g)" value={food.carbs} onChangeText={(value) => updateMacro(food.key, 'carbs', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
-            <Field label="Fat (g)" value={food.fat} onChangeText={(value) => updateMacro(food.key, 'fat', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
-            <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => updateMacro(food.key, 'fibre', value)} keyboardType="decimal-pad" containerStyle={styles.macroField} />
+            <Field label="Carbs (g)" value={food.carbs} onChangeText={(value) => updateMacro(food.key, 'carbs', value)} keyboardType="decimal-pad" placeholder="Optional · 0" containerStyle={styles.macroField} />
+            <Field label="Fat (g)" value={food.fat} onChangeText={(value) => updateMacro(food.key, 'fat', value)} keyboardType="decimal-pad" placeholder="Optional · 0" containerStyle={styles.macroField} />
           </View>
-          <Field label="Brand (optional)" value={food.brand ?? ''} onChangeText={(value) => update(food.key, 'brand', value)} maxLength={160} placeholder="Brand on the package" />
-          <Field label="Product barcode (optional)" value={food.barcode ?? ''} onChangeText={(value) => update(food.key, 'barcode', value)} maxLength={32} inputMode="numeric" placeholder="8–14 digits" hint="Brand and barcode are retained when you save a reusable food." />
-          <View style={[styles.privateFoodAction, { borderColor: colors.border }]}>
-            <View style={styles.flex}>
-              <AppText style={styles.resultHeadingTitle}>{food.isShared ? 'Community sharing selected' : food.catalogId?.startsWith('custom-') ? 'Private food saved' : 'Reuse this food'}</AppText>
-              <AppText style={{ color: colors.textMuted }}>{food.catalogId?.startsWith('custom-')
-                ? 'Update the saved serving after changing these values.'
-                : 'Save a reusable food to your account. Save the meal separately.'}</AppText>
-            </View>
+          <View style={styles.foodQuickActions}>
+            <Button
+              label={expandedFoodDetails.includes(food.key) ? 'Hide details' : 'More details'}
+              expanded={expandedFoodDetails.includes(food.key)}
+              onPress={() => toggleFoodDetails(food.key)}
+              variant="quiet"
+            />
             <Button
               label={food.isShared ? 'Update community food' : food.catalogId?.startsWith('custom-') ? 'Update private food' : 'Save as private food'}
               onPress={() => void saveFoodForReuse(food)}
@@ -1102,13 +1146,20 @@ export default function NewMealScreen() {
               variant="quiet"
             />
           </View>
-          {food.source === 'manual' && (!food.catalogId || food.catalogId.startsWith('custom-')) ? <>
-            <AppText style={{ color: colors.textMuted }}>Community sharing makes the name, brand, barcode, serving and nutrition searchable by all signed-in accounts. Check the package or recipe first; share only details you can publish. Meal dates, notes and photos stay private.</AppText>
-            <Button label={food.isShared ? 'Stop sharing' : 'Share with community'}
-              onPress={() => void saveFoodForReuse(food, !food.isShared)} variant="secondary"
-              busy={savingPrivateFoodKey === food.key}
-              disabled={(!food.isShared && !isCompletedFood(food)) || (savingPrivateFoodKey != null && savingPrivateFoodKey !== food.key)} />
-          </> : null}
+          {expandedFoodDetails.includes(food.key) ? (
+            <View style={styles.foodDetails}>
+              <Field label="Fibre (g)" value={food.fibre} onChangeText={(value) => updateMacro(food.key, 'fibre', value)} keyboardType="decimal-pad" placeholder="Optional · 0" />
+              <Field label="Brand (optional)" value={food.brand ?? ''} onChangeText={(value) => update(food.key, 'brand', value)} maxLength={160} placeholder="Brand on the package" />
+              <Field label="Product barcode (optional)" value={food.barcode ?? ''} onChangeText={(value) => update(food.key, 'barcode', value)} maxLength={32} inputMode="numeric" placeholder="8–14 digits" hint="Brand and barcode are retained when you save a reusable food." />
+              {food.source === 'manual' && (!food.catalogId || food.catalogId.startsWith('custom-')) ? <>
+                <AppText style={{ color: colors.textMuted }}>Community sharing makes the name, brand, barcode, serving and nutrition searchable by all signed-in accounts. Check the package or recipe first; share only details you can publish. Meal dates, notes and photos stay private.</AppText>
+                <Button label={food.isShared ? 'Stop sharing' : 'Share with community'}
+                  onPress={() => void saveFoodForReuse(food, !food.isShared)} variant="secondary"
+                  busy={savingPrivateFoodKey === food.key}
+                  disabled={(!food.isShared && !isCompletedFood(food)) || (savingPrivateFoodKey != null && savingPrivateFoodKey !== food.key)} />
+              </> : null}
+            </View>
+          ) : null}
           {food.sourceLabel?.includes('Community') ? <AppText style={{ color: colors.warning }}>Community entry—not verified. Check the serving and nutrition before saving.</AppText> : null}
           {food.source === 'ai_photo' ? <AppText style={[styles.attribution, { color: colors.warning }]}>AI estimate—review before saving. Not medical advice.</AppText> : null}
         </Card>
@@ -1123,7 +1174,7 @@ export default function NewMealScreen() {
               ? `${draftSummary.needsAttentionCount} food row${draftSummary.needsAttentionCount === 1 ? '' : 's'} need attention`
               : draftSummary.completedFoodCount ? 'Food ready to add' : 'No foods added'}</AppText>
             <AppText style={{ color: colors.textMuted }}>{draftSummary.needsAttentionCount
-              ? 'Every started row needs a food name, a positive portion, and non-negative calories and macros.'
+              ? 'Every started row needs a food name, a positive portion, calories and protein. Carbs, fat and fibre are optional.'
               : `${draftSummary.blankFoodCount} untouched row${draftSummary.blankFoodCount === 1 ? '' : 's'} will be ignored.`}</AppText>
           </View>
         </View>
@@ -1135,7 +1186,7 @@ export default function NewMealScreen() {
           <MealSummaryMetric label="fat" value={`${formatFoodNumber(draftSummary.totals.fatG)} g`} />
         </View>
       </Card>
-      <Button label="Add to day" onPress={() => void submit()} busy={saving} />
+      {draftSummary.completedFoodCount === 0 ? <Button label="Add to day" onPress={() => void submit()} busy={saving} /> : null}
     </Screen>
   );
 }
@@ -1312,16 +1363,20 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },
   fieldGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  privateFoodAction: { minHeight: 76, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  foodQuickActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
   portionSection: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.md },
   quantityField: { flexBasis: 160, flexGrow: 0 },
   unitSection: { flex: 1, minWidth: 220, gap: spacing.xs },
   unitLabel: { ...typography.label, fontWeight: '700' },
   autoNote: { ...typography.caption },
+  foodDetails: { gap: spacing.sm },
   draftSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   mealSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   mealSummaryMetric: { flexGrow: 1, flexBasis: 112 },
   mealSummaryValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  stickySubmitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  stickySubmitCopy: { flex: 1, minWidth: 0 },
+  stickySubmitTitle: { ...typography.label, fontWeight: '800' },
   mealItemsSection: { gap: spacing.lg },
   gridField: { flexGrow: 1, flexBasis: 240, minWidth: 140 },
   macroField: { flexGrow: 1, flexBasis: 150, minWidth: 118 },
