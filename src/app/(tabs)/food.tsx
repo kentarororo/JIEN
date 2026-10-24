@@ -85,7 +85,7 @@ function MacroSnapshot({ label, value }: { label: string; value: number }) {
 export default function FoodScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { date } = useLocalSearchParams<{ date?: string }>();
+  const { date, repeatTargetDate } = useLocalSearchParams<{ date?: string; repeatTargetDate?: string }>();
   const { colors } = useJienTheme();
   const todayKey = toLocalDateKey();
   const selectedDate = historicalDateKey(date, todayKey);
@@ -113,7 +113,13 @@ export default function FoodScreen() {
     setFoodMessage(null);
     setDayStateError(null);
     setDayStateMessage(null);
-    router.replace({ pathname: '/food', params: nextDate === todayKey ? {} : { date: nextDate } } as never);
+    router.replace({
+      pathname: '/food',
+      params: {
+        ...(nextDate === todayKey ? {} : { date: nextDate }),
+        repeatTargetDate: selectedDate,
+      },
+    } as never);
   };
 
   const toggleDayState = async () => {
@@ -325,7 +331,10 @@ export default function FoodScreen() {
         }}
         onDetails={(mealId) => {
           setSelection(null);
-          router.push({ pathname: '/meals/[id]', params: { id: mealId, repeatDate: selectedDate } });
+          router.push({
+            pathname: '/meals/[id]',
+            params: { id: mealId, repeatDate: selectedDate, repeatTargetDate },
+          });
         }} /> : null}
     </Screen>
   );
