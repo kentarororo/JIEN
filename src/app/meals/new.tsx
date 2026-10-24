@@ -338,6 +338,9 @@ export default function NewMealScreen() {
   const addCatalogFood = async (item: FoodCatalogItem) => {
     const draft = toDraftFood(item);
     setFoods((current) => current.length === 1 && isBlankFood(current[0]!) ? [draft] : [...current, draft]);
+    if (draft.brand?.trim() || draft.barcode?.trim()) {
+      setExpandedFoodDetails((current) => current.includes(draft.key) ? current : [...current, draft.key]);
+    }
     setQuery('');
     setResults([]);
     setToolMessage(`${item.name} added. Adjust the portion or macros if needed.`);
@@ -388,6 +391,9 @@ export default function NewMealScreen() {
       if (blankIndex < 0) return [...current, nextFood];
       return current.map((food, index) => index === blankIndex ? nextFood : food);
     });
+    if (barcode.trim()) {
+      setExpandedFoodDetails((current) => current.includes(nextFood.key) ? current : [...current, nextFood.key]);
+    }
     setQuery('');
     setResults([]);
     setNoMatchQuery(null);
