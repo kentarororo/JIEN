@@ -4,12 +4,12 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, Field, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { deleteMeal, getMealDetail, updateMeal, type MealDetail, type MealItemSnapshot } from '@/lib/db';
 import { calculateMealTotals, localMealTimestamp } from '@/lib/nutrition/meal-record';
 import { resolveRepeatMealTarget } from '@/lib/nutrition/meal-template';
-import { formatTime } from '@/lib/time';
+import { formatTime, historicalDateKey } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 type ItemDraft = {
@@ -29,7 +29,7 @@ type ItemDraft = {
 type MealDraft = { name: string; date: string; time: string; items: ItemDraft[] };
 
 export default function MealDetailScreen() {
-  const { id, repeatDate } = useLocalSearchParams<{ id: string; repeatDate?: string }>();
+  const { id, repeatDate, repeatTargetDate } = useLocalSearchParams<{ id: string; repeatDate?: string; repeatTargetDate?: string }>();
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
@@ -40,8 +40,12 @@ export default function MealDetailScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const repeatTarget = resolveRepeatMealTarget(repeatDate);
-  const repeatDateLabel = formatRepeatDate(repeatTarget.date);
+  const repeatTarget = resolveRepeatMealTarget(repeatDate, undefined, repeatTargetDate);
+  const [repeatChoice, setRepeatChoice] = useState(repeatTarget.date);
+  const [customRepeatDate, setCustomRepeatDate] = useState(repeatTarget.date);
+  const [pickingRepeatDate, setPickingRepeatDate] = useState(false);
+  const chosenRepeatDate = pickingRepeatDate ? historicalDateKey(customRepeatDate, repeatTarget.today) : repeatChoice;
+  const customRepeatDateValid = !pickingRepeatDate || chosenRepeatDate === customRepeatDate;
 
   const draftTotals = useMemo(() => calculateMealTotals((draft?.items ?? []).map((item) => ({
     id: item.id,
@@ -164,11 +168,20 @@ export default function MealDetailScreen() {
           <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}>
             <AppText style={styles.itemTitle}>Eat this often?</AppText>
             <AppText style={{ color: colors.textMuted }}>
-              Copy these portions and macros into a new meal for {repeatTarget.fromViewedFoodDay ? repeatDateLabel : 'today'}. The saved record stays unchanged.
+              Choose when to copy these portions and macros. Today is selected by default, and the saved record stays unchanged.
             </AppText>
+            <View accessibilityRole="radiogroup" accessibilityLabel="Day for repeated meal" style={styles.actions}>
+              <Pill label="Today" active={!pickingRepeatDate && repeatChoice === repeatTarget.today} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.today); }} />
+              <Pill label="Yesterday" active={!pickingRepeatDate && repeatChoice === repeatTarget.yesterday} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.yesterday); }} />
+              {repeatTarget.viewedDate ? <Pill label={`Viewed ${formatRepeatDate(repeatTarget.viewedDate)}`} active={!pickingRepeatDate && repeatChoice === repeatTarget.viewedDate} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.viewedDate!); }} /> : null}
+              <Pill label="Pick a date" active={pickingRepeatDate} onPress={() => setPickingRepeatDate(true)} />
+            </View>
+            {pickingRepeatDate ? <Field label="Repeat on" hint="YYYY-MM-DD" value={customRepeatDate} onChangeText={setCustomRepeatDate} autoCapitalize="none" /> : null}
+            {!customRepeatDateValid ? <AppText accessibilityRole="alert" style={{ color: colors.danger }}>Choose today or an earlier calendar date in YYYY-MM-DD format.</AppText> : null}
             <Button
-              label={repeatTarget.fromViewedFoodDay ? `Log again on ${repeatDateLabel}` : 'Log this again today'}
-              onPress={() => router.push({ pathname: '/meals/new', params: { templateMealId: detail.id, date: repeatTarget.date } })}
+              label={`Log again on ${chosenRepeatDate === repeatTarget.today ? 'today' : formatRepeatDate(chosenRepeatDate)}`}
+              onPress={() => router.push({ pathname: '/meals/new', params: { templateMealId: detail.id, date: chosenRepeatDate } })}
+              disabled={!customRepeatDateValid}
               variant="secondary"
             />
           </Card>
