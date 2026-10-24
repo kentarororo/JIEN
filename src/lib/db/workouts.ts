@@ -960,10 +960,11 @@ export async function getExerciseSessionHistory(
     load_unit: LoadUnit;
     rpe: number | null;
     kind: SetKind;
+    plan_json: string | null;
   }>(
     `SELECT s.id, s.workout_id, w.title AS workout_title, w.performed_on,
       COALESCE(w.completed_at, s.completed_at) AS completed_at,
-      s.reps, s.load_value, s.load_unit, s.rpe, s.kind
+      s.reps, s.load_value, s.load_unit, s.rpe, s.kind, w.plan_json
      FROM workout_sets s
      JOIN workouts w ON w.id = s.workout_id
      WHERE s.exercise_id = ?
@@ -994,6 +995,7 @@ export async function getExerciseSessionHistory(
       workoutTitle: row.workout_title,
       performedOn: row.performed_on,
       completedAt: row.completed_at,
+      jointHold: parsePlannedWorkoutPlan(row.plan_json)?.jointProgressionChoice === 'hold',
       volumeKg: 0,
       sets: [],
     };
@@ -1166,11 +1168,12 @@ export async function listVolumeHistory(
     load_unit: LoadUnit;
     kind: SetKind;
     completed_at: string;
+    performed_on: string;
     movement_pattern: string;
     primary_muscle_group: string;
     secondary_muscle_groups: string;
   }>(
-    `SELECT s.reps, s.load_value, s.load_unit, s.kind, s.completed_at,
+    `SELECT s.reps, s.load_value, s.load_unit, s.kind, s.completed_at, w.performed_on,
       e.movement_pattern,
       COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS primary_muscle_group,
       COALESCE(s.secondary_muscle_groups, e.secondary_muscle_groups) AS secondary_muscle_groups
@@ -1187,6 +1190,7 @@ export async function listVolumeHistory(
     loadUnit: row.load_unit,
     kind: row.kind,
     completedAt: row.completed_at,
+    performedOn: row.performed_on,
     movementPattern: row.movement_pattern,
     primaryMuscleGroup: row.primary_muscle_group,
     secondaryMuscleGroups: JSON.parse(row.secondary_muscle_groups) as string[],

@@ -13,6 +13,8 @@ export type ProgressionSet = {
 
 export type VolumeSet = ProgressionSet & {
   completedAt: string;
+  /** Local workout calendar day; use this for week buckets when available. */
+  performedOn?: string;
   movementPattern: string;
   primaryMuscleGroup: string;
   secondaryMuscleGroups: string[];
@@ -142,6 +144,37 @@ export type DeloadSignal = {
   message: string;
 };
 
+export const PLATEAU_SESSION_COUNT = 3;
+export const MUSCLE_VOLUME_DROP_FRACTION = 1 / 3;
+
+export type ExercisePlateauSession = {
+  workoutId: string;
+  performedOn: string;
+  completedAt: string;
+  jointHold?: boolean;
+  sets: ProgressionSet[];
+};
+
+export type ExercisePlateauReview = {
+  status: 'insufficient' | 'progressing' | 'plateau';
+  comparableSessionCount: number;
+  requiredSessionCount: number;
+  windowStart: string | null;
+  windowEnd: string | null;
+  topRepIncrease: boolean;
+  topLoadIncrease: boolean;
+  weeklyVolumeIncrease: boolean;
+};
+
+export type MuscleVolumeDropFlag = {
+  muscleGroup: string;
+  label: string;
+  completedWeek: string;
+  currentWorkKg: number;
+  fourWeekAverageWorkKg: number;
+  dropPercent: number;
+};
+
 export const STORED_JOINT_CONSIDERATION_HOLD_REASON =
   'A saved joint or injury consideration is active. Previous sets remain visible, but no load or rep increase is suggested.';
 
@@ -182,8 +215,20 @@ export function calculateRecentExerciseBaseline(
 }
 
 export function isoWeekKey(value: string): string {
+  const calendarDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (calendarDate) {
+    return isoWeekKeyForCalendarDate(
+      Number(calendarDate[1]),
+      Number(calendarDate[2]) - 1,
+      Number(calendarDate[3]),
+    );
+  }
   const date = new Date(value);
-  const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return isoWeekKeyForCalendarDate(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isoWeekKeyForCalendarDate(year: number, month: number, dayOfMonth: number): string {
+  const utc = new Date(Date.UTC(year, month, dayOfMonth));
   const day = utc.getUTCDay() || 7;
   utc.setUTCDate(utc.getUTCDate() + 4 - day);
   const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
@@ -196,7 +241,7 @@ export function aggregateWeeklyVolume(sets: VolumeSet[]): WeeklyVolume[] {
   for (const set of sets) {
     if (!countsTowardTraining(set.kind)) continue;
     const volume = calculateSetVolumeKg(set);
-    const week = isoWeekKey(set.completedAt);
+    const week = volumeSetWeek(set);
     const aggregate = weeks.get(week) ?? {
       week,
       movementPatterns: {},
@@ -230,7 +275,7 @@ export function buildMuscleGroupTrends(
   const current = recent.at(-1);
   if (!current) return [];
   const previous = recent.at(-2) ?? null;
-  const isPartialWeek = current.week === isoWeekKey(asOf.toISOString());
+  const isPartialWeek = current.week === localIsoWeekKey(asOf);
   const groups = new Set<string>();
   for (const week of recent) {
     Object.keys(week.muscleGroupSets).forEach((group) => groups.add(group));
@@ -275,6 +320,46 @@ export function buildMuscleGroupTrends(
 }
 
 /**
+ * Compares the latest completed local ISO week's muscle work with the four
+ * preceding calendar weeks. Missing weeks inside an established history window count as zero.
+ * The result is descriptive only and never changes a plan.
+ */
+export function buildMuscleVolumeDropFlags(
+  weeks: WeeklyVolume[],
+  asOf = new Date(),
+): MuscleVolumeDropFlag[] {
+  const completedWindow = previousIsoWeeks(asOf, 5);
+  const completedWeek = completedWindow.at(-1)!;
+  const priorWeeks = completedWindow.slice(0, 4);
+  const sorted = weeks.slice().sort((a, b) => a.week.localeCompare(b.week));
+  const earliestWeek = sorted[0]?.week ?? null;
+  if (!earliestWeek || earliestWeek > priorWeeks[0]!) return [];
+
+  const byWeek = new Map(sorted.map((week) => [week.week, week]));
+  const groups = new Set<string>();
+  for (const week of priorWeeks) {
+    Object.keys(byWeek.get(week)?.muscleGroups ?? {}).forEach((group) => groups.add(group));
+  }
+
+  return [...groups].flatMap((muscleGroup): MuscleVolumeDropFlag[] => {
+    const prior = priorWeeks.map((week) => byWeek.get(week)?.muscleGroups[muscleGroup] ?? 0);
+    const average = prior.reduce((sum, value) => sum + value, 0) / prior.length;
+    if (average <= 0) return [];
+    const current = byWeek.get(completedWeek)?.muscleGroups[muscleGroup] ?? 0;
+    const dropFraction = (average - current) / average;
+    if (dropFraction <= MUSCLE_VOLUME_DROP_FRACTION) return [];
+    return [{
+      muscleGroup,
+      label: muscleGroupLabel(muscleGroup),
+      completedWeek,
+      currentWorkKg: current,
+      fourWeekAverageWorkKg: average,
+      dropPercent: dropFraction * 100,
+    }];
+  }).sort((a, b) => b.dropPercent - a.dropPercent || a.label.localeCompare(b.label));
+}
+
+/**
  * Builds a muscle-first next-workout view from recent completed sets.
  * The baseline is the user's average set credits across up to four completed
  * calendar weeks, including zero-credit weeks after their first recent log.
@@ -286,10 +371,10 @@ export function buildMuscleGroupAdvisory(
 ): MuscleGroupAdvisory {
   const validSets = sets.filter((set) => countsTowardTraining(set.kind)
     && Number.isFinite(new Date(set.completedAt).getTime()));
-  const currentWeek = isoWeekKey(asOf.toISOString());
+  const currentWeek = localIsoWeekKey(asOf);
   const priorWeeks = previousIsoWeeks(asOf, 4);
   const earliestWeek = validSets.length
-    ? validSets.map((set) => isoWeekKey(set.completedAt)).sort()[0] ?? null
+    ? validSets.map(volumeSetWeek).sort()[0] ?? null
     : null;
   const baselineWeeks = earliestWeek == null
     ? []
@@ -298,7 +383,7 @@ export function buildMuscleGroupAdvisory(
   const lastTrainedAt = new Map<string, string>();
 
   for (const set of validSets) {
-    const week = isoWeekKey(set.completedAt);
+    const week = volumeSetWeek(set);
     const credits = weekCredits.get(week) ?? new Map<string, number>();
     const primary = muscleGroupFamilyKey(set.primaryMuscleGroup);
     const secondary = [...new Set(set.secondaryMuscleGroups.map(muscleGroupFamilyKey))]
@@ -374,16 +459,28 @@ function addSetCredit(credits: Map<string, number>, muscleGroup: string, value: 
 }
 
 function previousIsoWeeks(asOf: Date, count: number): string[] {
-  const cursor = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
-  const day = cursor.getUTCDay() || 7;
-  cursor.setUTCDate(cursor.getUTCDate() - day + 1);
+  const cursor = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  const day = cursor.getDay() || 7;
+  cursor.setDate(cursor.getDate() - day + 1);
   const weeks: string[] = [];
   for (let offset = count; offset >= 1; offset -= 1) {
     const week = new Date(cursor);
-    week.setUTCDate(week.getUTCDate() - offset * 7);
-    weeks.push(isoWeekKey(week.toISOString()));
+    week.setDate(week.getDate() - offset * 7);
+    weeks.push(localIsoWeekKey(week));
   }
   return weeks;
+}
+
+function localIsoWeekKey(value: Date): string {
+  return isoWeekKeyForCalendarDate(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function volumeSetWeek(set: Pick<VolumeSet, 'completedAt' | 'performedOn'>): string {
+  if (set.performedOn && /^\d{4}-\d{2}-\d{2}$/.test(set.performedOn)) {
+    const [year, month, day] = set.performedOn.split('-').map(Number);
+    return isoWeekKeyForCalendarDate(year!, month! - 1, day!);
+  }
+  return isoWeekKey(set.completedAt);
 }
 
 function roundSetCredits(value: number): number {
@@ -720,6 +817,71 @@ function formatBaselineLabel(count: number): string {
 
 function formatProgressionNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+}
+
+/**
+ * Reviews the latest three comparable exposures for one exercise. Working and
+ * failure sets are comparable; warm-ups and drops are not. A planned joint hold
+ * excludes the whole exposure. The function reports only; callers choose what
+ * action, if any, to offer.
+ */
+export function detectExercisePlateau(
+  sessions: readonly ExercisePlateauSession[],
+): ExercisePlateauReview {
+  const comparable = sessions.flatMap((session) => {
+    if (session.jointHold || !Number.isFinite(Date.parse(session.completedAt))) return [];
+    const mainSets = session.sets.filter((set) => countsTowardProgression(set.kind));
+    if (mainSets.length === 0 || mainSets.some((set) => !Number.isInteger(set.reps) || set.reps <= 0
+      || !Number.isFinite(set.loadValue) || set.loadValue < 0
+      || (set.loadUnit !== 'kg' && set.loadUnit !== 'lb'))) return [];
+    const topSet = mainSets.reduce((top, set) => {
+      const loadKg = loadToKg(set.loadValue, set.loadUnit);
+      return loadKg > top.loadKg || (loadKg === top.loadKg && set.reps > top.reps)
+        ? { loadKg, reps: set.reps }
+        : top;
+    }, { loadKg: -1, reps: 0 });
+    return [{
+      session,
+      mainSets,
+      topReps: topSet.reps,
+      topLoadKg: topSet.loadKg,
+      volumeKg: mainSets.reduce((sum, set) => sum + calculateSetVolumeKg(set), 0),
+    }];
+  }).sort((a, b) => Date.parse(b.session.completedAt) - Date.parse(a.session.completedAt)
+    || b.session.workoutId.localeCompare(a.session.workoutId));
+  const latest = comparable.slice(0, PLATEAU_SESSION_COUNT).reverse();
+  const base = {
+    comparableSessionCount: comparable.length,
+    requiredSessionCount: PLATEAU_SESSION_COUNT,
+    windowStart: latest[0]?.session.performedOn ?? null,
+    windowEnd: latest.at(-1)?.session.performedOn ?? null,
+  };
+  if (latest.length < PLATEAU_SESSION_COUNT) return {
+    ...base,
+    status: 'insufficient',
+    topRepIncrease: false,
+    topLoadIncrease: false,
+    weeklyVolumeIncrease: false,
+  };
+
+  const topRepIncrease = latest.slice(1).some((entry, index) => entry.topReps > latest[index]!.topReps);
+  const topLoadIncrease = latest.slice(1).some((entry, index) => entry.topLoadKg > latest[index]!.topLoadKg);
+  const weeklyTotals = new Map<string, number>();
+  for (const entry of comparable) {
+    const week = isoWeekKey(entry.session.performedOn);
+    weeklyTotals.set(week, (weeklyTotals.get(week) ?? 0) + entry.volumeKg);
+  }
+  const reviewWeeks = [...new Set(latest.map((entry) => isoWeekKey(entry.session.performedOn)))].sort();
+  const weeklyVolumeIncrease = reviewWeeks.slice(1).some((week, index) => (
+    (weeklyTotals.get(week) ?? 0) > (weeklyTotals.get(reviewWeeks[index]!) ?? 0)
+  ));
+  return {
+    ...base,
+    status: topRepIncrease || topLoadIncrease || weeklyVolumeIncrease ? 'progressing' : 'plateau',
+    topRepIncrease,
+    topLoadIncrease,
+    weeklyVolumeIncrease,
+  };
 }
 
 export function detectDeloadSignal(weeklyVolumes: number[]): DeloadSignal {
