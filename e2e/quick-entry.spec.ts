@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienContext } from './helpers';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { collectPageErrors, completeOnboarding, expectNoHorizontalOverflow, fixJienClock, prepareIsolatedJienContext } from './helpers';
 
 test.use({ actionTimeout: 10_000 });
 function trackSync(page: Page) {
@@ -10,8 +10,18 @@ function trackSync(page: Page) {
   return async () => { const start = Date.now(); await expect.poll(() => pending.size === 0 && Date.now() - Math.max(start, last) > 600).toBe(true); };
 }
 
+// Resizing across the 520px breakpoint swaps the set rows between compact and wide
+// layouts, which remounts them. A locator resolved mid-swap detaches, so retry the
+// scroll until it lands on the settled element (#35).
+async function scrollIntoViewAfterRelayout(locator: Locator) {
+  await expect(async () => {
+    await locator.scrollIntoViewIfNeeded({ timeout: 2_000 });
+    await expect(locator).toBeInViewport({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+}
+
 test('planned workouts open directly in editable sets and recover without logging targets', async ({ context, page }, testInfo) => {
-  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  const errors = collectPageErrors(page);
   const idle = trackSync(page);
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
   await page.getByRole('tab', { name: 'Train', exact: true }).click();
@@ -57,7 +67,7 @@ test('planned workouts open directly in editable sets and recover without loggin
   await page.screenshot({ path: testInfo.outputPath('quick-workout-dark.png') });
   if (testInfo.project.name === 'edge-desktop') {
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.getByRole('button', { name: 'Use target', exact: true }).first().scrollIntoViewIfNeeded();
+    await scrollIntoViewAfterRelayout(page.getByRole('button', { name: 'Use target', exact: true }).first());
     await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath('quick-workout-wide-dark.png') });
     await page.evaluate(() => {
@@ -69,7 +79,7 @@ test('planned workouts open directly in editable sets and recover without loggin
     for (const width of [360, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);
-      await page.getByRole('button', { name: 'Use target', exact: true }).first().scrollIntoViewIfNeeded();
+      await scrollIntoViewAfterRelayout(page.getByRole('button', { name: 'Use target', exact: true }).first());
       const visibleCopy = page.getByText('From your entered set, not a progression baseline.', { exact: true }).filter({ visible: true }).first();
       await expect(visibleCopy).toBeVisible();
       const copyBox = await visibleCopy.boundingBox();
@@ -81,7 +91,7 @@ test('planned workouts open directly in editable sets and recover without loggin
 });
 
 test('food entry starts with tracking and saves without a meal name', async ({ context, page }, testInfo) => {
-  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  const errors = collectPageErrors(page);
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
   await page.getByRole('tab', { name: 'Food', exact: true }).click();
   await page.getByRole('button', { name: 'Add food', exact: true }).click();
@@ -104,6 +114,9 @@ test('food entry starts with tracking and saves without a meal name', async ({ c
 });
 
 test('calendar plans start in the logger while plan review stays available', async ({ context, page }) => {
+  // The plan defaults to 18:00 and the app rightly refuses a time that has passed,
+  // so pin the clock to midday Singapore time; otherwise this fails every evening (#35).
+  await fixJienClock(page);
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
   await page.getByRole('tab', { name: 'Train', exact: true }).click();
   await page.getByRole('button', { name: /Plan workout$/ }).click();
@@ -122,7 +135,7 @@ test('calendar plans start in the logger while plan review stays available', asy
 });
 
 test('direct next workouts use live history targets and keep repeat drafts separate', async ({ context, page }) => {
-  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  const errors = collectPageErrors(page);
   const idle = trackSync(page);
   await prepareIsolatedJienContext(context, page); await completeOnboarding(page);
   await page.getByRole('button', { name: /Log workout/ }).first().click();
