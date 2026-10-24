@@ -3,14 +3,15 @@ import { trainingSetSql } from '../../../supabase/functions/_shared/training-set
 
 import { startOfIsoWeek, toLocalDateKey } from '@/lib/time';
 import { buildMuscleGroupAdvisory, normalizeMuscleGroupKey } from '@/lib/progression';
+import { buildAdaptiveNutritionMetrics } from '@/lib/nutrition/adaptive-metrics';
 
-import { getDailyNutrition } from './nutrition';
+import { getAdaptiveNutritionHistory, getDailyNutrition } from './nutrition';
 import { getLatestBodyMeasurement } from './wellness';
 import { getMissedPlannedWorkout, getWorkoutProgressComparison, listVolumeHistory } from './workouts';
 import type { DashboardSummary, WorkoutStatus, WorkoutSummary } from './types';
 
 export async function getDashboardSummary(db: SQLiteDatabase, now = new Date()): Promise<DashboardSummary> {
-  const weekStart = toLocalDateKey(startOfIsoWeek());
+  const weekStart = toLocalDateKey(startOfIsoWeek(now));
   const workoutRow = await db.getFirstAsync<{
     workout_count: number;
     volume_kg: number | null;
@@ -69,7 +70,12 @@ export async function getDashboardSummary(db: SQLiteDatabase, now = new Date()):
       }
     : null;
 
-  const volumeHistory = await listVolumeHistory(db);
+  const [volumeHistory, latestBodyMeasurement, nutrition, adaptiveHistory] = await Promise.all([
+    listVolumeHistory(db),
+    getLatestBodyMeasurement(db),
+    getDailyNutrition(db, toLocalDateKey(now)),
+    getAdaptiveNutritionHistory(db, 42, now),
+  ]);
   return {
     workoutCountThisWeek: workoutRow?.workout_count ?? 0,
     weeklyVolumeKg: workoutRow?.volume_kg ?? 0,
@@ -77,7 +83,8 @@ export async function getDashboardSummary(db: SQLiteDatabase, now = new Date()):
     missedWorkout: await getMissedPlannedWorkout(db, now),
     workoutProgress: await getWorkoutProgressComparison(db, latestWorkout?.id),
     trainingAdvisory: buildMuscleGroupAdvisory(volumeHistory),
-    latestBodyMeasurement: await getLatestBodyMeasurement(db),
-    nutrition: await getDailyNutrition(db),
+    latestBodyMeasurement,
+    nutrition,
+    adaptiveNutrition: buildAdaptiveNutritionMetrics(adaptiveHistory),
   };
 }
