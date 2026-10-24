@@ -47,14 +47,21 @@ async function openFoodDay(page: Page, daysAgo: number) {
   for (let day = 0; day < daysAgo; day += 1) await visible(page.getByRole('button', { name: 'Previous day', exact: true })).click();
 }
 
-/** Fill row `index` of the Add food draft; optionally save it as a private food for reuse. */
-async function enterFood(m: Meter, page: Page, index: number, food: Food, saveForReuse: boolean) {
+/**
+ * Fill row `index` of the Add food draft; optionally save it as a private food for reuse.
+ * `quick` enters only name, kcal and protein (carbs and fat are optional since #30), which is
+ * what a hurried user does for a one-off dish.
+ */
+async function enterFood(m: Meter, page: Page, index: number, food: Food, saveForReuse: boolean, quick = false) {
   if (index > 0) await m.tap(page.getByRole('button', { name: 'Add a blank food', exact: true }));
   await m.type(page.getByRole('textbox', { name: 'Food', exact: true }).nth(index), food.name);
-  for (const [label, value] of [['Calories', food.kcal], ['Protein (g)', food.protein], ['Carbs (g)', food.carbs], ['Fat (g)', food.fat]] as const) {
+  const macros = [['Calories', food.kcal], ['Protein (g)', food.protein], ['Carbs (g)', food.carbs], ['Fat (g)', food.fat]] as const;
+  for (const [label, value] of quick ? macros.slice(0, 2) : macros) {
     await m.type(page.getByLabel(label, { exact: true }).nth(index), value);
   }
   if (saveForReuse) {
+    // Since #30 the reuse controls sit under each row's collapsed More details (one extra tap).
+    await m.tap(page.getByRole('button', { name: 'More details', exact: true }).last());
     await m.tap(page.getByRole('button', { name: 'Save as private food', exact: true }).last());
     await expect(page.getByText(new RegExp(`${food.name.replace(/[()]/g, '\\$&')}.*saved|Saved`, 'i')).first()).toBeVisible();
   }
@@ -130,9 +137,11 @@ test('persona 1 founder-type lifter: hawker food first, then a push day', async 
   // Day 1 dinner: single hawker dish, first time, not saved (what a hurried user does).
   m.start();
   await searchThenManual(m, page, 'mee rebus');
-  await enterFood(m, page, 0, MEE_REBUS, false);
+  await enterFood(m, page, 0, MEE_REBUS, false, true);
   await addToDay(m, page);
-  m.stop('(a) Hawker dish, first time: mee rebus, not saved');
+  const hurriedDish = m.stop('(a) Hawker dish, first time: mee rebus, not saved, name + kcal + protein');
+  // #30 AC4/AC5: search, submit, name, kcal, protein, Add to day. With carbs and fat required (run 1) this path was 9 taps.
+  expect(hurriedDish.taps).toBe(7);
 
   // Day 1 snack: protein shake created once and saved.
   m.start();

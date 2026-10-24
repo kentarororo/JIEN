@@ -23,6 +23,9 @@ test('cardio is a main training action in both views; private branded foods pers
   await page.getByLabel('Protein (g)', { exact: true }).fill('10');
   await page.getByLabel('Carbs (g)', { exact: true }).fill('12');
   await page.getByLabel('Fat (g)', { exact: true }).fill('4');
+  // #30: brand, barcode and reuse controls sit under a collapsed More details.
+  await expect(page.getByLabel('Brand (optional)', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'More details', exact: true }).click();
   await page.getByLabel('Brand (optional)', { exact: true }).fill('SG Test Brand');
   await page.getByLabel('Product barcode (optional)', { exact: true }).fill('0012345678905');
   await context.setOffline(true);
@@ -37,6 +40,8 @@ test('cardio is a main training action in both views; private branded foods pers
   await page.getByLabel('Barcode number', { exact: true }).fill('0012345678905');
   await page.getByRole('button', { name: 'Look up barcode', exact: true }).click();
   await expect(page.getByText('Local soy drink QA added from Private food. Review the serving and macros.', { exact: true })).toBeVisible();
+  // A barcode match carries brand and barcode, so its More details opens by itself.
+  await expect(page.getByRole('button', { name: 'Hide details', exact: true }).last()).toBeVisible();
   await expect(page.getByLabel('Brand (optional)', { exact: true }).last()).toHaveValue('SG Test Brand');
   await expect(page.getByLabel('Product barcode (optional)', { exact: true }).last()).toHaveValue('0012345678905');
   await expectNoHorizontalOverflow(page);
@@ -72,6 +77,8 @@ test('community publication is explicit and revocable; another contributor food 
   await page.goto('/meals/new');
   await page.getByLabel('Barcode number', { exact: true }).fill('0012345678905');
   await page.getByRole('button', { name: 'Create food with this barcode', exact: true }).click();
+  // The prefilled barcode must be visible without opening More details by hand.
+  await expect(page.getByRole('button', { name: 'Hide details', exact: true })).toBeVisible();
   await expect(page.getByLabel('Product barcode (optional)', { exact: true })).toHaveValue('0012345678905');
   await page.getByRole('textbox', { name: 'Food', exact: true }).fill('Shared cereal QA');
   await page.getByLabel('Calories', { exact: true }).fill('120');
