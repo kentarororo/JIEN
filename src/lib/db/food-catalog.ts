@@ -17,6 +17,7 @@ import {
 import { foodItemsEligibleForDiscoveryCache, parseFoodSearchData } from './food-search-contract';
 import { parseCommunityFoods } from './community-food-contract';
 import type { FoodCatalogItem } from './types';
+import { searchRecipesAsFoods } from './recipes';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import {
   getSupabaseClient,
@@ -74,6 +75,7 @@ export async function searchLocalFoodCatalog(
   limit = 8,
 ): Promise<FoodCatalogItem[]> {
   const clean = query.trim();
+  const recipes = await searchRecipesAsFoods(db, clean, limit);
   if (clean.length === 0) {
     const commonRows = await db.getAllAsync<FoodCatalogRow>(
       `SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
@@ -83,7 +85,7 @@ export async function searchLocalFoodCatalog(
        LIMIT ?`,
       [limit],
     );
-    return commonRows.map(mapFood);
+    return [...recipes, ...commonRows.map(mapFood)].slice(0, limit);
   }
   if (clean.length < 2) return [];
   const rows = await db.getAllAsync<FoodCatalogRow>(
@@ -96,7 +98,7 @@ export async function searchLocalFoodCatalog(
      LIMIT ?`,
     [`%${clean}%`, `%${clean}%`, clean.replace(/[\s-]/g, ''), `${clean}%`, limit],
   );
-  return rows.map(mapFood);
+  return [...recipes, ...rows.map(mapFood)].slice(0, limit);
 }
 
 export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatalogItem[]): Promise<void> {
@@ -139,6 +141,7 @@ export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatal
 }
 
 export async function markFoodCatalogItemUsed(db: SQLiteDatabase, id: string): Promise<void> {
+  if (id.startsWith('recipe-')) return;
   if (id.startsWith('custom-')) {
     await db.runAsync('UPDATE private_foods SET last_used_at = ? WHERE catalog_id = ?', [new Date().toISOString(), id]);
     return;

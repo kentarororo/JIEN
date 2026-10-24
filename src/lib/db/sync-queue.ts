@@ -20,6 +20,8 @@ export type RemoteTable =
   | 'meals'
   | 'food_items'
   | 'private_foods'
+  | 'recipes'
+  | 'recipe_ingredients'
   | 'nutrition_day_states'
   | 'nutrition_targets'
   | 'wellness_logs'
@@ -49,6 +51,8 @@ const TABLE_PRIORITY: Record<RemoteTable, number> = {
   sets: 2,
   food_items: 2,
   private_foods: 1,
+  recipes: 1,
+  recipe_ingredients: 2,
   ai_messages: 2,
 };
 
