@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { buildProgrammeProgress, parseTrainingProgramme, type ProgrammeHistorySet, type TrainingProgramme } from '../planning/training-programme.ts';
+import { buildProgrammeProgress, buildTrainingAdherence, parseTrainingProgramme, TRAINING_ADHERENCE_WINDOW_DAYS, type ProgrammeHistorySet, type TrainingAdherenceSession, type TrainingProgramme } from '../planning/training-programme.ts';
 import { toLocalDateKey } from '../time.ts';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import { getUserProfile } from './profile';
@@ -57,4 +57,31 @@ export async function getTrainingProgrammeProgress(db: SQLiteDatabase, now = new
        AND s.kind IN ('working', 'failure', 'drop') AND s.reps > 0 AND s.load_value >= 0)`, [monday, today]);
   return { programme, completedSessions: count?.count ?? 0,
     ...buildProgrammeProgress(programme, history.map((row) => ({ ...row, secondaryMuscleGroups: JSON.parse(row.secondaryJson) as string[] })), now) };
+}
+
+export async function getTrainingAdherence(db: SQLiteDatabase, now = new Date()) {
+  const start = new Date(now.getTime() - TRAINING_ADHERENCE_WINDOW_DAYS * 86_400_000).toISOString();
+  const end = now.toISOString();
+  const rows = await db.getAllAsync<{
+    id: string;
+    status: TrainingAdherenceSession['status'];
+    scheduled_at: string | null;
+    completed_at: string | null;
+    started_at: string | null;
+  }>(
+    `SELECT id, status, scheduled_at, completed_at, started_at
+     FROM workouts
+     WHERE deleted_at IS NULL AND (
+       (scheduled_at >= ? AND scheduled_at <= ?)
+       OR (status = 'completed' AND COALESCE(completed_at, started_at) >= ? AND COALESCE(completed_at, started_at) <= ?)
+     )`,
+    [start, end, start, end],
+  );
+  return buildTrainingAdherence(rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    scheduledAt: row.scheduled_at,
+    completedAt: row.completed_at,
+    startedAt: row.started_at,
+  })), now);
 }

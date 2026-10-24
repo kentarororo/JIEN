@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienContext } from './helpers';
+import { collectPageErrors, completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienContext } from './helpers';
 
 test.use({ actionTimeout: 10_000 });
 
@@ -62,9 +62,8 @@ test('training target editor supports six priorities, large text and narrow layo
 });
 
 test('weekly targets survive reload and guide an editable flexible plan without logging it', async ({ context, page }, testInfo) => {
-  const pageErrors: string[] = [];
+  const pageErrors = collectPageErrors(page);
   const waitForMockSyncIdle = trackMockSync(page);
-  page.on('pageerror', (error) => pageErrors.push(error.message));
   await prepareIsolatedJienContext(context, page);
   await completeOnboarding(page);
   // Let mocked background sync settle before replacing the WebKit document.

@@ -15,6 +15,43 @@ export type TrainingProgramme = {
   targets: Array<{ muscleGroup: string; weeklySetCredits: number }>;
 };
 
+export const TRAINING_ADHERENCE_WINDOW_DAYS = 28;
+
+export type TrainingAdherenceSession = {
+  id: string;
+  status: 'planned' | 'in_progress' | 'completed' | 'skipped';
+  scheduledAt: string | null;
+  completedAt: string | null;
+  startedAt: string | null;
+};
+
+export type TrainingAdherence = {
+  completedSessions: number;
+  scheduledSessions: number;
+  windowDays: number;
+};
+
+/** Scheduled sessions set the denominator; every completed session in the same
+ * window counts as completed work, including flexible starts. */
+export function buildTrainingAdherence(
+  sessions: readonly TrainingAdherenceSession[],
+  now = new Date(),
+  windowDays = TRAINING_ADHERENCE_WINDOW_DAYS,
+): TrainingAdherence | null {
+  const end = now.getTime();
+  const start = end - windowDays * 86_400_000;
+  const inWindow = (value: string | null) => {
+    if (value == null) return false;
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) && timestamp >= start && timestamp <= end;
+  };
+  const scheduledSessions = sessions.filter((session) => inWindow(session.scheduledAt)).length;
+  if (scheduledSessions === 0) return null;
+  const completedSessions = sessions.filter((session) => session.status === 'completed'
+    && inWindow(session.completedAt ?? session.startedAt)).length;
+  return { completedSessions, scheduledSessions, windowDays };
+}
+
 export function parseTrainingProgramme(value: unknown): TrainingProgramme | null {
   if (typeof value === 'string') { try { value = JSON.parse(value); } catch { return null; } }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;

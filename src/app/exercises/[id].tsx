@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { AppText, Button, Card, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getExerciseSessionHistory } from '@/lib/db';
-import { muscleGroupLabel } from '@/lib/progression';
+import { detectExercisePlateau, muscleGroupLabel } from '@/lib/progression';
 import { summarizeExerciseHistory } from '@/lib/training/history';
 import { formatShortDate } from '@/lib/time';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
@@ -17,9 +17,10 @@ export default function ExerciseHistoryScreen() {
   const router = useRouter();
   const { colors } = useJienTheme();
   const { width } = useWindowDimensions();
-  const loader = useCallback(() => id ? getExerciseSessionHistory(db, id, 16) : Promise.resolve(null), [db, id]);
+  const loader = useCallback(() => id ? getExerciseSessionHistory(db, id, 50) : Promise.resolve(null), [db, id]);
   const { data, error, loading, reload } = useScreenData(loader);
   const summary = useMemo(() => summarizeExerciseHistory(data?.sessions ?? []), [data?.sessions]);
+  const plateau = useMemo(() => detectExercisePlateau(data?.sessions ?? []), [data?.sessions]);
   const chartSessions = summary.chronological.slice(width >= 700 ? -12 : -7);
   const chartMaximum = Math.max(1, ...chartSessions.map((session) => session.volumeKg));
   const compact = width < 600;
@@ -49,6 +50,27 @@ export default function ExerciseHistoryScreen() {
           <AppText style={{ color: colors.textMuted }}>This comparison includes working and failure sets. Drop sets remain in workout totals.</AppText>
         </Card>
       ) : <StatePanel title="No completed history yet" body="Complete working or failure sets for this exercise to start its progression history. Drop sets remain in your workout totals." />}
+
+      {plateau.status === 'plateau' && summary.latest ? (
+        <Card accessibilityLabel={`${data.exerciseName} plateau review`} style={[styles.plateauCard, { backgroundColor: colors.warningSoft, borderColor: colors.warning }]}>
+          <AppText style={[styles.kicker, { color: colors.warning }]}>PLATEAU REVIEW</AppText>
+          <AppText style={styles.plateauTitle}>Three comparable sessions stayed flat</AppText>
+          <AppText style={{ color: colors.textMuted }}>
+            Top-set reps, load, and weekly {data.exerciseName} work did not increase from {formatShortDate(plateau.windowStart!)} to {formatShortDate(plateau.windowEnd!)}.
+          </AppText>
+          <AppText style={{ color: colors.textMuted }}>No exercise, set, load, or rep value changes until you choose an option.</AppText>
+          <View style={styles.plateauActions}>
+            <Button label="Keep going" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: summary.latest!.workoutId, sessionApproach: 'repeat' } })} variant="secondary" />
+            <Button label="Swap exercise" onPress={() => router.push({ pathname: '/workouts/plan', params: { sourceWorkoutId: summary.latest!.workoutId, sessionApproach: 'repeat', swapExerciseId: data.exerciseId } } as never)} variant="secondary" />
+            <Button label="Ease off" onPress={() => router.push({ pathname: '/workouts/new', params: { templateWorkoutId: summary.latest!.workoutId, sessionApproach: 'ease_off' } })} variant="quiet" />
+          </View>
+        </Card>
+      ) : plateau.status === 'insufficient' && data.sessions.length > 0 ? (
+        <StatePanel
+          title="Plateau review needs more history"
+          body={`${Math.min(plateau.comparableSessionCount, plateau.requiredSessionCount)} of ${plateau.requiredSessionCount} comparable sessions logged. Joint-hold and drop-only sessions stay out of this review.`}
+        />
+      ) : null}
 
       {summary.chronological.length ? (
         <>
@@ -142,6 +164,9 @@ const styles = StyleSheet.create({
   summaryValue: { ...typography.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
   change: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
   disclaimer: { ...typography.caption },
+  plateauCard: { padding: spacing.lg },
+  plateauTitle: { ...typography.section, fontWeight: '800' },
+  plateauActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   trend: { minHeight: 188, flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs, paddingTop: spacing.md },
   trendColumn: { flex: 1, minWidth: 34, alignItems: 'center', justifyContent: 'flex-end', gap: spacing.xs },
   trendValue: { ...typography.caption, fontWeight: '700', fontVariant: ['tabular-nums'] },

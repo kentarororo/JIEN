@@ -58,6 +58,26 @@ choice and resulting targets are stored in the planned-workout snapshot; the
 completed workout remains unchanged. Ease off is a user-selected volume reduction,
 not an inferred recovery score or an automatic deload.
 
+Exercise history also runs an offline plateau review over the latest three
+comparable sessions. A session is comparable only when it has valid working or
+failure sets and was not recorded from a plan with a joint-progression hold.
+Warm-ups and drop-only sessions stay out. The exercise is flagged only when
+top-set reps, top-set load, and that exercise's weekly load × reps all show no
+increase across the review window. The review reports the dates and offers three
+explicit routes: keep the recorded exercise, open the existing exercise swap, or
+preview the existing one-set Ease off reduction. No plan or completed workout is
+changed before a route is chosen. Three sessions is a named product default, not
+a physiological diagnosis.
+
+For scheduled plans, Training shows completed versus scheduled session counts over
+the last 28 days. Flexible completed workouts count as completed work without
+adding to the number scheduled; with no scheduled plan in the window, the count is
+hidden. Separately, muscle work in the last completed local calendar week that is
+more than one third below its preceding four-calendar-week average is labelled
+`possible deload or missed week`. The in-progress week is never compared with full
+weeks. This is descriptive logged-work information and never applies a deload or
+rewrites a plan.
+
 AI receives the same bounded four-week body-part summary alongside recent recovery,
 each logged nutrition day's macro totals, logged-day averages, and the current macro
 target. This makes cross-domain explanations possible without treating an unlogged
