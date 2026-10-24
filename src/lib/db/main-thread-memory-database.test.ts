@@ -22,6 +22,8 @@ import { acknowledgeMedicalDisclaimer } from './wellness.ts';
 import { saveCardioSession, listCardioSessions, getCardioSession, deleteCardioSession } from './cardio.ts';
 import { cardioBaseline, parseCardioMetadata, validateCardio } from '../training/cardio.ts';
 import { getCompleteExportSnapshot } from './export.ts';
+import { calculateRecipePerServing, getRecipe, listRecipes, recipeToCatalogItem, removeRecipe, saveRecipe, searchRecipesAsFoods } from './recipes.ts';
+import type { FoodCatalogItem } from './types.ts';
 import type { SaveUserProfileInput } from './types.ts';
 import type { TrainingProgramme } from '../planning/training-programme.ts';
 import { exerciseTargetsNeedReview, updateExerciseTargetsAtomically } from './exercise-targets.ts';
@@ -180,6 +182,109 @@ test('daily food items preserve meal history, isolate edits and atomically sync 
   } finally { await db.closeAsync(); }
 });
 
+const recipeFood = (overrides: Partial<FoodCatalogItem>): FoodCatalogItem => ({
+  id: 'food', name: 'Food', brand: null, servingQuantity: 100, servingUnit: 'g',
+  caloriesKcal: 0, proteinG: 0, carbohydrateG: 0, fatG: 0, fibreG: null,
+  source: 'custom', sourceRef: null, barcode: null, confidence: null, ...overrides,
+});
+
+test('#14 recipe per-serving maths is deterministic and rejects invalid input', () => {
+  const rice = recipeFood({ id: 'starter-rice', name: 'Rice', source: 'starter', caloriesKcal: 130, proteinG: 2.6, carbohydrateG: 28, fatG: 0.3, fibreG: 0.4 });
+  const chicken = recipeFood({ id: 'custom-chicken', name: 'Chicken thigh', caloriesKcal: 209, proteinG: 26, carbohydrateG: 0, fatG: 10.9 });
+  const oil = recipeFood({ id: 'usda-oil', name: 'Sesame oil', source: 'usda_fdc', servingQuantity: 1, servingUnit: 'tbsp', caloriesKcal: 120, fatG: 13.6 });
+  const ingredients = [{ food: rice, quantity: 3 }, { food: chicken, quantity: 2.5 }, { food: oil, quantity: 1 }];
+  // Totals: 390 + 522.5 + 120 = 1032.5 kcal; protein 7.8 + 65 = 72.8 g; carbs 84 g; fat 0.9 + 27.25 + 13.6 = 41.75 g; fibre 1.2 g.
+  assert.deepEqual(calculateRecipePerServing(4, ingredients), {
+    caloriesKcal: 258.13, proteinG: 18.2, carbohydrateG: 21, fatG: 10.44, fibreG: 0.3,
+  });
+  assert.deepEqual(calculateRecipePerServing(4, [...ingredients].reverse()), calculateRecipePerServing(4, ingredients), 'ingredient order does not change totals');
+  assert.deepEqual(calculateRecipePerServing(1, [{ food: rice, quantity: 1 }]).caloriesKcal, 130);
+  for (const servings of [0, -1, NaN, Infinity]) assert.throws(() => calculateRecipePerServing(servings, ingredients), /servings/);
+  assert.throws(() => calculateRecipePerServing(2, []), /at least one ingredient/);
+  assert.throws(() => calculateRecipePerServing(2, [{ food: rice, quantity: 0 }]), /positive portion/);
+  assert.throws(() => calculateRecipePerServing(2, [{ food: { ...rice, caloriesKcal: -1 }, quantity: 1 }]), /non-negative/);
+});
+
+test('#14 recipes save locally, queue sync, snapshot into logs, restore, export and reset', async () => {
+  const module = await WaSQLiteFactory({ wasmBinary: readFileSync(new URL('../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.wasm', import.meta.url)) });
+  const sqlite = SQLite.Factory(module);
+  const vfs = await MemoryVFS.create('recipe-test', module);
+  sqlite.vfs_register(vfs, false);
+  const pointer = await sqlite.open_v2(':memory:', SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, 'recipe-test');
+  const db = new MainThreadMemoryDatabase(sqlite as MainThreadSQLiteApi, pointer, vfs, { done: SQLITE_DONE, row: SQLITE_ROW },
+    { save: async () => undefined, close: async () => undefined }) as unknown as SQLiteDatabase;
+  try {
+    await migrateDatabase(db);
+    const oats = recipeFood({ id: 'custom-oats', name: 'Oats', caloriesKcal: 380, proteinG: 13, carbohydrateG: 67, fatG: 7, fibreG: 10 });
+    const milk = recipeFood({ id: 'starter-milk', name: 'Milk', source: 'starter', servingUnit: 'ml', caloriesKcal: 60, proteinG: 3.4, carbohydrateG: 4.8, fatG: 3.2 });
+    const queueRows = async (table: string) => (await db.getAllAsync<{ entity_id: string; payload_json: string }>(
+      'SELECT entity_id, payload_json FROM sync_queue WHERE table_name = ? ORDER BY entity_id', [table]))
+      .map((row) => ({ id: row.entity_id, ...JSON.parse(row.payload_json) }));
+
+    // AC1/AC4: SQLite first, with the recipe and every ingredient queued for sync.
+    const recipe = await saveRecipe(db, { name: '  Overnight oats  ', servings: 2, ingredients: [{ food: oats, quantity: 0.8 }, { food: milk, quantity: 2.5 }] });
+    assert.equal(recipe.name, 'Overnight oats');
+    assert.deepEqual(recipe.perServing, { caloriesKcal: 227, proteinG: 9.45, carbohydrateG: 32.8, fatG: 6.8, fibreG: 4 });
+    assert.deepEqual(recipe.ingredients.map((ingredient) => [ingredient.food.name, ingredient.quantity, ingredient.sortOrder]), [['Oats', 0.8, 0], ['Milk', 2.5, 1]]);
+    const [recipeQueue] = await queueRows('recipes');
+    assert.equal(recipeQueue?.id, recipe.id);
+    assert.equal(recipeQueue?.servings, 2);
+    assert.equal(recipeQueue?.deleted_at, null);
+    assert.equal('is_shared' in recipeQueue!, false, 'AC5: recipes carry no community-sharing field');
+    const ingredientQueue = await queueRows('recipe_ingredients');
+    assert.equal(ingredientQueue.length, 2);
+    assert.ok(ingredientQueue.every((row) => row.recipe_id === recipe.id && row.deleted_at === null));
+
+    // AC2: searchable as a labelled recipe food, one serving per unit.
+    const [asFood] = await searchRecipesAsFoods(db, 'oats');
+    assert.deepEqual([asFood?.source, asFood?.brand, asFood?.servingQuantity, asFood?.servingUnit, asFood?.caloriesKcal], ['recipe', 'Recipe', 1, 'serving', 227]);
+    assert.deepEqual(await searchRecipesAsFoods(db, 'o'), [], 'one-letter search stays quiet');
+
+    // AC3: log 1.5 servings as one item with a snapshot, then edit the recipe; the past log stays put.
+    const catalogItem = recipeToCatalogItem(recipe);
+    const mealId = await saveMeal(db, { name: 'Breakfast', type: 'breakfast', eatenAt: new Date(2026, 0, 5, 8).toISOString(), items: [{
+      name: catalogItem.name, quantity: 1.5, unit: 'serving', caloriesKcal: catalogItem.caloriesKcal * 1.5,
+      proteinG: catalogItem.proteinG * 1.5, carbohydrateG: catalogItem.carbohydrateG * 1.5, fatG: catalogItem.fatG * 1.5,
+      fibreG: (catalogItem.fibreG ?? 0) * 1.5, source: 'manual' as const, confidence: null,
+    }] });
+    const edited = await saveRecipe(db, { id: recipe.id, name: 'Overnight oats (big)', servings: 1, ingredients: [{ food: oats, quantity: 1 }] });
+    assert.equal(edited.id, recipe.id);
+    assert.equal(edited.perServing.caloriesKcal, 380);
+    assert.equal((await listRecipes(db)).length, 1, 'editing keeps one recipe');
+    const [logged] = (await getMealDetail(db, mealId))!.items;
+    assert.equal(logged?.name, 'Overnight oats');
+    assert.equal(logged?.quantity, 1.5);
+    assert.equal(logged?.caloriesKcal, 340.5);
+    assert.equal((await getDailyNutrition(db, '2026-01-05')).totals.caloriesKcal, 340.5);
+    const afterEdit = await queueRows('recipe_ingredients');
+    assert.equal(afterEdit.filter((row) => row.deleted_at).length, 2, 'replaced ingredients are tombstoned for sync');
+    assert.equal(afterEdit.filter((row) => !row.deleted_at).length, 1);
+
+    // AC4: export includes the recipe with its live ingredients.
+    const snapshot = await getCompleteExportSnapshot(db);
+    assert.equal(snapshot.recipes?.length, 1);
+    assert.equal(snapshot.recipeIngredients?.length, 1);
+
+    // AC4: cloud restore of a recipe from another device.
+    const remoteId = '90000000-0000-4000-8000-0000000000aa';
+    const remoteTime = '2030-01-01T00:00:00.000Z';
+    await applyRemoteRows(db, 'recipes', [{ id: remoteId, user_id: 'u', name: 'Restored laksa', servings: 2, created_at: remoteTime, updated_at: remoteTime, client_updated_at: remoteTime, deleted_at: null }], { clientUpdatedAt: remoteTime, id: remoteId });
+    await applyRemoteRows(db, 'recipe_ingredients', [{ id: '90000000-0000-4000-8000-0000000000ab', user_id: 'u', recipe_id: remoteId, sort_order: 0, name: 'Laksa', quantity: 1, serving_quantity: 1, serving_unit: 'bowl', calories_kcal: 600, protein_g: 20, carbohydrate_g: 60, fat_g: 30, fibre_g: null, source: 'custom', source_ref: null, created_at: remoteTime, updated_at: remoteTime, client_updated_at: remoteTime, deleted_at: null }], { clientUpdatedAt: remoteTime, id: '90000000-0000-4000-8000-0000000000ab' });
+    assert.equal((await getRecipe(db, remoteId))?.perServing.caloriesKcal, 300);
+
+    // Removal tombstones locally and in the queue; the past log is still unchanged.
+    await removeRecipe(db, recipe.id);
+    assert.equal(await getRecipe(db, recipe.id), null);
+    assert.ok((await queueRows('recipes')).find((row) => row.id === recipe.id)?.deleted_at);
+    assert.equal((await getMealDetail(db, mealId))?.items[0]?.caloriesKcal, 340.5);
+
+    // AC4: account deletion/reset clears recipes like private foods.
+    await resetLocalAccountData(db);
+    assert.deepEqual(await listRecipes(db), []);
+    assert.deepEqual(await db.getAllAsync('SELECT id FROM recipe_ingredients'), []);
+  } finally { await db.closeAsync(); }
+});
+
 test('main-thread database persists committed work and isolates delayed transactions from standalone operations', async () => {
   const wasmBinary = readFileSync(new URL(
     '../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.wasm',
@@ -223,7 +328,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 18);
+    assert.equal(version?.user_version, 19);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -985,7 +1090,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 18 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 19 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 
