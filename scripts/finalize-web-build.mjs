@@ -22,6 +22,44 @@ function contentHashedName(prefix, source) {
   return `${prefix}-${hash}.js`;
 }
 
+function webPath(root, filePath) {
+  return `/${path.relative(root, filePath).split(path.sep).join('/')}`;
+}
+
+function writeServiceWorker(distRoot, excludedFiles = []) {
+  const serviceScriptPath = path.join(distRoot, 'sw.js');
+  if (!existsSync(serviceScriptPath)) throw new Error('The service worker source is missing from the web artifact.');
+  const excluded = new Set(excludedFiles.map((filePath) => path.resolve(filePath)));
+
+  const precacheFiles = listFiles(distRoot).filter((filePath) => {
+    if (excluded.has(path.resolve(filePath))) return false;
+    const url = webPath(distRoot, filePath);
+    return url === '/index.html'
+      || url === '/manifest.webmanifest'
+      || url.startsWith('/_expo/')
+      || url.startsWith('/assets/')
+      || url.startsWith('/icons/');
+  });
+  const precacheUrls = [...new Set(precacheFiles.map((filePath) => webPath(distRoot, filePath)))].sort();
+  const buildHash = createHash('sha256');
+  for (const filePath of precacheFiles.sort()) {
+    buildHash.update(webPath(distRoot, filePath));
+    buildHash.update(readFileSync(filePath));
+  }
+  const cacheName = `jien-shell-${buildHash.digest('hex').slice(0, 16)}`;
+  const source = readFileSync(serviceScriptPath, 'utf8');
+  if (!source.includes('__JIEN_CACHE_NAME__') || !source.includes('__JIEN_PRECACHE__')) {
+    throw new Error('The service worker template placeholders are missing.');
+  }
+  writeFileSync(
+    serviceScriptPath,
+    source
+      .replace('__JIEN_CACHE_NAME__', cacheName)
+      .replace('__JIEN_PRECACHE__', JSON.stringify(precacheUrls)),
+  );
+  return { cacheName, precacheUrls, scriptPath: serviceScriptPath };
+}
+
 export async function finalizeWebBuild(projectRoot = process.cwd()) {
   const distRoot = path.resolve(projectRoot, 'dist');
   const bundleRoot = path.join(distRoot, '_expo', 'static', 'js', 'web');
@@ -78,11 +116,13 @@ export async function finalizeWebBuild(projectRoot = process.cwd()) {
 
   if (statSync(publicPath).size !== bytes.length) throw new Error('Web SQLite WASM copy is incomplete.');
   await WebAssembly.compile(readFileSync(publicPath));
-  return { entryPath: publicEntryPath, publicUrl };
+  const serviceWorker = writeServiceWorker(distRoot, [bundlePath, sourceWasm]);
+  return { entryPath: publicEntryPath, publicUrl, serviceWorker };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const result = await finalizeWebBuild();
   console.log(`Web entry bundle: ${path.relative(process.cwd(), result.entryPath)}`);
   console.log(`Web SQLite WASM: ${result.publicUrl}`);
+  console.log(`PWA shell: ${result.serviceWorker.cacheName} (${result.serviceWorker.precacheUrls.length} files)`);
 }
