@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { autoMatchImportedExercises, deterministicImportUuid, parseWorkoutCsv, WorkoutCsvError } from './workout-csv.ts';
+import { autoMatchImportedExercises, deterministicImportUuid, importedExerciseSearchText, parseWorkoutCsv, WorkoutCsvError } from './workout-csv.ts';
 
 // Synthetic fixtures only (#20 AC6): no real export or user data lives in the repo.
 const fixture = (name: string) => readFileSync(new URL(`../../../e2e/fixtures/${name}`, import.meta.url), 'utf8');
@@ -89,4 +89,26 @@ test('import ids are stable for the same source row and differ across rows (#20 
   assert.equal(id, deterministicImportUuid(`ns\u001fworkout\u001f${second.workouts[0]!.sourceKey}`));
   assert.notEqual(id, deterministicImportUuid(`ns\u001fworkout\u001f${first.workouts[1]!.sourceKey}`));
   assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});
+
+test('Hevy/Strong "Name (Equipment)" titles auto-match catalogue names in any word order (#20 AC2, PR #46 re-test)', () => {
+  const catalogue = [
+    { id: 'bench', name: 'Barbell Bench Press' },
+    { id: 'db-bench', name: 'Dumbbell Bench Press' },
+    { id: 'ohp', name: 'Barbell Overhead Press' },
+    { id: 'row', name: 'Barbell Bent-over Row' },
+    { id: 'pullup', name: 'Pull-up' },
+  ];
+  assert.deepEqual(
+    autoMatchImportedExercises(['Bench Press (Barbell)', 'Bench Press (Dumbbell)', 'Overhead Press (Barbell)', 'Bent Over Row (Barbell)', 'Pull Up', 'Deadlift (Barbell)'], catalogue),
+    { 'Bench Press (Barbell)': 'bench', 'Bench Press (Dumbbell)': 'db-bench', 'Overhead Press (Barbell)': 'ohp', 'Bent Over Row (Barbell)': 'row', 'Pull Up': 'pullup' },
+    'equipment in brackets still has to agree, so a dumbbell press never lands on the barbell entry',
+  );
+});
+
+test('"Map to existing" search text drops the trailing (Equipment) suffix only (#20 AC2, PR #46 re-test)', () => {
+  assert.equal(importedExerciseSearchText('Bench Press (Barbell)'), 'Bench Press');
+  assert.equal(importedExerciseSearchText('Triceps Pushdown (Cable - Straight Bar)'), 'Triceps Pushdown');
+  assert.equal(importedExerciseSearchText('Pull Up'), 'Pull Up');
+  assert.equal(importedExerciseSearchText('  Leg Press (Machine)  '), 'Leg Press');
 });

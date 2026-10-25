@@ -91,3 +91,24 @@ test('Hevy and Strong CSVs preview, map, import offline into history, and never 
   await expect(page.getByText(/QA Hack Squat \(Synthetic\)/).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test.describe('west of UTC', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' });
+
+  test('the preview date range shows the export days and year, not a day early (#20 AC2, PR #46 re-test)', async ({ context, page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'edge-desktop' && testInfo.project.name !== 'android-chrome', 'One desktop and one phone browser own the import journey.');
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await prepareIsolatedJienContext(context, page);
+    await completeOnboarding(page);
+    await openImport(page);
+    await chooseCsv(page, fixture('hevy-workouts-synthetic.csv'));
+    const range = page.getByText('Date range', { exact: true }).locator('..');
+    await expect(range).toHaveText(/Date range\s*1 Sept?\s*–\s*4 Sept?\s*\(2026\)/);
+    await expect(range).not.toContainText('31 Aug');
+    await chooseCsv(page, fixture('strong-workouts-synthetic.csv'));
+    await expect(page.getByText('Strong format detected', { exact: true })).toBeVisible();
+    await expect(page.getByText('Date range', { exact: true }).locator('..')).not.toContainText(/\b(31 Aug|30 Sept?)\b/);
+    expect(errors).toEqual([]);
+  });
+});
