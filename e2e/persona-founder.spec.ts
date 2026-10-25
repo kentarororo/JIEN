@@ -160,16 +160,18 @@ test('persona 1 founder-type lifter: hawker food first, then a push day', async 
     await m.tap(visible(page.getByRole('button', { name: 'Previous day', exact: true })));
     await m.tap(visible(page.getByRole('button', { name: /^Edit Mee rebus/ })).first());
     await m.tap(page.getByRole('button', { name: 'Edit nutrition or view original entry', exact: true }));
-    // #29: the repeat defaults to Today and offers Yesterday, the meal's own day and Pick a date.
-    // The back-fill day (5 days ago) is none of the chips, so it goes through Pick a date.
+    // #29: you came to the mee rebus day from the back-fill day (5 days ago), so that day is the
+    // default and the button names it. No Pick a date, no typing.
     const backfillDate = await page.evaluate(() => {
       const d = new Date(); d.setDate(d.getDate() - 5);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     });
-    await expect(visible(page.getByRole('button', { name: 'Log again on today', exact: true }))).toBeVisible();
-    await m.tap(page.getByRole('button', { name: 'Pick a date', exact: true }));
-    await m.type(page.getByLabel('Repeat on', { exact: true }), backfillDate);
-    await m.tap(visible(page.getByRole('button', { name: /^Log again on / })));
+    const backfillLabel = await page.evaluate((key) => {
+      const date = new Date(`${key}T12:00:00`);
+      const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-SG', options).format(date);
+      return `${part({ weekday: 'short' })} ${part({ day: 'numeric' })} ${part({ month: 'short' })}`;
+    }, backfillDate);
+    await m.tap(visible(page.getByRole('button', { name: `Log again on ${backfillLabel}`, exact: true })));
     const loggingFor = await page.getByText(/Logging for/).first().innerText();
     testInfo.annotations.push({ type: 'log-again-target', description: loggingFor });
     await addToDay(m, page);
