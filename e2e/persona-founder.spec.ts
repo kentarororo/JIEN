@@ -160,11 +160,24 @@ test('persona 1 founder-type lifter: hawker food first, then a push day', async 
     await m.tap(visible(page.getByRole('button', { name: 'Previous day', exact: true })));
     await m.tap(visible(page.getByRole('button', { name: /^Edit Mee rebus/ })).first());
     await m.tap(page.getByRole('button', { name: 'Edit nutrition or view original entry', exact: true }));
-    await m.tap(visible(page.getByRole('button', { name: 'Log this again today', exact: true })));
+    // #29: you came to the mee rebus day from the back-fill day (5 days ago), so that day is the
+    // default and the button names it. No Pick a date, no typing.
+    const backfillDate = await page.evaluate(() => {
+      const d = new Date(); d.setDate(d.getDate() - 5);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    });
+    const backfillLabel = await page.evaluate((key) => {
+      const date = new Date(`${key}T12:00:00`);
+      const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-SG', options).format(date);
+      return `${part({ weekday: 'short' })} ${part({ day: 'numeric' })} ${part({ month: 'short' })}`;
+    }, backfillDate);
+    await m.tap(visible(page.getByRole('button', { name: `Log again on ${backfillLabel}`, exact: true })));
     const loggingFor = await page.getByText(/Logging for/).first().innerText();
-    // Known friction: the copy targets the real today, not the day being viewed (5 days ago).
     testInfo.annotations.push({ type: 'log-again-target', description: loggingFor });
     await addToDay(m, page);
+    // AC4: the back-filled copy lands on the chosen day, not today.
+    expect(new URL(page.url()).searchParams.get('date')).toBe(backfillDate);
+    await expect(visible(page.getByRole('button', { name: /^Edit Mee rebus/ })).first()).toBeVisible();
   }
   m.stop("(b) Repeat meal: yesterday's unsaved mee rebus");
 
