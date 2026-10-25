@@ -4,7 +4,7 @@ JIEN remains a lifting-first, local-first training and nutrition product. Milest
 close one complete user loop at a time; new activity types do not enter the product
 until their measurements and progression rules are explicit.
 
-## Status at a glance — 23 October 2026
+## Status at a glance — 25 October 2026
 
 Every milestone carries exactly one status. Move it up only when the evidence exists.
 
@@ -29,10 +29,10 @@ Every milestone carries exactly one status. Move it up only when the evidence ex
 | Private food library (part of Alpha 2.5) | Built | Confirm `20261008000100_private_foods.sql` is applied and run the two-account access check |
 | Food-photo trust (part of Alpha 2.5) | Built | Confirm the Edge Function deploy; run the measured-photo benchmark |
 | Alpha 2.4 — missed sessions, return after a break | Live on web | Phone testing |
-| Alpha 2.4 — plateau review and adherence | In review | PR #17 (fix requested) |
+| Alpha 2.4 — plateau review and adherence | Live on web | Phone testing |
 | Alpha 2.5 — partial/complete day state | Live on web | Phone testing |
 | Alpha 2.5 — My foods manager | Live on web | Phone testing |
-| Alpha 2.5 — recipes | Not started | #14 |
+| Alpha 2.5 — recipes | In review | PR #42 (passed testing; needs main merged in and its migration renumbered) |
 | Closed beta | Not started | Phone testing, production sync/restore, beta instrumentation |
 
 Nothing is Phone-tested yet, so nothing is Beta-ready.
@@ -42,23 +42,20 @@ Nothing is Phone-tested yet, so nothing is Beta-ready.
 Agents work this list top to bottom (see "Keeping the queue moving" in `AGENTS.md`).
 
 **Codex**
-1. PR #32 — fix Grok's ranking finding (your history first)
-2. #29 — "Log again" from a past day goes to the day being browsed
-3. #30 — keep the meal draft and Add to day within reach
-4. #21 — Singapore food starter set (top friction in the persona run)
-5. #19 — trend weight, expenditure and weekly check-in
-6. #23 — import from MacroFactor (waiting on Ken's export headers)
-7. #14 — recipes
-8. #18 — installable, offline web app
-9. #22 — progress charts
-10. #20 — import from Hevy or Strong
-11. #24 — Android APK
+1. PR #39 (#29) — fix Grok's two findings: drop the back-fill day on "Back to today", and give it its own chip
+2. PR #48 (#21) — re-pick the wrong USDA ids and fix the proxy dishes (prata, tau huay, soy milk)
+3. After Ken merges the clean PRs: bring `main` into PR #42 (recipes) and renumber its migration, and into PR #46 (Hevy/Strong import) to resolve `package.json`. PRs #41, #42 and #48 all claim database version 19; whichever lands later takes the next number
+4. #45 — morning weigh-in shortcut in the Today top card
+5. #23 — import from MacroFactor (waiting on Ken's export headers)
+
+Waiting on Ken to merge (passed testing, check green): PRs #32, #40, #41, #43, #44, #47 merge cleanly in that order; then #42 and #46 after item 3. PR #47 also needs Ken's phone check for #24.
 
 **Grok**
 1. Test every `needs-test` PR (routine)
-2. #35 — get `main`'s browser tests green
+2. PR #33 — bring `main` in and get the browser check green; the nightly alert part of #25 shipped in #34
 3. #27 — persona run 2 after PR #32 merges (before/after numbers)
-4. #15 — close with findings
+4. #38 — daily live-app runs as the founder-type lifter
+5. #15 — close with findings
 
 ## Road to daily driver
 
