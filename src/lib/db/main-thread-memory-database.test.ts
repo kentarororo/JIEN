@@ -1121,3 +1121,58 @@ test('restores a durable database from raw MemoryVFS bytes in a fresh WASM lifec
   assert.deepEqual(await restored.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
   await restored.closeAsync();
 });
+
+test('workout import ids follow the signed-in account across devices, so a second device never duplicates (#20 AC4, PR #46 re-test)', async () => {
+  const { importWorkoutHistory } = await import('./workout-import.ts');
+  const { parseWorkoutCsv } = await import('../import/workout-csv.ts');
+  const module = await WaSQLiteFactory({ wasmBinary: readFileSync(new URL('../../../node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.wasm', import.meta.url)) });
+  const sqlite = SQLite.Factory(module);
+  let deviceCount = 0;
+  const openDevice = async (owner: string | null) => {
+    const name = `workout-import-device-${deviceCount += 1}`;
+    const vfs = await MemoryVFS.create(name, module);
+    sqlite.vfs_register(vfs, false);
+    const pointer = await sqlite.open_v2(':memory:', SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, name);
+    const db = new MainThreadMemoryDatabase(sqlite as MainThreadSQLiteApi, pointer, vfs, { done: SQLITE_DONE, row: SQLITE_ROW },
+      { save: async () => undefined, close: async () => undefined }) as unknown as SQLiteDatabase;
+    await migrateDatabase(db);
+    if (owner) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)',
+        ['cloud_owner_user_id', owner, new Date().toISOString()],
+      );
+    }
+    return db;
+  };
+  const csv = readFileSync(new URL('../../../e2e/fixtures/hevy-workouts-synthetic.csv', import.meta.url), 'utf8');
+  const preview = parseWorkoutCsv(csv);
+  const choices = Object.fromEntries(preview.exerciseNames.map((name) => [name, { kind: 'create' as const, name }]));
+  const importAndRead = async (db: SQLiteDatabase) => {
+    const result = await importWorkoutHistory(db, preview, choices);
+    const rows = async (sql: string) => (await db.getAllAsync<{ id: string }>(sql)).map((row) => row.id).sort();
+    return {
+      result,
+      workouts: await rows('SELECT id FROM workouts'),
+      sets: await rows('SELECT id FROM workout_sets'),
+      queued: await rows("SELECT entity_id AS id FROM sync_queue WHERE table_name IN ('workouts', 'sets', 'exercises')"),
+    };
+  };
+
+  const owner = '90000000-0000-4000-8000-0000000000a1';
+  const web = await importAndRead(await openDevice(owner));
+  const phone = await importAndRead(await openDevice(owner));
+  assert.deepEqual(web.result, { importedWorkouts: 2, importedSets: 7, skippedWorkouts: 0 });
+  assert.equal(web.workouts.length, 2);
+  assert.equal(web.sets.length, 7);
+  assert.deepEqual(phone.workouts, web.workouts, 'same account, same file: identical workout ids on both devices');
+  assert.deepEqual(phone.sets, web.sets, 'same account, same file: identical set ids on both devices');
+  assert.deepEqual(phone.queued, web.queued, 'both devices queue the same ids, so cloud upserts collapse instead of duplicating');
+
+  const otherAccount = await importAndRead(await openDevice('90000000-0000-4000-8000-0000000000b2'));
+  assert.equal(otherAccount.workouts.some((id) => web.workouts.includes(id)), false, 'a different account never collides');
+
+  const signedOutA = await importAndRead(await openDevice(null));
+  const signedOutB = await importAndRead(await openDevice(null));
+  assert.notDeepEqual(signedOutA.workouts, signedOutB.workouts, 'signed-out devices keep a per-device namespace');
+  assert.equal(signedOutA.workouts.some((id) => web.workouts.includes(id)), false);
+});
