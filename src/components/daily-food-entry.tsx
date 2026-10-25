@@ -98,6 +98,7 @@ export function DailyFoodEntry({ selection, date, onClose, onSaved, onDetails }:
           {selection.kind === 'catalog' && selection.food.brand ? <AppText>{selection.food.brand}</AppText> : null}
           {selection.kind === 'catalog' ? <AppText style={{ color: colors.textMuted }}>{({
             starter: 'JIEN starter estimate', custom: 'Your saved food', community: 'JIEN community · unverified',
+            sg_estimate: 'JIEN estimate (SG) · USDA recipe-derived',
             usda_fdc: 'USDA FoodData Central · public domain', open_food_facts: 'Open Food Facts contributors · ODbL',
             fatsecret: 'FatSecret Platform', ai_photo: 'Photo estimate',
           })[selection.food.source]}</AppText> : null}

@@ -12,6 +12,7 @@ import * as SQLite from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-
 // @ts-expect-error Expo bundles these JavaScript modules without public declarations.
 import { SQLITE_DONE, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW } from '../../../node_modules/expo-sqlite/web/wa-sqlite/sqlite-constants.js';
 import { migrateDatabase } from './migrate.ts';
+import { SINGAPORE_FOOD_ESTIMATES } from '../../data/singapore-food-estimates.ts';
 import { getTrainingProgrammeProgress, saveTrainingProgramme } from './training-programme.ts';
 import { getUserProfile, saveUserProfile } from './profile.ts';
 import { applyRemoteProfile, applyRemoteRows } from './cloud-sync.ts';
@@ -223,7 +224,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 18);
+    assert.equal(version?.user_version, 19);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -377,6 +378,39 @@ test('main-thread database persists committed work and isolates delayed transact
       { name: 'Belt Squat', primaryMuscleGroup: 'quads' },
       'the v15 upgrade should add the expanded catalog to an existing database',
     );
+    const sgCount = async () => (await database.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM food_catalog_cache WHERE source = 'sg_estimate'`,
+    ))?.count;
+    assert.equal(await sgCount(), SINGAPORE_FOOD_ESTIMATES.length, 'v19 seeds every Singapore estimate');
+    await database.runAsync(`DELETE FROM food_catalog_cache WHERE source = 'sg_estimate'`);
+    await database.execAsync('PRAGMA user_version = 18;');
+    await migrateDatabase(database);
+    assert.equal(await sgCount(), SINGAPORE_FOOD_ESTIMATES.length, 'the v19 upgrade should add the SG starter set to an existing database');
+    const chickenRiceMeta = await database.getFirstAsync<{ metadata_json: string; brand: string }>(
+      `SELECT metadata_json, brand FROM food_catalog_cache WHERE id = 'sg-estimate-chicken-rice-steamed'`,
+    );
+    assert.equal(chickenRiceMeta?.brand, 'SG');
+    const metadata = JSON.parse(chickenRiceMeta!.metadata_json) as { source: string; ingredients: { grams: number; fdcId: string | null }[] };
+    assert.match(metadata.source, /FoodData Central/);
+    assert.ok(metadata.ingredients.length > 0 && metadata.ingredients.every((item) => item.grams > 0 && item.fdcId));
+    // A generic provider row with the same name, even recently used, must rank below the SG estimate.
+    await database.runAsync(
+      `INSERT INTO food_catalog_cache (id, name, serving_quantity, serving_unit, calories_kcal,
+        protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, updated_at, last_used_at)
+       VALUES ('off-chicken-rice', 'Chicken rice', 100, 'g', 160, 7, 22, 4, NULL, 'open_food_facts', 'off-1', ?, ?)`,
+      [new Date().toISOString(), new Date().toISOString()],
+    );
+    const chickenRiceResults = await searchLocalFoodCatalog(database, 'chicken rice', 12);
+    assert.equal(chickenRiceResults[0]?.source, 'sg_estimate');
+    assert.ok(chickenRiceResults.some((item) => item.id === 'off-chicken-rice'));
+    assert.ok(chickenRiceResults.findIndex((item) => item.id === 'off-chicken-rice')
+      > chickenRiceResults.findIndex((item) => item.source === 'sg_estimate'));
+    for (const query of ['kopi c', 'roti prata', 'KOPI O kosong']) {
+      const results = await searchLocalFoodCatalog(database, query);
+      assert.equal(results[0]?.source, 'sg_estimate', `${query} should find an SG estimate offline`);
+      assert.equal(results[0]?.brand, 'SG');
+    }
+    await database.runAsync(`DELETE FROM food_catalog_cache WHERE id = 'off-chicken-rice'`);
     assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'arms', secondaryMuscleGroups: [] }), true);
     assert.equal(exerciseTargetsNeedReview({ primaryMuscleGroup: 'biceps', secondaryMuscleGroups: ['forearms'] }), false);
 
@@ -977,15 +1011,20 @@ test('main-thread database persists committed work and isolates delayed transact
     );
     assert.deepEqual(
       await database.getFirstAsync('SELECT COUNT(*) AS count FROM food_catalog_cache'),
-      { count: 18 },
-      'the built-in global and regional food catalogs must be restored',
+      { count: 18 + SINGAPORE_FOOD_ESTIMATES.length },
+      'the built-in global, regional and Singapore food catalogs must be restored',
+    );
+    assert.deepEqual(
+      await database.getFirstAsync(`SELECT COUNT(*) AS count FROM food_catalog_cache WHERE source = 'usda'`),
+      { count: 0 },
+      'restored regional foods must keep the usda_fdc source',
     );
     assert.equal(
       await database.getFirstAsync('SELECT id FROM food_catalog_cache WHERE id = ?', ['custom-protein-cereal']),
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 18 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 19 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 

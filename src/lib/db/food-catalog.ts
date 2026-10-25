@@ -79,7 +79,8 @@ export async function searchLocalFoodCatalog(
       `SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
         protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode, is_shared
        FROM ${LOCAL_CATALOG}
-       ORDER BY CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC, name
+       ORDER BY CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC,
+         CASE source WHEN 'custom' THEN 0 WHEN 'sg_estimate' THEN 1 ELSE 2 END, name
        LIMIT ?`,
       [limit],
     );
@@ -91,12 +92,26 @@ export async function searchLocalFoodCatalog(
       protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode, is_shared
      FROM ${LOCAL_CATALOG}
      WHERE name LIKE ? COLLATE NOCASE OR brand LIKE ? COLLATE NOCASE OR barcode = ?
-     ORDER BY CASE WHEN name LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+     ORDER BY CASE source WHEN 'custom' THEN 0 WHEN 'sg_estimate' THEN 1 ELSE 2 END,
+       CASE WHEN name LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
        CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC, name
      LIMIT ?`,
     [`%${clean}%`, `%${clean}%`, clean.replace(/[\s-]/g, ''), `${clean}%`, limit],
   );
   return rows.map(mapFood);
+}
+
+export function rankFoodCatalogMatches(query: string, items: FoodCatalogItem[]): FoodCatalogItem[] {
+  const clean = query.trim().toLocaleLowerCase();
+  const sourceRank = (source: FoodCatalogItem['source']) => source === 'custom' ? 0 : source === 'sg_estimate' ? 1 : 2;
+  const textRank = (name: string) => {
+    const normalized = name.toLocaleLowerCase();
+    return normalized === clean ? 0 : normalized.startsWith(clean) ? 1 : 2;
+  };
+  return items.map((item, index) => ({ item, index })).sort((a, b) =>
+    sourceRank(a.item.source) - sourceRank(b.item.source)
+      || textRank(a.item.name) - textRank(b.item.name)
+      || a.index - b.index).map(({ item }) => item);
 }
 
 export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatalogItem[]): Promise<void> {
