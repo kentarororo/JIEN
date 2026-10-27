@@ -4,6 +4,9 @@ import { completeOnboarding, expectNoHorizontalOverflow, prepareIsolatedJienCont
 // Issue #25: one synthetic day of real use, run on every project every night.
 // The user is offline for the whole day's logging, then reconnects and syncs.
 test.use({ actionTimeout: 10_000 });
+// Playwright WebKit does not route requests from a service-worker-controlled page (see offline-pwa.spec.ts),
+// so the mocked cloud would be bypassed. Block the worker there; offline cold start on iPhone is a manual check.
+test.use({ serviceWorkers: async ({ browserName }, use) => use(browserName === 'webkit' ? 'block' : 'allow') });
 
 const SESSION = 'Daily driver lift';
 const EXERCISES = ['Goblet Squat', 'Machine Chest Press', 'Seated Leg Curl'];
@@ -124,11 +127,14 @@ test('a full offline day of training and food syncs cleanly after reconnecting',
   await test.step('log breakfast via quick add', async () => {
     await page.getByRole('tab', { name: 'Food', exact: true }).click();
     await expect(page.getByText('Not logged', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Add Banana', exact: true }).click();
+    // Since #32 "Add <food>" logs the default portion in one tap; a different portion goes through
+    // "Adjust <food> portion", which opens the portion sheet.
+    await page.getByRole('button', { name: 'Adjust Banana portion', exact: true }).click();
     await page.getByLabel('Portion', { exact: true }).fill('2');
     breakfastKcal = await sheetCalories(page);
     expect(breakfastKcal).toBeGreaterThan(0);
-    await page.getByRole('button', { name: 'Add to day', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: /^Add/ }).first().click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByText('Banana added.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: `Edit Banana, ${breakfastKcal} calories`, exact: true })).toBeVisible();
   });
@@ -136,13 +142,14 @@ test('a full offline day of training and food syncs cleanly after reconnecting',
   let lunchKcal = 0;
   await test.step('log lunch via search', async () => {
     await page.getByLabel('Quick add', { exact: true }).fill('chicken curry');
-    await page.getByRole('button', { name: 'Add Chicken curry with rice', exact: true }).click();
+    await page.getByRole('button', { name: 'Adjust Chicken curry with rice portion', exact: true }).click();
     // A big lunch: six starter servings (the starter serving is 100 g), to clear 800 kcal for the day.
     const portion = page.getByLabel('Portion', { exact: true });
     await portion.fill(String(Number(await portion.inputValue()) * 6));
     lunchKcal = await sheetCalories(page);
     expect(lunchKcal).toBeGreaterThan(0);
-    await page.getByRole('button', { name: 'Add to day', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: /^Add/ }).first().click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByText('Chicken curry with rice added.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: `Edit Chicken curry with rice, ${lunchKcal} calories`, exact: true })).toBeVisible();
   });
@@ -164,10 +171,10 @@ test('a full offline day of training and food syncs cleanly after reconnecting',
     if (canStartOffline) {
       await page.reload();
     } else {
-      // Until the offline app shell from #18 ships, a cold reload with no network cannot load the page at all.
-      // Prove that, then reload as soon as the network is back. The mocked cloud returns no rows, so
+      // Without the offline app shell (#18; blocked on WebKit, see above) a cold reload with no network cannot
+      // load the page at all. Prove that, then reload as soon as the network is back. The mocked cloud returns no rows, so
       // everything on screen after the reload can only come from this device's local database.
-      testInfo.annotations.push({ type: 'pending', description: 'Offline cold reload needs the service worker from #18.' });
+      testInfo.annotations.push({ type: 'pending', description: 'Offline cold reload needs the service worker, which Playwright WebKit cannot route.' });
       await expect(page.reload()).rejects.toThrow();
       await supabase.setOffline(false);
       await supabase.idle();
@@ -182,7 +189,9 @@ test('a full offline day of training and food syncs cleanly after reconnecting',
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: 'Data', exact: true }).click();
     await page.getByRole('button', { name: 'Sync now' }).click();
-    await expect(page.getByText('Cloud sync is current.', { exact: true })).toBeVisible();
+    // Offline writes may still be queued here (the offline reload path) or already uploaded by background sync.
+    await expect(page.getByText(/^(\d+ uploaded · \d+ restored from cloud\.|Cloud sync is current\.)$/)).toBeVisible();
+    await expect(page.getByText('No records are waiting for upload.', { exact: true })).toBeVisible();
     await expect(page.getByText('No app recovery errors recorded', { exact: true })).toBeVisible();
     await supabase.idle();
     expect(supabase.failures).toEqual([]);
