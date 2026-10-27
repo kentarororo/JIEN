@@ -985,7 +985,7 @@ export async function getExerciseSessionHistory(
          LIMIT ?
        )
      ORDER BY w.completed_at DESC, w.id DESC, s.sort_order ASC`,
-    [exerciseId, exerciseId, Math.max(1, Math.min(50, limit))],
+    [exerciseId, exerciseId, Math.max(1, Math.min(600, limit))],
   );
 
   const sessions = new Map<string, ExerciseSessionHistory['sessions'][number]>();
