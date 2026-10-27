@@ -1,4 +1,5 @@
 import type { MuscleGroupAdvisory } from '@/lib/progression';
+import type { AdaptiveNutritionMetrics } from '@/lib/nutrition/adaptive-metrics';
 import type { TrainingProgramme } from '../planning/training-programme';
 
 export type LoadUnit = 'kg' | 'lb';
@@ -342,6 +343,11 @@ export type FoodCatalogItem = {
   sourceRef: string | null;
   barcode: string | null;
   confidence: number | null;
+  /** Local usage metadata; never sent to food providers or stored in meal snapshots. */
+  isFromHistory?: boolean;
+  usageCount?: number;
+  timeOfDayUsageCount?: number;
+  lastUsedAt?: string | null;
 };
 
 export type SaveMealInput = {
@@ -403,6 +409,7 @@ export type NutritionTarget = MacroTotals & {
   id: string;
   effectiveFrom: string;
   desiredWeeklyWeightChangePercent: number;
+  weeklyCheckInDay: number | null;
 };
 
 export type DailyNutrition = {
@@ -455,6 +462,7 @@ export type DashboardSummary = {
   trainingAdvisory: MuscleGroupAdvisory;
   latestBodyMeasurement: BodyMeasurement | null;
   nutrition: DailyNutrition;
+  adaptiveNutrition: AdaptiveNutritionMetrics;
 };
 
 export type WorkoutExportRow = {

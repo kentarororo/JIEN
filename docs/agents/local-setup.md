@@ -42,6 +42,12 @@ grok      # sign in with your grok.com account when asked
 ```
 Both read `AGENTS.md` automatically. Nothing else to configure.
 
+## Build the Android app
+1. Install EAS CLI (`npm install -g eas-cli`) and sign in once with `eas login`.
+2. In the EAS `preview` environment, configure `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `EXPO_PUBLIC_BASE_URL`; never commit their values.
+3. From the repo root, run `eas build -p android --profile preview`.
+4. When the build finishes, open its APK link on the Android phone, allow installs from that browser when prompted, and tap **Install**.
+
 ## Install log
 Add a dated line whenever something is installed or removed.
 - 2026-10-18: setup planned (GitHub CLI, Codex CLI, Grok Build)

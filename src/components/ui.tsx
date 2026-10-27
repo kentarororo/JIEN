@@ -30,18 +30,25 @@ export function AppText({ style, ...props }: TextProps) {
 export function Screen({
   children,
   contentContainerStyle,
+  footer,
   scrollViewRef,
-}: PropsWithChildren<{ contentContainerStyle?: ViewProps['style']; scrollViewRef?: Ref<ScrollView> }>) {
+}: PropsWithChildren<{ contentContainerStyle?: ViewProps['style']; footer?: ReactNode; scrollViewRef?: Ref<ScrollView> }>) {
   const { colors } = useJienTheme();
   return (
     <SafeAreaView edges={['left', 'right']} style={[styles.screen, { backgroundColor: colors.canvas }]}>
       <ScrollView
         ref={scrollViewRef}
+        style={styles.screenScroll}
         contentContainerStyle={[styles.screenContent, contentContainerStyle]}
         keyboardShouldPersistTaps="handled"
       >
         {children}
       </ScrollView>
+      {footer ? (
+        <View style={[styles.screenFooter, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.screenFooterContent}>{footer}</View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -284,13 +291,15 @@ export function Field({
   label,
   hint,
   containerStyle,
+  inputRef,
   ...props
-}: TextInputProps & { label?: string; hint?: string; containerStyle?: StyleProp<ViewStyle> }) {
+}: TextInputProps & { label?: string; hint?: string; containerStyle?: StyleProp<ViewStyle>; inputRef?: Ref<TextInput> }) {
   const { colors } = useJienTheme();
   return (
     <View style={[styles.field, containerStyle]}>
       {label ? <AppText style={styles.fieldLabel}>{label}</AppText> : null}
       <TextInput
+        ref={inputRef}
         {...props}
         accessibilityLabel={props.accessibilityLabel ?? label}
         placeholderTextColor={colors.textMuted}
@@ -337,7 +346,10 @@ export function ProgressBar({ value, color }: { value: number; color?: string })
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  screenScroll: { flex: 1, minHeight: 0 },
   screenContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', padding: spacing.lg, paddingBottom: spacing.jumbo, gap: spacing.lg },
+  screenFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  screenFooterContent: { width: '100%', maxWidth: 1120, alignSelf: 'center' },
   body: { ...typography.body },
   headingRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
   headingCopy: { flexGrow: 1, flexShrink: 1, flexBasis: 220, gap: spacing.xxs },
