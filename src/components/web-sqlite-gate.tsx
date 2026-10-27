@@ -22,6 +22,10 @@ type WebSQLiteOwnershipContextValue = {
 
 const WebSQLiteOwnershipContext = createContext<WebSQLiteOwnershipContextValue | null>(null);
 
+export function useWebSQLiteBeforeReload(): () => void {
+  return useContext(WebSQLiteOwnershipContext)?.closeBeforeReload ?? (() => undefined);
+}
+
 type OwnershipReadiness =
   | { state: 'preparing' }
   | { state: 'ready' }
