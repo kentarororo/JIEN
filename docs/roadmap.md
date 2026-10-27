@@ -42,18 +42,21 @@ Nothing is Phone-tested yet, so nothing is Beta-ready.
 Agents work this list top to bottom (see "Keeping the queue moving" in `AGENTS.md`).
 
 **Codex**
-1. PR #39 (#29) — fix Grok's two findings: drop the back-fill day on "Back to today", and give it its own chip
-2. PR #48 (#21) — re-pick the wrong USDA ids and fix the proxy dishes (prata, tau huay, soy milk)
-3. After Ken merges the clean PRs: bring `main` into PR #42 (recipes) and renumber its migration, and into PR #46 (Hevy/Strong import) to resolve `package.json`. PRs #41, #42 and #48 all claim database version 19; whichever lands later takes the next number
-4. #45 — morning weigh-in shortcut in the Today top card
-5. #23 — import from MacroFactor (waiting on Ken's export headers)
+1. PR #39 (#29) — fix Grok's findings (back-fill day chip)
+2. PR #48 (#21) — fix the USDA ids and proxy dishes; take the next free database version
+3. PR #42 (recipes) and PR #46 (Hevy/Strong) — bring `main` in, resolve conflicts, renumber the recipes migration (version 19 is now taken by #41)
+4. #50 — whatever the nightly browser run found
+5. #45 — morning weigh-in shortcut on Today
+6. #52 — supersets and circuits
+7. #53 — export to a real Google Sheet
+8. #23 — import from MacroFactor (waiting on Ken's export headers)
 
-Waiting on Ken to merge (passed testing, check green): PRs #32, #40, #41, #43, #44, #47 merge cleanly in that order; then #42 and #46 after item 3. PR #47 also needs Ken's phone check for #24.
+Merges: Claude merges "easy" PASS PRs; migrations and taste calls go to Ken (see the merge rule in `AGENTS.md`).
 
 **Grok**
-1. Test every `needs-test` PR (routine)
-2. PR #33 — bring `main` in and get the browser check green; the nightly alert part of #25 shipped in #34
-3. #27 — persona run 2 after PR #32 merges (before/after numbers)
+1. Test every `needs-test` PR (routine); tag each verdict easy or taste
+2. PR #33 — bring `main` in and get the browser check green
+3. #27 — persona run 2 now that #32, #40 and #41 are live (before/after numbers)
 4. #38 — daily live-app runs as the founder-type lifter
 5. #15 — close with findings
 
