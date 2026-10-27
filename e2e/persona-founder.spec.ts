@@ -71,7 +71,10 @@ async function searchThenManual(m: Meter, page: Page, query: string) {
   const search = page.getByLabel('Food search', { exact: true });
   await m.type(search, query);
   await m.submit(search);
-  await expect(page.getByText(`Create private food for “${query}”`, { exact: true })).toBeVisible();
+  // Since #32 the bundled catalog can return a near miss (e.g. "Chicken curry with rice") instead of
+  // "Create private food for …"; either way the blank Food row below is where the dish is typed in.
+  await expect(page.getByText(`Create private food for “${query}”`, { exact: true })
+    .or(page.getByText(/^Found \d+ match/)).first()).toBeVisible();
 }
 
 async function addToDay(m: Meter, page: Page) {
@@ -93,21 +96,31 @@ async function saveInMyFoods(page: Page, food: Food) {
   await expect(page.getByText(food.name, { exact: true }).first()).toBeVisible();
 }
 
-/** Repeat a saved food from the Food tab's Quick add: type a few letters, tap it, confirm. */
+/**
+ * Repeat a saved or recent food from the Food tab's Quick add. Since #32 "Add <food>" logs the last
+ * portion in one tap (no confirm dialog); a different portion goes through "Adjust <food> portion".
+ */
 async function quickAdd(m: Meter, page: Page, query: string, name: string, portion?: string) {
   const field = visible(page.getByLabel('Quick add', { exact: true }));
-  await expect(field).toHaveValue('');
-  await expect(visible(page.getByText('Recent & common', { exact: true })).first()).toBeVisible();
+  await field.fill('');
+  await expect(visible(page.getByText('Recent & frequent for this time of day', { exact: true })).first()).toBeVisible();
   const item = visible(page.getByRole('button', { name: `Add ${name}`, exact: true })).first();
-  // Minimal path: tap it straight from "Recent & common" when it is listed, otherwise type to find it.
+  // Minimal path: tap it straight from the recent list when it is listed, otherwise type to find it.
   if (!(await item.count())) {
     await m.type(field, query);
-    await expect(visible(page.getByText('Saved matches', { exact: true })).first()).toBeVisible();
+    await expect(field).toHaveValue(query);
+    await expect(item).toBeVisible();
   }
-  await m.tap(item);
-  if (portion) await m.type(page.getByLabel('Portion', { exact: true }), portion);
-  await m.tap(page.getByRole('dialog').getByRole('button', { name: 'Add to day', exact: true }));
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  if (portion) {
+    await m.tap(visible(page.getByRole('button', { name: `Adjust ${name} portion`, exact: true })).first());
+    await m.type(page.getByLabel('Portion', { exact: true }), portion);
+    await m.tap(page.getByRole('dialog').getByRole('button', { name: /^Add/ }).first());
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  } else {
+    await m.tap(item);
+  }
+  await expect(page.getByText(/ added\.$/).last()).toBeVisible();
+  await expect(field).toHaveValue('');
 }
 
 test('persona 1 founder-type lifter: hawker food first, then a push day', async ({ context, page }, testInfo) => {
@@ -161,9 +174,16 @@ test('persona 1 founder-type lifter: hawker food first, then a push day', async 
 
   // Day 2: repeat yesterday's unsaved mee rebus. Today's build does not list unsaved foods under
   // Recent & common, so the fastest path is via yesterday's entry. If a later build lists it, use that.
+  // Since #32 unsaved foods from history are searchable in Quick add even when the short recent list
+  // doesn't show them, so probe by typing first.
   const recentMee = visible(page.getByRole('button', { name: `Add ${MEE_REBUS.name}`, exact: true }));
-  testInfo.annotations.push({ type: 'unsaved-food-in-recents', description: String(await recentMee.count() > 0) });
-  if (await recentMee.count()) {
+  const quickField = visible(page.getByLabel('Quick add', { exact: true }));
+  const listedWithoutTyping = await recentMee.count() > 0;
+  await quickField.fill('mee');
+  const findable = await recentMee.first().waitFor({ timeout: 3_000 }).then(() => true, () => false);
+  await quickField.fill('');
+  testInfo.annotations.push({ type: 'unsaved-food-in-recents', description: `listed=${listedWithoutTyping} findable=${findable}` });
+  if (findable) {
     m.start();
     await quickAdd(m, page, 'mee', MEE_REBUS.name);
   } else {
