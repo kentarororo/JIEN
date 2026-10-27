@@ -119,7 +119,14 @@ volume per muscle is visible and trustworthy.
   PERSONA_REPORT=1 pnpm e2e:web e2e/persona-founder.spec.ts --project=android-chrome
   ```
 
-  The spec assumes the first hawker search finds nothing. When the Singapore starter
+  Persona 2 has its own spec, `e2e/persona-recreational.spec.ts`. It fixes the clock to a
+  set week, stubs one synthetic barcode, and covers the missed-session return:
+
+  ```
+  PERSONA_REPORT=1 pnpm e2e:web e2e/persona-recreational.spec.ts --project=android-chrome
+  ```
+
+  The founder spec assumes the first hawker search finds nothing. When the Singapore starter
   set (#21) lands, update step (a) to tap the result, then compare the numbers (AC6 of
   #27).
 
@@ -141,3 +148,32 @@ tap counts.
 | (d) Push day: 5 machine/cable exercises, 16 sets including 1 drop set | 46 | 57 | 2.9 s | ~75 s |
 
 The friction findings are in the #27 comment.
+
+### Persona 1, re-run after #32, #40 and #41: 2026-10-27, `main` @ fb00dba, isolated e2e build, Pixel 7 and iPhone 13
+
+Same journey as run 1. Both phone projects gave the same tap counts.
+
+| Task | Run 1 taps | Now taps | Typed chars (run 1 → now) | Est. human time (run 1 → now) |
+|---|---|---|---|---|
+| (a) Hawker meal, first time: chicken rice + kopi C, both saved | 17 | 17 | 55 → 55 | ~39 s → ~38 s |
+| (a) Hawker dish, first time: mee rebus, not saved | 9 | 7 | 27 → 23 | ~20 s → ~16 s |
+| (b) Repeat meal: saved protein shake | 2 | 1 | 0 → 0 | ~3 s → ~2 s |
+| (b) Repeat meal: yesterday's unsaved mee rebus | 5 | 2 | 0 → 3 | ~6 s → ~4 s |
+| (c) Full food day: 7 repeat items, then mark complete | 21 | 15 | 30 → 30 | ~38 s → ~31 s |
+| (d) Push day: 5 exercises, 16 sets including 1 drop set | 46 | 46 | 57 → 57 | ~75 s → ~76 s |
+
+### Persona 2, run 1: 2026-10-27, `main` @ fb00dba, isolated e2e build, Pixel 7 and iPhone 13
+
+Both phone projects gave the same tap counts.
+
+| Task | Taps | Typed chars | Est. human time |
+|---|---|---|---|
+| (a) Hawker dish, first time: nasi lemak, not saved | 7 | 40 | ~21 s |
+| Packaged lunch from a typed barcode, first time | 4 | 13 | ~9 s |
+| (b) Repeat meal on return: nasi lemak from Quick add | 1 | 0 | ~2 s |
+| (c) Full food day: 3 repeat items, then mark complete | 4 | 0 | ~6 s |
+| Plan tomorrow from the Full body starter | 6 | 0 | ~8 s |
+| (d) Full body from the missed-session prompt: 5 exercises, 15 sets | 32 | 35 | ~51 s |
+
+The friction findings are in the #27 comment.
+
