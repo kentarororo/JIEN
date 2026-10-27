@@ -3,9 +3,10 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { AppText, Button, Card, Field, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
-import { ensureStartingNutritionTarget, getAdaptiveNutritionHistory, getNutritionTarget, saveNutritionTarget } from '@/lib/db';
+import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { ensureStartingNutritionTarget, getAdaptiveNutritionHistory, getNutritionTarget, saveNutritionTarget, type NutritionTarget } from '@/lib/db';
 import { evaluateAdaptiveNutritionTarget, type AdaptiveNutritionHistoryDay } from '@/lib/nutrition/adaptive-targets';
+import { buildWeeklyNutritionCheckIn, formatWeeklyCheckInDay, WEEKDAY_LABELS } from '@/lib/nutrition/weekly-check-in';
 import { spacing, typography, useJienTheme } from '@/theme';
 
 export default function MacroTargetScreen() {
@@ -18,12 +19,15 @@ export default function MacroTargetScreen() {
   const [fat, setFat] = useState('');
   const [fibre, setFibre] = useState('');
   const [desiredWeightChange, setDesiredWeightChange] = useState('0');
+  const [weeklyCheckInDay, setWeeklyCheckInDay] = useState<number | null>(null);
+  const [currentTarget, setCurrentTarget] = useState<NutritionTarget | null>(null);
   const [history, setHistory] = useState<AdaptiveNutritionHistoryDay[]>([]);
   const [baselineCalories, setBaselineCalories] = useState(0);
   const [baselineProtein, setBaselineProtein] = useState(0);
   const [adaptiveApplied, setAdaptiveApplied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -36,12 +40,14 @@ export default function MacroTargetScreen() {
       ]);
       setHistory(adaptiveHistory);
       if (target) {
+        setCurrentTarget(target);
         setCalories(String(target.caloriesKcal));
         setProtein(String(target.proteinG));
         setCarbs(String(target.carbohydrateG));
         setFat(String(target.fatG));
         setFibre(String(target.fibreG));
         setDesiredWeightChange(String(target.desiredWeeklyWeightChangePercent));
+        setWeeklyCheckInDay(target.weeklyCheckInDay);
         setBaselineCalories(target.caloriesKcal);
         setBaselineProtein(target.proteinG);
       }
@@ -64,10 +70,14 @@ export default function MacroTargetScreen() {
       history,
     });
   }, [baselineCalories, baselineProtein, desiredWeightChange, history]);
+  const weeklyCheckIn = useMemo(() => adaptive && currentTarget
+    ? buildWeeklyNutritionCheckIn({ ...currentTarget, weeklyCheckInDay }, adaptive)
+    : null, [adaptive, currentTarget, weeklyCheckInDay]);
 
   const submit = async () => {
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const values = {
         caloriesKcal: Number(calories),
@@ -76,6 +86,7 @@ export default function MacroTargetScreen() {
         fatG: Number(fat),
         fibreG: Number(fibre || 0),
         desiredWeeklyWeightChangePercent: Number(desiredWeightChange),
+        weeklyCheckInDay,
       };
       const macros = [values.caloriesKcal, values.proteinG, values.carbohydrateG, values.fatG, values.fibreG];
       if (macros.some((value) => !Number.isFinite(value) || value < 0) || values.caloriesKcal === 0) {
@@ -98,6 +109,33 @@ export default function MacroTargetScreen() {
     }
   };
 
+  const applyWeeklyCheckIn = async () => {
+    if (!currentTarget || !weeklyCheckIn || weeklyCheckIn.state !== 'ready') return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await saveNutritionTarget(db, {
+        caloriesKcal: weeklyCheckIn.suggestedCaloriesKcal,
+        proteinG: weeklyCheckIn.suggestedProteinG,
+        carbohydrateG: currentTarget.carbohydrateG,
+        fatG: currentTarget.fatG,
+        fibreG: currentTarget.fibreG,
+        desiredWeeklyWeightChangePercent: currentTarget.desiredWeeklyWeightChangePercent,
+        weeklyCheckInDay,
+      }, {
+        source: 'adaptive',
+        rationale: `Accepted weekly check-in for ${formatWeeklyCheckInDay(weeklyCheckInDay)} after ${adaptive?.dataSufficiency.completeWeeks ?? 0} qualifying weeks.`,
+      });
+      setNotice('Weekly targets applied on this device and queued for sync.');
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The weekly targets could not be applied.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return <Screen><StatePanel title="Loading targets" body="Checking your current local targets." loading /></Screen>;
 
   return (
@@ -105,6 +143,7 @@ export default function MacroTargetScreen() {
       <ScreenHeading eyebrow="Nutrition settings" title="Targets you control." />
       <Card><AppText style={{ color: colors.textMuted }}>Starting targets are estimated from your onboarding weight and goal. You can edit them at any time. Changes apply from today and do not rewrite past logs. The estimate is not medical advice.</AppText></Card>
       {error ? <Card style={{ backgroundColor: colors.dangerSoft, borderColor: colors.danger }}><AppText accessibilityRole="alert" style={{ color: colors.danger }}>{error}</AppText></Card> : null}
+      {notice ? <Card accessibilityLiveRegion="polite" style={{ backgroundColor: colors.successSoft }}><AppText>{notice}</AppText></Card> : null}
       <Field label="Daily calories" value={calories} onChangeText={(value) => { setCalories(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="2200" />
       <View style={styles.twoCol}><View style={styles.flex}><Field label="Protein (g)" value={protein} onChangeText={(value) => { setProtein(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="160" /></View><View style={styles.flex}><Field label="Carbs (g)" value={carbs} onChangeText={(value) => { setCarbs(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="240" /></View></View>
       <View style={styles.twoCol}><View style={styles.flex}><Field label="Fat (g)" value={fat} onChangeText={(value) => { setFat(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="70" /></View><View style={styles.flex}><Field label="Fibre (g)" value={fibre} onChangeText={(value) => { setFibre(value); setAdaptiveApplied(false); }} keyboardType="decimal-pad" placeholder="30" /></View></View>
@@ -134,6 +173,33 @@ export default function MacroTargetScreen() {
           ) : null}
         </Card>
       ) : <StatePanel title="Choose a valid trend" body="Enter a number from -1 to +1 to evaluate your logged history." />}
+
+      <SectionHeading title="Weekly check-in" detail="Optional and review-only" />
+      <View style={styles.dayRow}>
+        <Pill label="Off" active={weeklyCheckInDay == null} onPress={() => setWeeklyCheckInDay(null)} />
+        {WEEKDAY_LABELS.map((label, day) => (
+          <Pill key={label} label={label.slice(0, 3)} active={weeklyCheckInDay === day} onPress={() => setWeeklyCheckInDay(day)} />
+        ))}
+      </View>
+      <AppText style={{ color: colors.textMuted }}>{weeklyCheckInDay == null
+        ? 'No weekly check-in is scheduled.'
+        : `${formatWeeklyCheckInDay(weeklyCheckInDay)} is selected. Save targets to keep this schedule.`}</AppText>
+      {weeklyCheckIn && adaptive ? (
+        <Card style={{ backgroundColor: weeklyCheckIn.state === 'ready' ? colors.accentSoft : colors.surface }}>
+          <AppText style={styles.adaptiveTitle}>{weeklyCheckInTitle(weeklyCheckIn.state)}</AppText>
+          <AppText style={{ color: colors.textMuted }}>{weeklyCheckInCopy(weeklyCheckIn.state, formatWeeklyCheckInDay(weeklyCheckIn.scheduledDay), adaptive)}</AppText>
+          {weeklyCheckIn.state === 'ready' ? (
+            <>
+              <View style={styles.twoCol}>
+                <View style={styles.flex}><AppText style={styles.adaptiveMetric}>{weeklyCheckIn.suggestedCaloriesKcal} kcal</AppText><AppText style={{ color: colors.textMuted }}>Daily calories</AppText></View>
+                <View style={styles.flex}><AppText style={styles.adaptiveMetric}>{weeklyCheckIn.suggestedProteinG} g</AppText><AppText style={{ color: colors.textMuted }}>Daily protein (unchanged)</AppText></View>
+              </View>
+              <AppText style={{ color: colors.textMuted }}>Nothing changes until you apply. This deterministic estimate is not medical advice.</AppText>
+              <Button label="Apply weekly targets" onPress={() => void applyWeeklyCheckIn()} busy={saving} variant="secondary" />
+            </>
+          ) : null}
+        </Card>
+      ) : null}
       <Button label="Save targets" onPress={() => void submit()} busy={saving} />
     </Screen>
   );
@@ -154,9 +220,32 @@ function adaptiveCopy(evaluation: ReturnType<typeof evaluateAdaptiveNutritionTar
   return `The logged weight trend${trend == null ? '' : ` (${trend > 0 ? '+' : ''}${trend.toFixed(2)}%/week)`} has remained outside the range you selected.`;
 }
 
+function weeklyCheckInTitle(state: ReturnType<typeof buildWeeklyNutritionCheckIn>['state']): string {
+  if (state === 'off') return 'Weekly check-in is off';
+  if (state === 'not_due') return 'No check-in due today';
+  if (state === 'need_more_data') return 'Weekly check-in needs more data';
+  if (state === 'hold') return 'Keep the current targets';
+  return 'Weekly target proposal';
+}
+
+function weeklyCheckInCopy(
+  state: ReturnType<typeof buildWeeklyNutritionCheckIn>['state'],
+  day: string,
+  evaluation: ReturnType<typeof evaluateAdaptiveNutritionTarget>,
+): string {
+  if (state === 'off') return 'Choose a weekday to opt in. No target changes automatically.';
+  if (state === 'not_due') return `The next review appears on ${day}. You can still edit targets manually.`;
+  if (state === 'need_more_data') {
+    return `Need more data: ${evaluation.dataSufficiency.completeDays} Complete days and ${evaluation.dataSufficiency.weightDays} weigh-in days are available across the evaluated weeks.`;
+  }
+  if (state === 'hold') return 'The smoothed trend is within range or not stable enough to support a change.';
+  return 'The calorie step is capped conservatively. Weight-rate evidence does not justify changing the confirmed protein target.';
+}
+
 const styles = StyleSheet.create({
   twoCol: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   flex: { flex: 1, minWidth: 150 },
+  dayRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   adaptiveTitle: { ...typography.bodyLarge, fontWeight: '800' },
   adaptiveMetric: { ...typography.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
 });

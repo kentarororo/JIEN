@@ -370,6 +370,32 @@ export default function TodayScreen() {
         </>
       ) : null}
 
+      <SectionHeading title="Adaptive nutrition" detail="On-device trend and maintenance estimate" />
+      <Card>
+        <View style={styles.adaptiveGrid}>
+          <View style={styles.adaptiveMetric}>
+            <AppText style={styles.weekMetricLabel}>Trend weight</AppText>
+            <AppText style={styles.adaptiveMetricValue}>{summary.adaptiveNutrition.bodyTrend.trendWeightReady
+              ? `${summary.adaptiveNutrition.bodyTrend.latestTrendKg?.toFixed(1)} kg`
+              : `Need more data (${summary.adaptiveNutrition.bodyTrend.trendWeightDays} of ${summary.adaptiveNutrition.bodyTrend.trendWeightRequiredDays} days)`}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{summary.adaptiveNutrition.bodyTrend.latestKg == null
+              ? 'Log a body weight to start.'
+              : `${summary.adaptiveNutrition.bodyTrend.latestKg.toFixed(1)} kg latest raw entry`}</AppText>
+          </View>
+          <View style={styles.adaptiveMetric}>
+            <AppText style={styles.weekMetricLabel}>Expenditure</AppText>
+            <AppText style={styles.adaptiveMetricValue}>{summary.adaptiveNutrition.expenditure.ready
+              ? `~${summary.adaptiveNutrition.expenditure.estimateKcal?.toLocaleString()} kcal/day`
+              : `Need more data (${Math.min(summary.adaptiveNutrition.expenditure.completeDays, summary.adaptiveNutrition.expenditure.requiredCompleteDays)} of ${summary.adaptiveNutrition.expenditure.requiredCompleteDays} days)`}</AppText>
+            <AppText style={{ color: colors.textMuted }}>{summary.adaptiveNutrition.expenditure.ready
+              ? `${summary.adaptiveNutrition.expenditure.rangeLowKcal?.toLocaleString()}–${summary.adaptiveNutrition.expenditure.rangeHighKcal?.toLocaleString()} kcal/day · ${summary.adaptiveNutrition.expenditure.confidence} confidence`
+              : `${summary.adaptiveNutrition.expenditure.weightDays} of ${summary.adaptiveNutrition.expenditure.requiredWeightDays} weigh-in days · ${summary.adaptiveNutrition.expenditure.spanDays} of ${summary.adaptiveNutrition.expenditure.requiredSpanDays} elapsed days`}</AppText>
+          </View>
+        </View>
+        <AppText style={{ color: colors.textMuted }}>Complete food days and smoothed weight change only. Partial and missing days are excluded. Not medical advice.</AppText>
+        <Button label="Review weekly targets" onPress={() => router.push('/settings/macros')} variant="secondary" />
+      </Card>
+
       <SectionHeading title="Today’s food" detail={summary.nutrition.meals.length === 0 ? 'Nothing logged yet' : `${summary.nutrition.meals.reduce((count, meal) => count + meal.itemCount, 0)} food items logged`} />
       <Card>
         <View style={styles.macroRow}><AppText>Calories</AppText><AppText style={styles.value}>{Math.round(summary.nutrition.totals.caloriesKcal)}{calorieTarget ? ` / ${Math.round(calorieTarget)}` : ''} kcal</AppText></View>
@@ -418,6 +444,9 @@ const styles = StyleSheet.create({
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
   focusPills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   bodyCard: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: spacing.lg },
+  adaptiveGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  adaptiveMetric: { flex: 1, minWidth: 220, gap: spacing.xxs },
+  adaptiveMetricValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
   calendarCard: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: spacing.sm },
   screenCompact: { paddingHorizontal: spacing.md },
   calendarCardCompact: { paddingHorizontal: 0 },

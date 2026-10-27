@@ -3,7 +3,9 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import type { NutritionTarget } from './types.ts';
 
-type NutritionTargetInput = Omit<NutritionTarget, 'id' | 'effectiveFrom'>;
+type NutritionTargetInput = Omit<NutritionTarget, 'id' | 'effectiveFrom' | 'weeklyCheckInDay'> & {
+  weeklyCheckInDay?: number | null;
+};
 
 type NutritionTargetSaveOptions = {
   source?: 'manual' | 'adaptive';
@@ -20,6 +22,7 @@ type NutritionTargetPayload = {
   fat_g: number;
   fibre_g: number | null;
   desired_weekly_weight_change_percent: number;
+  weekly_check_in_day: number | null;
   source: string;
   rationale: string | null;
   created_at: string;
@@ -47,6 +50,7 @@ type CurrentNutritionTargetRow = {
   fat_g: number;
   fibre_g: number | null;
   desired_weekly_weight_change_percent: number;
+  weekly_check_in_day: number | null;
   source: string;
   rationale: string | null;
   created_at: string;
@@ -69,7 +73,7 @@ export function saveNutritionTargetAtomically(
     const effectiveFrom = dependencies.toLocalDateKey(instant);
     const current = await db.getFirstAsync<CurrentNutritionTargetRow>(
       `SELECT id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g,
-        fibre_g, desired_weekly_weight_change_percent, source, rationale, created_at
+        fibre_g, desired_weekly_weight_change_percent, weekly_check_in_day, source, rationale, created_at
        FROM nutrition_targets
        WHERE effective_to IS NULL AND deleted_at IS NULL
        ORDER BY effective_from DESC LIMIT 1`,
@@ -88,6 +92,7 @@ export function saveNutritionTargetAtomically(
       fat_g: input.fatG,
       fibre_g: input.fibreG,
       desired_weekly_weight_change_percent: input.desiredWeeklyWeightChangePercent,
+      weekly_check_in_day: input.weeklyCheckInDay ?? null,
       source,
       rationale,
       created_at: updateCurrentDay && current ? current.created_at : now,
@@ -99,7 +104,7 @@ export function saveNutritionTargetAtomically(
       await db.runAsync(
         `UPDATE nutrition_targets SET
           calories_kcal = ?, protein_g = ?, carbohydrate_g = ?, fat_g = ?, fibre_g = ?,
-          desired_weekly_weight_change_percent = ?, source = ?, rationale = ?,
+          desired_weekly_weight_change_percent = ?, weekly_check_in_day = ?, source = ?, rationale = ?,
           updated_at = ?, client_updated_at = ? WHERE id = ?`,
         [
           input.caloriesKcal,
@@ -108,6 +113,7 @@ export function saveNutritionTargetAtomically(
           input.fatG,
           input.fibreG,
           input.desiredWeeklyWeightChangePercent,
+          input.weeklyCheckInDay ?? null,
           source,
           rationale,
           now,
@@ -133,6 +139,7 @@ export function saveNutritionTargetAtomically(
           fat_g: current.fat_g,
           fibre_g: current.fibre_g,
           desired_weekly_weight_change_percent: current.desired_weekly_weight_change_percent,
+          weekly_check_in_day: current.weekly_check_in_day,
           source: current.source,
           rationale: current.rationale,
           created_at: current.created_at,
@@ -143,8 +150,8 @@ export function saveNutritionTargetAtomically(
       await db.runAsync(
         `INSERT INTO nutrition_targets (
           id, effective_from, calories_kcal, protein_g, carbohydrate_g, fat_g, fibre_g,
-          desired_weekly_weight_change_percent, source, rationale, created_at, updated_at, client_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          desired_weekly_weight_change_percent, weekly_check_in_day, source, rationale, created_at, updated_at, client_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           effectiveFrom,
@@ -154,6 +161,7 @@ export function saveNutritionTargetAtomically(
           input.fatG,
           input.fibreG,
           input.desiredWeeklyWeightChangePercent,
+          input.weeklyCheckInDay ?? null,
           source,
           rationale,
           now,
@@ -163,6 +171,6 @@ export function saveNutritionTargetAtomically(
       );
     }
     await dependencies.enqueueUpsert(db, id, payload);
-    return { id, effectiveFrom, ...input };
+    return { id, effectiveFrom, ...input, weeklyCheckInDay: input.weeklyCheckInDay ?? null };
   });
 }
