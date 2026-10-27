@@ -42,114 +42,109 @@ const EMPTY_TOTALS: MacroTotals = {
 };
 
 export async function saveMeal(db: SQLiteDatabase, input: SaveMealInput): Promise<string> {
+  const [id] = await saveMeals(db, [input]);
+  return id!;
+}
+
+/** Save one user action containing several meal groups in one local transaction and outbox commit. */
+export async function saveMeals(db: SQLiteDatabase, inputs: SaveMealInput[]): Promise<string[]> {
+  if (!inputs.length) throw new Error('Add at least one food item.');
+  inputs.forEach(validateSaveMealInput);
+  const now = new Date().toISOString();
+  const prepared = inputs.map((input) => {
+    const id = Crypto.randomUUID();
+    const eatenOn = toLocalDateKey(new Date(input.eatenAt));
+    const mealSource = input.items.some((item) => item.source === 'ai_photo')
+      ? 'ai_photo'
+      : input.items.some((item) => item.source === 'imported') ? 'imported' : 'manual';
+    return { input, id, eatenOn, mealSource };
+  });
+
+  await withExclusiveTransaction(db, async (transactionDb) => {
+    for (const { input, id, eatenOn, mealSource } of prepared) {
+      const mealPayload = {
+        id,
+        name: input.name.trim() || 'Meal',
+        type: input.type,
+        eaten_on: eatenOn,
+        eaten_at: input.eatenAt,
+        source: mealSource,
+        notes: input.notes?.trim() || null,
+        photo_storage_path: null,
+        ai_context: mealSource === 'ai_photo' ? input.aiContext?.trim() || null : null,
+        ai_status: mealSource === 'ai_photo' ? 'completed' : 'not_requested',
+        ai_error_code: null,
+        is_user_edited: false,
+        created_at: now,
+        client_updated_at: now,
+        deleted_at: null,
+      };
+      await transactionDb.runAsync(
+        `INSERT INTO meals (
+          id, name, type, eaten_on, eaten_at, source, notes,
+          is_user_edited, created_at, updated_at, client_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+        [id, mealPayload.name, input.type, eatenOn, input.eatenAt, mealSource, mealPayload.notes, now, now, now],
+      );
+      await enqueueUpsert(transactionDb, 'meals', id, mealPayload);
+
+      for (const [index, item] of input.items.entries()) {
+        const itemId = Crypto.randomUUID();
+        const itemPayload = {
+          id: itemId,
+          meal_id: id,
+          sort_order: index,
+          name: item.name.trim(),
+          quantity: item.quantity,
+          unit: item.unit.trim() || 'serving',
+          calories_kcal: item.caloriesKcal,
+          protein_g: item.proteinG,
+          carbohydrate_g: item.carbohydrateG,
+          fat_g: item.fatG,
+          fibre_g: item.fibreG ?? null,
+          source: item.source ?? 'manual',
+          confidence: item.confidence ?? null,
+          original_source: item.source ?? 'manual',
+          original_confidence: item.confidence ?? null,
+          is_user_edited: false,
+          created_at: now,
+          client_updated_at: now,
+          deleted_at: null,
+        };
+        await transactionDb.runAsync(
+          `INSERT INTO food_items (
+            id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
+            carbohydrate_g, fat_g, fibre_g, source, confidence, original_source,
+            original_confidence, is_user_edited, created_at, updated_at, client_updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+          [
+            itemId, id, index, itemPayload.name, item.quantity, itemPayload.unit,
+            item.caloriesKcal, item.proteinG, item.carbohydrateG, item.fatG,
+            item.fibreG ?? null, itemPayload.source, itemPayload.confidence,
+            itemPayload.original_source, itemPayload.original_confidence, now, now, now,
+          ],
+        );
+        await enqueueUpsert(transactionDb, 'food_items', itemId, itemPayload);
+      }
+    }
+  });
+
+  return prepared.map(({ id }) => id);
+}
+
+function validateSaveMealInput(input: SaveMealInput): void {
   if (input.items.length === 0) throw new Error('Add at least one food item.');
-  if (
-    input.items.some(
-      (item) =>
-        !item.name.trim() ||
-        item.quantity <= 0 ||
-        item.caloriesKcal < 0 ||
-        item.proteinG < 0 ||
-        item.carbohydrateG < 0 ||
-        item.fatG < 0,
-    )
-  ) {
+  const numericValuesValid = input.items.every((item) => (
+    [item.quantity, item.caloriesKcal, item.proteinG, item.carbohydrateG, item.fatG, item.fibreG ?? 0]
+      .every((value) => Number.isFinite(value) && value >= 0)
+  ));
+  if (!numericValuesValid || input.items.some((item) => !item.name.trim() || item.quantity <= 0)) {
     throw new Error('Food names, portions, and macros must be valid non-negative values.');
   }
   const eatenAt = new Date(input.eatenAt);
   if (!Number.isFinite(eatenAt.getTime()) || eatenAt.getTime() > Date.now() + 60_000) {
     throw new Error('Logged meals must use today or an earlier calendar date.');
   }
-
-  const id = Crypto.randomUUID();
-  const now = new Date().toISOString();
-  const eatenOn = toLocalDateKey(eatenAt);
-  const mealSource = input.items.some((item) => item.source === 'ai_photo')
-    ? 'ai_photo'
-    : input.items.some((item) => item.source === 'imported') ? 'imported' : 'manual';
-  const mealPayload = {
-    id,
-    name: input.name.trim() || 'Meal',
-    type: input.type,
-    eaten_on: eatenOn,
-    eaten_at: input.eatenAt,
-    source: mealSource,
-    notes: input.notes?.trim() || null,
-    photo_storage_path: null,
-    ai_context: mealSource === 'ai_photo' ? input.aiContext?.trim() || null : null,
-    ai_status: mealSource === 'ai_photo' ? 'completed' : 'not_requested',
-    ai_error_code: null,
-    is_user_edited: false,
-    created_at: now,
-    client_updated_at: now,
-    deleted_at: null,
-  };
-
-  await withExclusiveTransaction(db, async (db) => {
-    await db.runAsync(
-      `INSERT INTO meals (
-        id, name, type, eaten_on, eaten_at, source, notes,
-        is_user_edited, created_at, updated_at, client_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-      [id, mealPayload.name, input.type, eatenOn, input.eatenAt, mealSource, mealPayload.notes, now, now, now],
-    );
-    await enqueueUpsert(db, 'meals', id, mealPayload);
-
-    for (const [index, item] of input.items.entries()) {
-      const itemId = Crypto.randomUUID();
-      const itemPayload = {
-        id: itemId,
-        meal_id: id,
-        sort_order: index,
-        name: item.name.trim(),
-        quantity: item.quantity,
-        unit: item.unit.trim() || 'serving',
-        calories_kcal: item.caloriesKcal,
-        protein_g: item.proteinG,
-        carbohydrate_g: item.carbohydrateG,
-        fat_g: item.fatG,
-        fibre_g: item.fibreG ?? null,
-        source: item.source ?? 'manual',
-        confidence: item.confidence ?? null,
-        original_source: item.source ?? 'manual',
-        original_confidence: item.confidence ?? null,
-        is_user_edited: false,
-        created_at: now,
-        client_updated_at: now,
-        deleted_at: null,
-      };
-      await db.runAsync(
-        `INSERT INTO food_items (
-          id, meal_id, sort_order, name, quantity, unit, calories_kcal, protein_g,
-          carbohydrate_g, fat_g, fibre_g, source, confidence, original_source,
-          original_confidence, is_user_edited, created_at, updated_at, client_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-        [
-          itemId,
-          id,
-          index,
-          itemPayload.name,
-          item.quantity,
-          itemPayload.unit,
-          item.caloriesKcal,
-          item.proteinG,
-          item.carbohydrateG,
-          item.fatG,
-          item.fibreG ?? null,
-          itemPayload.source,
-          itemPayload.confidence,
-          itemPayload.original_source,
-          itemPayload.original_confidence,
-          now,
-          now,
-          now,
-        ],
-      );
-      await enqueueUpsert(db, 'food_items', itemId, itemPayload);
-    }
-  });
-
-  return id;
 }
 
 export async function listMealsForDate(
