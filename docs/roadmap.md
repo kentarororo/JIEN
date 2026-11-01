@@ -4,7 +4,7 @@ JIEN remains a lifting-first, local-first training and nutrition product. Milest
 close one complete user loop at a time; new activity types do not enter the product
 until their measurements and progression rules are explicit.
 
-## Status at a glance — 25 October 2026
+## Status at a glance — 1 November 2026
 
 Every milestone carries exactly one status. Move it up only when the evidence exists.
 
@@ -32,7 +32,14 @@ Every milestone carries exactly one status. Move it up only when the evidence ex
 | Alpha 2.4 — plateau review and adherence | Live on web | Phone testing |
 | Alpha 2.5 — partial/complete day state | Live on web | Phone testing |
 | Alpha 2.5 — My foods manager | Live on web | Phone testing |
-| Alpha 2.5 — recipes | In review | PR #42 (passed testing; needs main merged in and its migration renumbered) |
+| Alpha 2.5 — faster food logging and phone Add food layout | Live on web | Phone testing |
+| Alpha 2.5 — trend weight, expenditure, weekly check-in | Live on web | Phone testing |
+| Progress charts per exercise and muscle | Live on web | Phone testing |
+| Installable offline web app | Live on web | Install and check on a real iPhone and Android phone |
+| Android preview APK | Built | Ken installs the preview build on his Android phone |
+| Alpha 2.5 — recipes | In review | PR #42 (passed testing; needs main merged in and its migration renumbered, then Ken applies it) |
+| Import from Hevy or Strong | In review | PR #46 (passed testing; needs main merged in; new dependency, so Ken merges) |
+| Singapore food starter set | In review | PR #48 (fix round: USDA ids and proxy dishes) |
 | Closed beta | Not started | Phone testing, production sync/restore, beta instrumentation |
 
 Nothing is Phone-tested yet, so nothing is Beta-ready.
@@ -45,18 +52,19 @@ Agents work this list top to bottom (see "Keeping the queue moving" in `AGENTS.m
 1. PR #39 (#29) — fix Grok's findings (back-fill day chip)
 2. PR #48 (#21) — fix the USDA ids and proxy dishes; take the next free database version
 3. PR #42 (recipes) and PR #46 (Hevy/Strong) — bring `main` in, resolve conflicts, renumber the recipes migration (version 19 is now taken by #41)
-4. #50 — whatever the nightly browser run found
+4. #50 — nightly browser run, red every night since 25 October (ios-webkit "Cloud restore needs attention" at startup; triage on the issue)
 5. #45 — morning weigh-in shortcut on Today
 6. #52 — supersets and circuits
 7. #53 — export to a real Google Sheet
 8. #23 — import from MacroFactor (waiting on Ken's export headers)
 
 Merges: Claude merges "easy" PASS PRs; migrations and taste calls go to Ken (see the merge rule in `AGENTS.md`).
+Waiting on Ken: PR #55 (Grok's persona run 2 and the founder spec fix; test files only, check green).
 
 **Grok**
 1. Test every `needs-test` PR (routine); tag each verdict easy or taste
 2. PR #33 — bring `main` in and get the browser check green
-3. #27 — persona run 2 now that #32, #40 and #41 are live (before/after numbers)
+3. #27 — persona run 3 once PR #55 (run 2) merges
 4. #38 — daily live-app runs as the founder-type lifter
 5. #15 — close with findings
 
