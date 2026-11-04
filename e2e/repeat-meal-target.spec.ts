@@ -58,6 +58,10 @@ test('Log again defaults to the Food day you were back-filling and leaves the or
   // AC1: the back-fill day is the default and the button names it.
   const logAgain = page.getByRole('button', { name: `Log again on ${repeatLabel(yesterday)}`, exact: true });
   await expect(logAgain).toBeVisible();
+  // The back-fill day (yesterday here) is the checked radio; no duplicate Back-fill chip for it.
+  await expect(page.getByRole('radio', { name: 'Yesterday', exact: true })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /^Back-fill / })).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: 'Today', exact: true })).not.toBeChecked();
   await logAgain.click();
   await expect(page.getByRole('heading', { name: 'Add food', exact: true })).toBeVisible();
   await expect(page.getByText(/Logging for/).first()).toBeVisible();
@@ -78,5 +82,33 @@ test('Log again defaults to the Food day you were back-filling and leaves the or
   // AC2: opening the meal without coming from a Food day step defaults to today.
   await page.goto(mealPath);
   await expect(page.getByRole('button', { name: 'Log again on today', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// Coming back to today must drop the back-fill target, so today's meal repeats to today.
+test('Log again on a meal logged today defaults to today after browsing back and returning (#29)', async ({ context, page }) => {
+  const errors = collectPageErrors(page);
+  await prepareIsolatedJienContext(context, page);
+  await completeOnboarding(page);
+  await page.getByRole('button', { name: /^Food log\./ }).click();
+  await page.getByRole('button', { name: 'Add food', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Food', exact: true }).fill(MEAL);
+  for (const [name, value] of [['Calories', '300'], ['Protein (g)', '20'], ['Carbs (g)', '30'], ['Fat (g)', '10']]) {
+    await page.getByLabel(name!, { exact: true }).fill(value!);
+  }
+  await page.getByRole('button', { name: 'Add to day', exact: true }).click();
+  const todaysMeal = page.getByRole('button', { name: `Edit ${MEAL}, 300 calories`, exact: true });
+  await expect(todaysMeal).toBeVisible();
+
+  await page.getByRole('button', { name: 'Previous day', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('date')).toBe(await dateKey(page, 1));
+  await page.getByRole('button', { name: 'Back to today', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('repeatTargetDate')).toBeNull();
+  await todaysMeal.click();
+  await page.getByRole('button', { name: 'Edit nutrition or view original entry', exact: true }).click();
+  await expect(page).toHaveURL(/\/meals\//);
+  await expect(page.getByRole('button', { name: 'Log again on today', exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Today', exact: true })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /^Back-fill / })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
