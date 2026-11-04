@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Platform, StyleSheet, Switch, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { FeedbackLauncher } from '@/components/feedback-launcher';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
 import { AccountDeletionDeviceError, finishAccountDeletionOnDevice } from '@/lib/account-deletion';
@@ -39,6 +40,7 @@ export default function SettingsScreen() {
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [cloudDeletedForUserId, setCloudDeletedForUserId] = useState<string | null>(null);
+  const feedbackCaptureRef = useRef<View>(null);
 
   useEffect(() => subscribeToAccountSyncHealth(() => { void reload(); }), [reload]);
 
@@ -208,8 +210,9 @@ export default function SettingsScreen() {
   };
 
   return (
+    <View ref={feedbackCaptureRef} collapsable={false} style={styles.screen}>
     <Screen>
-      <ScreenHeading title="Settings" eyebrow="Account, preferences and data" />
+      <ScreenHeading title="Settings" eyebrow="Account, preferences and data" action={<FeedbackLauncher screenName="Settings" captureTarget={feedbackCaptureRef} direct />} />
       {loading && !data ? <StatePanel title="Loading settings" body="Reading preferences from this device." loading /> : null}
       {error ? <StatePanel title="Settings are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {message ? <Card style={{ backgroundColor: messageTone === 'warning' ? theme.colors.warningSoft : theme.colors.successSoft }}><AppText style={{ color: messageTone === 'warning' ? theme.colors.warning : theme.colors.success }}>{message}</AppText></Card> : null}
@@ -352,10 +355,12 @@ export default function SettingsScreen() {
         </> : null}
       </> : null}
     </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap' },
   viewSwitcher: { alignSelf: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', borderRadius: 999, padding: spacing.xxs, gap: spacing.xxs },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },

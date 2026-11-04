@@ -523,10 +523,38 @@ macros before saving if the database portion does not match what they ate.
 
 ## Row Level Security
 
-RLS is enabled and forced on every table. Authenticated users may select, insert,
-and update only their own rows. `users` compares `id` with `auth.uid()`; all other
-tables compare `user_id`. There are deliberately no authenticated delete policies,
-so deletions sync as tombstones.
+### `feedback`
+
+Authenticated testers create a feedback report locally in the existing SQLite sync
+queue. The `feedback` Edge Function authenticates the account, enforces the daily
+limit, stores the bounded report, and opens the corresponding GitHub issue. Client
+code never receives the GitHub token. The only automatically attached context is the
+screen, app version/build, platform, viewport, and online/offline state shown on the
+form. Food logs, weights, names, email addresses, and other account data are excluded.
+An optional user-selected screenshot is stored in the private row and is not copied
+into the GitHub issue.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `uuid` | Client-generated idempotency key |
+| `user_id` | `uuid` | Required owner, cascades with Auth deletion |
+| `feedback_type` | `text` | `bug`, `idea`, or `confusing` |
+| `message` | `text` | 1–2,000 characters |
+| `context` | `jsonb` | Fixed non-personal device-context object |
+| `screenshot_base64` | `text` | Optional, user-selected, capped at 2,000,000 characters |
+| `github_issue_number` / `github_issue_url` | scalar | Server-written delivery receipt |
+| `client_created_at` / `created_at` / `updated_at` | `timestamptz` | Client event time and server timestamps |
+| `delivered_at` | `timestamptz` | Set after GitHub accepts the issue |
+
+RLS is forced. Authenticated users may read only their own rows; inserts and delivery
+updates occur through the authenticated Edge Function with the service role so the
+10-per-UTC-day limit cannot be bypassed by direct table writes.
+
+RLS is enabled and forced on every table. Except for the Edge-Function-only feedback
+write path above, authenticated users may select, insert, and update only their own
+rows. `users` compares `id` with `auth.uid()`; all other tables compare `user_id`.
+There are deliberately no authenticated delete policies, so deletions sync as
+tombstones.
 
 `ai_conversations` and user-role `ai_messages` add a consent check on insert.
 Anonymous access is revoked. The Supabase service role retains its normal RLS bypass
