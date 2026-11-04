@@ -3,6 +3,7 @@ export type SingaporeIngredientBreakdown = {
   name: string;
   grams: number;
   fdcId: string | null;
+  note?: string;
 };
 
 export type SingaporeFoodEstimate = {
@@ -21,44 +22,37 @@ export type SingaporeFoodEstimate = {
   ingredients: SingaporeIngredientBreakdown[];
 };
 
-type NutrientBasis = {
-  name: string;
-  fdcId: string | null;
-  protein: number;
-  carbs: number;
-  fat: number;
-  fibre: number;
-};
-
 // Per-100 g edible portions selected from USDA FoodData Central Foundation Foods,
 // SR Legacy and FNDDS. The composed dishes below are JIEN estimates, not official
 // Singapore nutrient records. See docs/food-data.md for licence and methodology.
 const INGREDIENTS = {
   rice: ['Rice, white, cooked', '168878', 2.7, 28.2, 0.3, 0.4],
   brownRice: ['Rice, brown, cooked', '168875', 2.7, 25.6, 1, 1.6],
-  glutinousRice: ['Rice, glutinous, cooked', '2708364', 2, 21.1, 0.2, 1],
+  glutinousRice: ['Rice, glutinous, cooked', '169711', 2.02, 21.09, 0.19, 1],
   riceNoodles: ['Rice noodles, cooked', '2708356', 1.8, 23.9, 0.2, 1],
-  eggNoodles: ['Egg noodles, cooked', '172184', 4.5, 25.2, 2.1, 1.2],
-  wheatNoodles: ['Wheat noodles, cooked', '2708374', 4.5, 27, 1.2, 1.8],
+  eggNoodles: ['Egg noodles, cooked', '169732', 4.54, 25.16, 2.07, 1.2],
+  wheatNoodles: ['Noodles, cooked', '2708352', 4.51, 25.01, 2.06, 1.2, 'Cooked wheat-noodle proxy for local noodle styles.'],
   vermicelli: ['Rice vermicelli, cooked', '2708356', 1.8, 23.9, 0.2, 1],
   chickenBreast: ['Chicken breast, roasted', '171077', 31, 0, 3.6, 0],
   chickenThigh: ['Chicken thigh, roasted', '171116', 24.8, 0, 8.2, 0],
   chickenWing: ['Chicken wing, roasted', '171123', 27, 0, 13.5, 0],
-  duck: ['Duck, roasted, meat and skin', '172410', 19, 0, 28, 0],
+  duck: ['Duck, roasted, meat and skin', '172409', 18.99, 0, 28.35, 0],
   porkLean: ['Pork loin, cooked', '168251', 27.3, 0, 8.2, 0],
-  porkBelly: ['Pork belly, cooked', '168260', 9.3, 0, 53, 0],
-  charSiew: ['Pork, Chinese barbecue style', '2706098', 23, 12, 12, 0.4],
+  porkBelly: ['Pork belly, cooked', '2705901', 26.58, 0, 32.24, 0],
+  charSiew: ['Pork, barbecue, with sauce', '2706399', 17.57, 12.23, 11.3, 0.3, 'USDA barbecue-pork proxy for char siew.'],
   beef: ['Beef, cooked, lean', '174032', 27, 0, 10, 0],
   mutton: ['Lamb, cooked, lean', '172498', 28, 0, 9, 0],
-  fish: ['Fish, cooked, white flesh', '175167', 24, 0, 3, 0],
+  fish: ['Whiting, cooked', '175161', 23.48, 0, 1.69, 0, 'Cooked lean white-fish proxy.'],
   shrimp: ['Shrimp, cooked', '175179', 24, 0.2, 0.3, 0],
-  squid: ['Squid, cooked', '175168', 18, 7.8, 1.4, 0],
+  squid: ['Squid, cooked, fried', '171982', 17.94, 7.79, 7.48, 0],
   tofu: ['Tofu, firm', '172475', 17.3, 2.8, 8.7, 2.3],
+  silkenTofu: ['Tofu, silken, soft', '174292', 4.8, 2.9, 2.7, 0.1],
+  soyMilk: ['Soy milk, unsweetened', '2705405', 3.55, 1.29, 2.12, 0],
   egg: ['Egg, whole, cooked', '171287', 12.6, 1.1, 10.6, 0],
   coconutMilk: ['Coconut milk', '170172', 2.3, 5.5, 24, 2.2],
   oil: ['Vegetable oil', '172336', 0, 0, 100, 0],
   peanuts: ['Peanuts, roasted', '172430', 24.4, 21.3, 49.7, 8.4],
-  anchovy: ['Anchovy, cooked', '175138', 29, 0, 10, 0],
+  anchovy: ['Anchovy, cooked', '2706232', 28.89, 0, 9.71, 0],
   bread: ['White bread', '172686', 9, 49, 3.2, 2.7],
   kaya: ['Jams and preserves (kaya proxy)', '169641', 0.37, 68.86, 0.07, 1.1],
   butter: ['Butter', '173430', 0.9, 0.1, 81, 0],
@@ -73,32 +67,32 @@ const INGREDIENTS = {
   onion: ['Onion, cooked', '170000', 1.4, 10.2, 0.2, 1.4],
   garlic: ['Garlic, raw', '169230', 6.4, 33.1, 0.5, 2.1],
   soySauce: ['Soy sauce', '174277', 8.1, 4.9, 0.6, 0.8],
-  oysterSauce: ['Oyster sauce', '2706208', 1.4, 10.9, 0.3, 0.3],
-  currySauce: ['Curry sauce', '2706188', 2, 9, 8, 1.5],
-  sambal: ['Chilli sauce', '2706214', 1.5, 18, 6, 2],
-  broth: ['Chicken broth', '171060', 0.6, 0.4, 0.2, 0],
+  oysterSauce: ['Oyster sauce', '2707150', 1.35, 10.92, 0.25, 0.3],
+  currySauce: ['Curry sauce', '2710178', 1.39, 5.03, 8.22, 1.4],
+  sambal: ['Tomato chilli sauce', '171595', 2.5, 19.79, 0.3, 2.4, 'USDA chilli-sauce proxy for sambal.'],
+  broth: ['Chicken broth, ready to serve', '174536', 0.64, 0.44, 0.21, 0],
   sugar: ['Sugar', '169655', 0, 100, 0, 0],
   condensedMilk: ['Sweetened condensed milk', '171275', 7.9, 54.4, 8.7, 0],
-  evaporatedMilk: ['Evaporated milk', '171267', 6.8, 10, 7.6, 0],
+  evaporatedMilk: ['Evaporated milk', '171276', 6.81, 10.04, 7.56, 0],
   wholeMilk: ['Whole milk', '171265', 3.2, 4.7, 3.3, 0],
   coffee: ['Coffee, brewed', '171890', 0.1, 0.4, 0, 0],
-  tea: ['Tea, brewed', '171918', 0, 0.3, 0, 0],
+  tea: ['Black tea, brewed', '173227', 0, 0.3, 0, 0],
   maltPowder: ['Chocolate malted drink mix', '174866', 5.1, 86.94, 4.76, 4.8],
   flour: ['Wheat flour', '168936', 10.3, 76.3, 1, 2.7],
   banana: ['Banana', '173944', 1.1, 22.8, 0.3, 2.6],
   redBeans: ['Adzuki beans, cooked', '173727', 7.5, 24.8, 0.1, 7.3],
   chickpeas: ['Chickpeas, cooked', '173757', 8.9, 27.4, 2.6, 7.6],
   lentils: ['Lentils, cooked', '172421', 9, 20.1, 0.4, 7.9],
-  fishCake: ['Fish cake', '2707429', 11, 12, 5, 0.5],
-  fishBall: ['Fish ball', '2707430', 12, 10, 3, 0.4],
-  sausage: ['Chicken sausage, cooked', '172967', 18, 2, 17, 0],
-  luncheonMeat: ['Luncheon meat', '172956', 13, 2, 28, 0],
+  fishCake: ['Fish cake or patty', '2706550', 13.63, 10.4, 12.64, 1.2],
+  fishBall: ['Fish ball', '2706550', 13.63, 10.4, 12.64, 1.2, 'USDA fish-cake/patty proxy; no exact fish-ball record is available.'],
+  sausage: ['Turkey or chicken sausage, cooked', '2706200', 19.65, 1.09, 12.24, 0],
+  luncheonMeat: ['Luncheon meat', '172951', 13.4, 4.6, 26.6, 0],
   cheese: ['Cheddar cheese', '173414', 23, 3.1, 33, 0],
   oats: ['Oats, dry', '173904', 13.2, 67.7, 6.5, 10.1],
   spinach: ['Spinach, cooked', '168463', 3, 3.8, 0.3, 2.4],
   mushrooms: ['Mushrooms, cooked', '169255', 3.6, 5.3, 0.4, 2.2],
-  dough: ['Phyllo dough (wrapper/dough proxy)', '172791', 7.1, 52.6, 6, 1.9],
-} satisfies Record<string, readonly [string, string | null, number, number, number, number]>;
+  dough: ['Flour tortilla (wrapper/dough proxy)', '2707824', 8.2, 49.38, 7.99, 3.5, 'USDA flour-tortilla proxy for cooked wrappers and flatbreads.'],
+} satisfies Record<string, readonly [string, string | null, number, number, number, number, string?]>;
 
 type IngredientKey = keyof typeof INGREDIENTS;
 type RecipeIngredient = readonly [IngredientKey, number];
@@ -171,7 +165,7 @@ const recipes: RecipeRow[] = [
   ['lor-mee', 'Lor mee', 'bowl', [['wheatNoodles', 230], ['porkLean', 70], ['fishCake', 55], ['egg', 45], ['broth', 180], ['oysterSauce', 22]]],
   ['ban-mian-soup', 'Ban mian soup', 'bowl', [['wheatNoodles', 210], ['porkLean', 70], ['egg', 50], ['anchovy', 15], ['bokChoy', 55], ['broth', 300]]],
   ['you-mian-soup', 'You mian soup', 'bowl', [['wheatNoodles', 210], ['porkLean', 70], ['egg', 50], ['anchovy', 15], ['bokChoy', 55], ['broth', 300]]],
-  ['mee-hoon-kway', 'Mee hoon kway soup', 'bowl', [['dough', 220], ['porkLean', 70], ['egg', 50], ['anchovy', 15], ['bokChoy', 55], ['broth', 300]]],
+  ['mee-hoon-kway', 'Mee hoon kway soup', 'bowl', [['wheatNoodles', 210], ['porkLean', 70], ['egg', 50], ['anchovy', 15], ['bokChoy', 55], ['broth', 300]]],
   ['beef-noodles-dry', 'Beef noodles, dry', 'bowl', [['riceNoodles', 220], ['beef', 115], ['oil', 8], ['soySauce', 16], ['bokChoy', 55]]],
   ['beef-noodles-soup', 'Beef noodles, soup', 'bowl', [['riceNoodles', 190], ['beef', 115], ['broth', 300], ['bokChoy', 55]]],
   ['duck-noodles-dry', 'Duck noodles, dry', 'bowl', [['eggNoodles', 220], ['duck', 95], ['oil', 7], ['soySauce', 16], ['bokChoy', 55]]],
@@ -204,10 +198,10 @@ const recipes: RecipeRow[] = [
   ['kaya-toast', 'Kaya butter toast', '2 slices', [['bread', 80], ['kaya', 35], ['butter', 14]]],
   ['peanut-toast', 'Peanut butter toast', '2 slices', [['bread', 80], ['peanuts', 30], ['butter', 8]]],
   ['soft-boiled-eggs', 'Soft-boiled eggs', '2 eggs', [['egg', 110], ['soySauce', 6]]],
-  ['plain-prata', 'Roti prata, plain', 'piece', [['dough', 95], ['oil', 12]]],
-  ['egg-prata', 'Roti prata, egg', 'piece', [['dough', 95], ['oil', 12], ['egg', 55]]],
-  ['cheese-prata', 'Roti prata, cheese', 'piece', [['dough', 95], ['oil', 12], ['cheese', 35]]],
-  ['banana-prata', 'Roti prata, banana', 'piece', [['dough', 95], ['oil', 12], ['banana', 80], ['sugar', 8]]],
+  ['plain-prata', 'Roti prata, plain', 'piece', [['dough', 60], ['oil', 5]]],
+  ['egg-prata', 'Roti prata, egg', 'piece', [['dough', 60], ['oil', 5], ['egg', 55]]],
+  ['cheese-prata', 'Roti prata, cheese', 'piece', [['dough', 60], ['oil', 5], ['cheese', 35]]],
+  ['banana-prata', 'Roti prata, banana', 'piece', [['dough', 60], ['oil', 5], ['banana', 80], ['sugar', 8]]],
   ['murtabak-chicken', 'Chicken murtabak', 'serving', [['dough', 150], ['chickenThigh', 105], ['egg', 70], ['onion', 50], ['oil', 14]]],
   ['murtabak-mutton', 'Mutton murtabak', 'serving', [['dough', 150], ['mutton', 105], ['egg', 70], ['onion', 50], ['oil', 14]]],
   ['chwee-kueh', 'Chwee kueh', '4 pieces', [['rice', 180], ['oil', 14], ['soySauce', 10]]],
@@ -217,8 +211,8 @@ const recipes: RecipeRow[] = [
   ['cheong-fun-prawn', 'Chee cheong fun, prawn', 'plate', [['riceNoodles', 220], ['shrimp', 65], ['oil', 6], ['soySauce', 20]]],
   ['popiah', 'Popiah', 'roll', [['dough', 45], ['tofu', 35], ['cabbage', 80], ['carrot', 35], ['shrimp', 25], ['peanuts', 12]]],
   ['spring-roll', 'Fried spring roll', 'piece', [['dough', 45], ['cabbage', 45], ['carrot', 20], ['oil', 10]]],
-  ['curry-puff-potato', 'Curry puff, potato', 'piece', [['dough', 65], ['potato', 65], ['currySauce', 18], ['oil', 8]]],
-  ['curry-puff-chicken', 'Curry puff, chicken', 'piece', [['dough', 65], ['potato', 45], ['chickenThigh', 40], ['currySauce', 18], ['oil', 8]]],
+  ['curry-puff-potato', 'Curry puff, potato', 'piece', [['dough', 40], ['potato', 55], ['currySauce', 18], ['oil', 5]]],
+  ['curry-puff-chicken', 'Curry puff, chicken', 'piece', [['dough', 40], ['potato', 35], ['chickenThigh', 35], ['currySauce', 18], ['oil', 5]]],
   ['samosa-vegetable', 'Vegetable samosa', 'piece', [['dough', 55], ['potato', 55], ['carrot', 20], ['oil', 9]]],
   ['soon-kueh', 'Soon kueh', 'piece', [['riceNoodles', 65], ['cabbage', 45], ['carrot', 20], ['shrimp', 10], ['oil', 3]]],
   ['lor-bak', 'Ngoh hiang', 'serving', [['porkLean', 95], ['shrimp', 25], ['dough', 30], ['oil', 9]]],
@@ -229,7 +223,7 @@ const recipes: RecipeRow[] = [
   ['fried-chicken-wing', 'Fried chicken wing', 'wing', [['chickenWing', 95], ['flour', 12], ['oil', 9]]],
   ['fried-fish-cake', 'Fried fish cake', 'serving', [['fishCake', 120], ['oil', 9]]],
   ['fried-tofu', 'Fried tofu', 'serving', [['tofu', 130], ['oil', 10], ['soySauce', 10]]],
-  ['tau-huay', 'Tau huay, soybean pudding', 'bowl', [['tofu', 160], ['sugar', 22]]],
+  ['tau-huay', 'Tau huay, soybean pudding', 'bowl', [['silkenTofu', 160], ['sugar', 18]]],
   ['red-bean-soup', 'Red bean soup', 'bowl', [['redBeans', 150], ['sugar', 24]]],
   ['cheng-tng', 'Cheng tng', 'bowl', [['redBeans', 45], ['sugar', 24], ['sweetPotato', 45]]],
   ['ice-kachang', 'Ice kachang', 'bowl', [['redBeans', 65], ['condensedMilk', 25], ['sugar', 35], ['peanuts', 12]]],
@@ -263,8 +257,8 @@ const recipes: RecipeRow[] = [
   ['milo-peng', 'Milo peng', 'cup', [['maltPowder', 36], ['condensedMilk', 30], ['wholeMilk', 140]]],
   ['milo-dinosaur', 'Milo dinosaur', 'cup', [['maltPowder', 55], ['condensedMilk', 35], ['wholeMilk', 150]]],
   ['barley-drink', 'Barley drink', 'cup', [['oats', 18], ['sugar', 18]]],
-  ['soy-milk-unsweetened', 'Soy milk, unsweetened', 'cup', [['tofu', 45], ['wholeMilk', 160]]],
-  ['soy-milk-sweetened', 'Soy milk, sweetened', 'cup', [['tofu', 45], ['wholeMilk', 160], ['sugar', 16]]],
+  ['soy-milk-unsweetened', 'Soy milk, unsweetened', 'cup', [['soyMilk', 220]]],
+  ['soy-milk-sweetened', 'Soy milk, sweetened', 'cup', [['soyMilk', 220], ['sugar', 16]]],
   ['lime-juice', 'Lime juice', 'cup', [['sugar', 24], ['cucumber', 15]]],
   ['bandung', 'Bandung rose milk', 'cup', [['wholeMilk', 180], ['condensedMilk', 30], ['sugar', 12]]],
 ];
@@ -279,13 +273,13 @@ function buildEstimate([slug, name, servingUnit, recipe]: RecipeRow): SingaporeF
   let fat = 0;
   let fibre = 0;
   const ingredients = recipe.map(([key, grams]) => {
-    const [ingredientName, fdcId, protein100, carbs100, fat100, fibre100] = INGREDIENTS[key];
+    const [ingredientName, fdcId, protein100, carbs100, fat100, fibre100, note] = INGREDIENTS[key];
     const factor = grams / 100;
     protein += protein100 * factor;
     carbs += carbs100 * factor;
     fat += fat100 * factor;
     fibre += fibre100 * factor;
-    return { key, name: ingredientName, grams, fdcId };
+    return { key, name: ingredientName, grams, fdcId, ...(note ? { note } : {}) };
   });
   protein = round(protein);
   carbs = round(carbs);

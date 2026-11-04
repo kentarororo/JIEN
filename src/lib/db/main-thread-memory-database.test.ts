@@ -250,7 +250,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 19);
+    assert.equal(version?.user_version, 20);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -408,11 +408,11 @@ test('main-thread database persists committed work and isolates delayed transact
     const sgCount = async () => (await database.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) AS count FROM food_catalog_cache WHERE source = 'sg_estimate'`,
     ))?.count;
-    assert.equal(await sgCount(), SINGAPORE_FOOD_ESTIMATES.length, 'v19 seeds every Singapore estimate');
+    assert.equal(await sgCount(), SINGAPORE_FOOD_ESTIMATES.length, 'v20 seeds every Singapore estimate');
     await database.runAsync(`DELETE FROM food_catalog_cache WHERE source = 'sg_estimate'`);
-    await database.execAsync('PRAGMA user_version = 18;');
+    await database.execAsync('PRAGMA user_version = 19;');
     await migrateDatabase(database);
-    assert.equal(await sgCount(), SINGAPORE_FOOD_ESTIMATES.length, 'the v19 upgrade should add the SG starter set to an existing database');
+    assert.equal(await sgCount(), SINGAPORE_FOOD_ESTIMATES.length, 'the v20 upgrade should add the SG starter set to an existing database');
     const chickenRiceMeta = await database.getFirstAsync<{ metadata_json: string; brand: string }>(
       `SELECT metadata_json, brand FROM food_catalog_cache WHERE id = 'sg-estimate-chicken-rice-steamed'`,
     );
@@ -1051,7 +1051,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 19 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 20 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 

@@ -39,18 +39,20 @@ export function rankFoodCandidates<T extends FoodRankingCandidate>(
   return candidates
     .map((candidate) => ({ candidate, score: foodCandidateScore(candidate, normalizedQuery, now) }))
     .filter((ranked) => !normalizedQuery || ranked.score > 0)
-    .sort((a, b) => localFoodPriority(b.candidate) - localFoodPriority(a.candidate)
-      || b.score - a.score
+    .sort((a, b) => personalFoodPriority(b.candidate) - personalFoodPriority(a.candidate)
+      || (b.score + regionalFoodPriority(b.candidate)) - (a.score + regionalFoodPriority(a.candidate))
       || (b.candidate.lastUsedAt ?? '').localeCompare(a.candidate.lastUsedAt ?? '')
       || a.candidate.name.localeCompare(b.candidate.name))
     .slice(0, Math.max(0, limit))
     .map(({ candidate }) => candidate);
 }
 
-function localFoodPriority(candidate: FoodRankingCandidate): number {
-  if (candidate.isFromHistory || candidate.source === 'custom') return 2;
-  if (candidate.source === 'sg_estimate') return 1;
-  return 0;
+function personalFoodPriority(candidate: FoodRankingCandidate): number {
+  return candidate.isFromHistory || candidate.source === 'custom' ? 1 : 0;
+}
+
+function regionalFoodPriority(candidate: FoodRankingCandidate): number {
+  return candidate.source === 'sg_estimate' ? 300 : 0;
 }
 
 function foodCandidateScore(candidate: FoodRankingCandidate, query: string, now: Date): number {

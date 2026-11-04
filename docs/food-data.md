@@ -56,6 +56,13 @@ from protein, carbohydrate, and fat. FoodData Central data are United States
 government works released under CC0/public domain; JIEN retains the supporting FDC
 identifiers in the recipe metadata and credits the source here.
 
+Ingredient identifiers and per-100 g nutrients are checked against the official
+FoodData Central SR Legacy and FNDDS downloads. When FoodData Central has no exact
+local preparation, the ingredient breakdown names the closest proxy (for example,
+fish cake for fish ball or flour tortilla for a cooked wrapper). Recipe weights are
+then adjusted to the named Singapore serving; the FDC identifier describes the
+ingredient basis, not an official value for the composed dish.
+
 These are recipe-derived reference estimates, not measurements of a particular stall.
 Oil, sauces, portion size, and preparation vary substantially, so every value remains
 editable before logging and can be saved as a private food. Local Singapore estimates
