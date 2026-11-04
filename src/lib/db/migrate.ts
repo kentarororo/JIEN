@@ -6,7 +6,7 @@ import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 import { migratePrivateFoods } from './private-food-migration.ts';
 
-export const LATEST_DATABASE_VERSION = 19;
+export const LATEST_DATABASE_VERSION = 20;
 
 const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -286,6 +286,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       fat_g REAL NOT NULL,
       fibre_g REAL,
       desired_weekly_weight_change_percent REAL NOT NULL DEFAULT 0,
+      weekly_check_in_day INTEGER,
       source TEXT NOT NULL DEFAULT 'manual',
       rationale TEXT,
       created_at TEXT NOT NULL,
@@ -746,6 +747,12 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   }
   if (currentVersion < 19) {
     await withExclusiveTransaction(db, async (db) => {
+      await addColumnIfMissing(db, 'nutrition_targets', 'weekly_check_in_day', 'INTEGER');
+      await db.execAsync('PRAGMA user_version = 19;');
+    });
+  }
+  if (currentVersion < 20) {
+    await withExclusiveTransaction(db, async (db) => {
       await addColumnIfMissing(db, 'food_catalog_cache', 'metadata_json', "TEXT NOT NULL DEFAULT '{}'");
       const foodNow = new Date().toISOString();
       for (const food of SINGAPORE_FOOD_ESTIMATES) {
@@ -766,7 +773,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
           ],
         );
       }
-      await db.execAsync('PRAGMA user_version = 19;');
+      await db.execAsync('PRAGMA user_version = 20;');
     });
   }
 }

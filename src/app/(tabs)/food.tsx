@@ -7,15 +7,20 @@ import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { DailyFoodEntry, DailyFoodQuickAdd, type FoodSelection } from '@/components/daily-food-entry';
+import { FoodCopyActions } from '@/components/food-copy-actions';
+import { QuickMacros } from '@/components/quick-macros';
 import { reconcileMealGapNotification } from '@/lib/notifications';
 import {
   discardQueuedMealPhoto,
+  addFoodCatalogItemsToDay,
   getDailyNutrition,
   listDailyFoodItems,
   getMealPhotoQueueSummary,
+  markFoodCatalogItemUsed,
   processPendingMealPhotoJobs,
   retryQueuedMealPhotos,
   setNutritionDayState,
+  type FoodCatalogItem,
 } from '@/lib/db';
 import { historicalDateKey, shiftLocalDateKey, toLocalDateKey, formatTime } from '@/lib/time';
 import {
@@ -114,6 +119,20 @@ export default function FoodScreen() {
     setDayStateError(null);
     setDayStateMessage(null);
     router.replace({ pathname: '/food', params: nextDate === todayKey ? {} : { date: nextDate } } as never);
+  };
+
+  const savedFastFood = async (foods: FoodCatalogItem[]) => {
+    await addFoodCatalogItemsToDay(db, selectedDate, foods);
+    setFoodMessage(`${foods.length} food${foods.length === 1 ? '' : 's'} added.`);
+    await reload();
+    void Promise.all(foods.map((food) => markFoodCatalogItemUsed(db, food.id))).catch(() => undefined);
+    void reconcileMealGapNotification(db).catch(() => undefined);
+  };
+
+  const refreshAfterFastWrite = (message: string) => {
+    setFoodMessage(message);
+    void reload();
+    void reconcileMealGapNotification(db).catch(() => undefined);
   };
 
   const toggleDayState = async () => {
@@ -292,7 +311,10 @@ export default function FoodScreen() {
             ) : null}
           </Card>
 
-          <DailyFoodQuickAdd key={selectedDate + data.items.length} onSelect={setSelection} onMore={addFood} />
+          <DailyFoodQuickAdd key={selectedDate + data.items.length} onSelect={setSelection}
+            onQuickAdd={(food) => savedFastFood([food])} onMultiAdd={savedFastFood} onMore={addFood} />
+          <FoodCopyActions key={`copy-${selectedDate}-${data.items.length}`} date={selectedDate} onCopied={refreshAfterFastWrite} />
+          <QuickMacros date={selectedDate} onSaved={refreshAfterFastWrite} />
           {foodMessage ? <AppText accessibilityLiveRegion="polite">{foodMessage}</AppText> : null}
           <SectionHeading title="Daily food log" detail={`${data.items.length} item${data.items.length === 1 ? '' : 's'} · Tap an item to adjust its portion`} />
           {data.items.length === 0 ? <StatePanel title="No food logged" body="Add foods as you go. No meal names or categories needed." actionLabel="Add your first food" onAction={() => addFood()} /> : null}

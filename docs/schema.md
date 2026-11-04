@@ -328,6 +328,7 @@ See `docs/adaptive-nutrition.md`.
 | `protein_g`, `carbohydrate_g`, `fat_g` | `numeric(10,2)` | Non-negative daily macro targets |
 | `fibre_g` | `numeric(10,2)` | Optional non-negative daily fibre target |
 | `desired_weekly_weight_change_percent` | `numeric(5,2)` | User-chosen trend from `-1` through `+1`; never inferred from a broad goal |
+| `weekly_check_in_day` | `smallint` | Optional local weekday (`0` Sunday through `6` Saturday) for the review-only weekly check-in |
 | `source` | `nutrition_target_source` | `manual` or `adaptive` |
 | `rationale` | `text` | Optional plain-language reason for a change |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |
@@ -512,7 +513,7 @@ table. It stores normalized food names, brands, portions, macros, optional barco
 provider attribution, source identifiers, and a `metadata_json` object. Starter
 entries keep core food search useful offline. Migration 13 also seeds a small set of
 public-domain USDA regional records, retaining each FoodData Central identifier;
-migration 19 adds recipe-derived Singapore estimates whose metadata retains every
+migration 20 adds recipe-derived Singapore estimates whose metadata retains every
 ingredient's gram weight and USDA FoodData Central reference. Other Open Food Facts
 and USDA results are cached only after retrieval. User-created foods now live in the private
 food library above, not the provider cache. Any meal saved from one is still captured

@@ -38,6 +38,12 @@ const UNIT_ALIASES: Record<string, UnitDefinition> = {
   items: { dimension: 'count', factor: 1, label: 'item' },
   piece: { dimension: 'count', factor: 1, label: 'piece' },
   pieces: { dimension: 'count', factor: 1, label: 'piece' },
+  bowl: { dimension: 'count', factor: 1, label: 'bowl' },
+  bowls: { dimension: 'count', factor: 1, label: 'bowl' },
+  plate: { dimension: 'count', factor: 1, label: 'plate' },
+  plates: { dimension: 'count', factor: 1, label: 'plate' },
+  scoop: { dimension: 'count', factor: 1, label: 'scoop' },
+  scoops: { dimension: 'count', factor: 1, label: 'scoop' },
 };
 
 function unitDefinition(value: string): UnitDefinition {
@@ -49,7 +55,14 @@ export function servingUnitOptions(value: string): string[] {
   const definition = unitDefinition(value);
   if (definition.dimension === 'mass') return ['g', 'oz', 'kg', 'lb'];
   if (definition.dimension === 'volume') return ['ml', 'l', 'cup', 'tbsp', 'tsp'];
-  return Array.from(new Set([definition.label, 'serving', 'item']));
+  return Array.from(new Set([definition.label, 'piece', 'bowl', 'plate', 'scoop', 'serving']));
+}
+
+export const PORTION_MULTIPLIERS = [0.5, 1, 1.5, 2] as const;
+
+export function multipliedPortion(referenceQuantity: number, multiplier: number): number | null {
+  const quantity = referenceQuantity * multiplier;
+  return Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity * 100) / 100 : null;
 }
 
 export function convertServingQuantity(quantity: number, fromUnit: string, toUnit: string): number | null {
