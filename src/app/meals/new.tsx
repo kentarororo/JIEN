@@ -141,6 +141,9 @@ export default function NewMealScreen() {
     [date, photoJob, templateMealId],
   );
   const draftSummary = useMemo(() => summarizeMealDraft(foods), [foods]);
+  const addBlankFood = useCallback(() => {
+    setFoods((current) => [...current, emptyFood()]);
+  }, []);
 
   useEffect(() => {
     if (process.env.EXPO_OS !== 'web') return;
@@ -423,13 +426,20 @@ export default function NewMealScreen() {
     foodRowYRefs.current[key] = y;
     if (pendingFocusFoodKeyRef.current !== key) return;
     pendingFocusFoodKeyRef.current = null;
-    setTimeout(() => {
+    const focusFoodRow = () => {
+      foodInputRefs.current[key]?.focus();
       screenRef.current?.scrollTo({
         y: Math.max(0, mealItemsYRef.current + (foodRowYRefs.current[key] ?? 0) - spacing.md),
-        animated: true,
+        // WebKit can leave the focused input above the viewport when a focus
+        // scroll races an in-progress animated ScrollView scroll.
+        animated: Platform.OS !== 'web',
       });
-      foodInputRefs.current[key]?.focus();
-    }, 80);
+    };
+    // Web refs are attached before onLayout fires. Focusing immediately keeps
+    // the handoff inside the button press instead of stealing focus from the
+    // next field while a fast keyboard user is already typing.
+    if (Platform.OS === 'web') focusFoodRow();
+    else setTimeout(focusFoodRow, 80);
   };
 
   const toggleFoodDetails = (key: string) => {
@@ -447,6 +457,8 @@ export default function NewMealScreen() {
         await stopSharingPrivateFood(db, food.catalogId);
         setFoods((current) => current.map((draft) => draft.catalogId === food.catalogId
           ? { ...draft, isShared: false, sourceLabel: 'Private food' } : draft));
+        setSavingPrivateFoodKey(null);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         setToolMessage(`${food.name} is private on this device. Removal from community search is queued for sync; previously saved meal entries are unchanged.`);
         return;
       }
@@ -488,6 +500,11 @@ export default function NewMealScreen() {
           fibreG: item.fibreG ?? 0,
         },
       } : draft));
+      // Commit the enabled button state before announcing completion. On web,
+      // callers commonly act on the success message immediately; separating
+      // these renders prevents a press from landing during the busy-state swap.
+      setSavingPrivateFoodKey(null);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       setToolMessage(item.isShared
         ? `${item.name} saved on this device. Community sharing is queued for account sync; it becomes searchable by other accounts after sync succeeds. Your meal history stays private.`
         : `${item.name} saved to your private foods on this device and queued for account sync. It is not shared with other users.`);
@@ -1187,7 +1204,12 @@ export default function NewMealScreen() {
           {food.source === 'ai_photo' ? <AppText style={[styles.attribution, { color: colors.warning }]}>AI estimate—review before saving. Not medical advice.</AppText> : null}
         </Card>
       ))}
-      <Button label="Add a blank food" onPress={() => setFoods((current) => [...current, emptyFood()])} variant="secondary" />
+      <Button
+        label="Add a blank food"
+        onPress={addBlankFood}
+        disabled={savingPrivateFoodKey != null}
+        variant="secondary"
+      />
       </View>
       <SectionHeading title="Finish" detail="Review exactly what will be saved locally, even without a connection" />
       <Card style={{ backgroundColor: draftSummary.needsAttentionCount ? colors.warningSoft : colors.surfaceMuted, borderColor: draftSummary.needsAttentionCount ? colors.warning : colors.border }}>

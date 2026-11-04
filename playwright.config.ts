@@ -41,9 +41,25 @@ export default defineConfig({
     },
     {
       name: 'ios-webkit',
+      testIgnore: /offline-pwa\.spec\.ts/,
       use: {
         ...devices['iPhone 13'],
         browserName: 'webkit',
+        // WebKit does not expose service-worker requests to Playwright routing.
+        // Blocking the worker keeps the fake Supabase origin intercepted by
+        // prepareIsolatedJienContext instead of attempting a real DNS lookup.
+        // Offline PWA coverage runs in Chromium, where service workers remain on.
+        serviceWorkers: 'block',
+      },
+    },
+    {
+      name: 'ios-webkit',
+      testMatch: /offline-pwa\.spec\.ts/,
+      grep: /AC1\/AC4/,
+      use: {
+        ...devices['iPhone 13'],
+        browserName: 'webkit',
+        serviceWorkers: 'allow',
       },
     },
   ],

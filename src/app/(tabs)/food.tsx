@@ -111,6 +111,8 @@ export default function FoodScreen() {
   const [dayStateBusy, setDayStateBusy] = useState(false);
   const [dayStateError, setDayStateError] = useState<string | null>(null);
   const [dayStateMessage, setDayStateMessage] = useState<string | null>(null);
+  const [copyPickerOpen, setCopyPickerOpen] = useState(false);
+  const [quickAddResetKey, setQuickAddResetKey] = useState(0);
   const addFood = (query = '') => router.push({ pathname: '/meals/new', params: { date: selectedDate, query } });
   const nutrition = data?.nutrition.date === selectedDate ? data.nutrition : null;
   const openDate = (nextDate: string) => {
@@ -311,9 +313,13 @@ export default function FoodScreen() {
             ) : null}
           </Card>
 
-          <DailyFoodQuickAdd key={selectedDate + data.items.length} onSelect={setSelection}
-            onQuickAdd={(food) => savedFastFood([food])} onMultiAdd={savedFastFood} onMore={addFood} />
-          <FoodCopyActions key={`copy-${selectedDate}-${data.items.length}`} date={selectedDate} onCopied={refreshAfterFastWrite} />
+          {copyPickerOpen ? null : (
+            <DailyFoodQuickAdd key={selectedDate} refreshKey={data.items.length} resetKey={quickAddResetKey} onSelect={setSelection}
+              onQuickAdd={(food) => savedFastFood([food])} onMultiAdd={savedFastFood} onMore={addFood}
+              onActionStart={() => setFoodMessage(null)} />
+          )}
+          <FoodCopyActions key={`copy-${selectedDate}-${data.items.length}`} date={selectedDate}
+            onCopied={refreshAfterFastWrite} onOpenChange={setCopyPickerOpen} />
           <QuickMacros date={selectedDate} onSaved={refreshAfterFastWrite} />
           {foodMessage ? <AppText accessibilityLiveRegion="polite">{foodMessage}</AppText> : null}
           <SectionHeading title="Daily food log" detail={`${data.items.length} item${data.items.length === 1 ? '' : 's'} · Tap an item to adjust its portion`} />
@@ -342,7 +348,7 @@ export default function FoodScreen() {
       {selection ? <DailyFoodEntry key={selection.kind + selection.food.id} selection={selection} date={selectedDate}
         onClose={() => setSelection(null)}
         onSaved={(message) => {
-          setSelection(null); setFoodMessage(message); void reload();
+          setSelection(null); setQuickAddResetKey((current) => current + 1); setFoodMessage(message); void reload();
           void reconcileMealGapNotification(db).catch(() => undefined);
         }}
         onDetails={(mealId) => { setSelection(null); router.push(`/meals/${mealId}` as Href); }} /> : null}
