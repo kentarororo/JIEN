@@ -48,11 +48,11 @@ export function rankFoodCandidates<T extends FoodRankingCandidate>(
 }
 
 function localFoodPriority(candidate: FoodRankingCandidate): number {
-  return candidate.isFromHistory || candidate.source === 'custom' ? 1 : 0;
+  return candidate.isFromHistory || candidate.source === 'custom' || candidate.source === 'recipe' ? 1 : 0;
 }
 
 function foodCandidateScore(candidate: FoodRankingCandidate, query: string, now: Date): number {
-  const historyBoost = candidate.isFromHistory ? 180 : candidate.source === 'custom' ? 100 : 0;
+  const historyBoost = candidate.isFromHistory ? 180 : candidate.source === 'custom' || candidate.source === 'recipe' ? 100 : 0;
   const frequencyBoost = Math.min(candidate.usageCount ?? 0, 30) * 8;
   const timeBoost = Math.min(candidate.timeOfDayUsageCount ?? 0, 20) * 18;
   const recencyBoost = recencyScore(candidate.lastUsedAt, now);
