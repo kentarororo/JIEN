@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { FeedbackLauncher } from '@/components/feedback-launcher';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { DailyFoodEntry, DailyFoodQuickAdd, type FoodSelection } from '@/components/daily-food-entry';
 import { FoodCopyActions } from '@/components/food-copy-actions';
@@ -111,6 +112,7 @@ export default function FoodScreen() {
   const [dayStateBusy, setDayStateBusy] = useState(false);
   const [dayStateError, setDayStateError] = useState<string | null>(null);
   const [dayStateMessage, setDayStateMessage] = useState<string | null>(null);
+  const feedbackCaptureRef = useRef<View>(null);
   const addFood = (query = '') => router.push({ pathname: '/meals/new', params: { date: selectedDate, query } });
   const nutrition = data?.nutrition.date === selectedDate ? data.nutrition : null;
   const openDate = (nextDate: string) => {
@@ -191,11 +193,13 @@ export default function FoodScreen() {
   };
 
   return (
+    <View ref={feedbackCaptureRef} collapsable={false} style={styles.screen}>
     <Screen>
       <ScreenHeading
         title="Food"
         eyebrow={selectedDate === todayKey ? 'Today' : formatFoodDate(selectedDate)}
         action={<View style={styles.actionRow}>
+          <FeedbackLauncher screenName="Food" captureTarget={feedbackCaptureRef} />
           <Button label="My foods" accessibilityLabel="My foods" icon="library-outline" onPress={() => router.push('/foods' as never)} variant="secondary" />
           <Button label="Add food" accessibilityLabel="Add food" icon="add-circle-outline" onPress={() => addFood()} />
         </View>}
@@ -347,10 +351,12 @@ export default function FoodScreen() {
         }}
         onDetails={(mealId) => { setSelection(null); router.push(`/meals/${mealId}` as Href); }} /> : null}
     </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   dateNavigator: { gap: spacing.xs },
   dateNavigatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   dateNavigatorLabel: { flex: 1, minWidth: 0, alignItems: 'center' },

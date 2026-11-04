@@ -25,6 +25,7 @@ export type RemoteTable =
   | 'wellness_logs'
   | 'ai_conversations'
   | 'ai_messages'
+  | 'feedback'
   | 'notification_preferences';
 
 type QueueRow = {
@@ -45,6 +46,7 @@ const TABLE_PRIORITY: Record<RemoteTable, number> = {
   nutrition_targets: 1,
   wellness_logs: 1,
   ai_conversations: 1,
+  feedback: 1,
   notification_preferences: 1,
   sets: 2,
   food_items: 2,
@@ -57,6 +59,7 @@ export async function enqueueUpsert(
   table: RemoteTable,
   entityId: string,
   payload: Record<string, unknown>,
+  options: { announce?: boolean } = {},
 ): Promise<void> {
   const now = new Date().toISOString();
   await db.runAsync(
@@ -74,7 +77,7 @@ export async function enqueueUpsert(
       retry_paused = 0`,
     [Crypto.randomUUID(), table, entityId, JSON.stringify(payload), now],
   );
-  announceQueuedLocalWrite();
+  if (options.announce !== false) announceQueuedLocalWrite();
 }
 
 export async function getSyncStatus(db: SQLiteDatabase): Promise<SyncStatus> {
@@ -200,8 +203,10 @@ export async function syncPendingChanges(
     try {
       const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
       const ownedPayload = { ...payload, user_id: userId };
-      const { error } = row.table_name === 'users'
-        ? await supabase.from('users').upsert({ ...payload, id: userId })
+      const { error } = row.table_name === 'feedback'
+        ? await supabase.functions.invoke('feedback', { body: { version: 1, data: payload } })
+        : row.table_name === 'users'
+          ? await supabase.from('users').upsert({ ...payload, id: userId })
         : row.table_name === 'exercises'
           ? await supabase.from('exercises').upsert(ownedPayload, { onConflict: 'id,user_id' })
           : row.table_name === 'notification_preferences'

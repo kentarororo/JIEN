@@ -1,6 +1,6 @@
 # Edge Functions
 
-Deploy `food-search`, `food-barcode`, `ai-settings`, `analyze-food-photo`, `wellness-chat`, and `delete-account` with
+Deploy `food-search`, `food-barcode`, `ai-settings`, `analyze-food-photo`, `wellness-chat`, `feedback`, and `delete-account` with
 Supabase's normal JWT verification enabled. Configure these server-only secrets:
 
 On Windows, deploy the food-search function with `scripts/deploy-food-search.ps1`.
@@ -34,6 +34,9 @@ It never accepts a user ID from the request body.
   inference.
 - `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` when Anthropic is selected or retained as
   the `auto` fallback.
+- `GITHUB_FEEDBACK_TOKEN` is a fine-grained server-only token that can create issues
+  in the feedback repository. `GITHUB_FEEDBACK_REPOSITORY` is its `owner/repository`
+  target. Neither value belongs in Expo public configuration.
 
 An explicit provider never falls through when its key or model is missing. `auto` is
 deterministic: it uses a complete Gemini configuration first, then a complete

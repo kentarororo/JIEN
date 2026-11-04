@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { ActionCard, AppText, Button, Card, HeroPanel, Pill, ProgressBar, Screen, SectionHeading, StatePanel } from '@/components/ui';
+import { FeedbackLauncher } from '@/components/feedback-launcher';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { buildMonthGrid, calendarSelectionForDate, isRepeatedCalendarDayActivation, moveMonthSelection, type CalendarDayActivation } from '@/lib/calendar';
 import { getDashboardSummary, listBodyMeasurementsForDate, listCalendarActivity, listMealsForDate, listPlannedWorkoutsForDate, listSleepLogsForDate, listWorkoutsForDate, skipPlannedWorkout } from '@/lib/db';
@@ -18,6 +19,7 @@ export default function TodayScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const { colors } = useJienTheme();
+  const feedbackCaptureRef = useRef<View>(null);
   const { width } = useWindowDimensions();
   const todayKey = toLocalDateKey();
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -121,7 +123,9 @@ export default function TodayScreen() {
     if (openWorkspace) setDayWorkspaceOpen(true);
   };
   return (
+    <View ref={feedbackCaptureRef} collapsable={false} style={styles.screen}>
     <Screen contentContainerStyle={compactRecords ? styles.screenCompact : undefined}>
+      <View style={styles.feedbackAction}><FeedbackLauncher screenName="Today" captureTarget={feedbackCaptureRef} /></View>
       <HeroPanel
         eyebrow={new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())}
         title="Today"
@@ -420,10 +424,13 @@ export default function TodayScreen() {
         </Link>
       ) : <StatePanel title="No workouts logged" body="Log a completed workout to start progression comparisons." actionLabel="Log workout" onAction={() => router.push('/workouts/new')} />}
     </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  feedbackAction: { alignItems: 'flex-end' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   heroStats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   heroStat: { flexGrow: 1, flexBasis: 104, minWidth: 96, borderRadius: radii.control, padding: spacing.sm },

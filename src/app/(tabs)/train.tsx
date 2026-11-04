@@ -1,9 +1,10 @@
 import { Link, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
+import { FeedbackLauncher } from '@/components/feedback-launcher';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { TrainingProgrammeCard } from '@/components/training-programme-card';
 import { getTrainingAdherence, getTrainingProgrammeProgress } from '@/lib/db';
@@ -26,6 +27,7 @@ export default function TrainScreen() {
   const [showAllHistoryMuscles, setShowAllHistoryMuscles] = useState(false);
   const [muscleChartRange, setMuscleChartRange] = useState<ProgressChartRange>(12);
   const [muscleChartGroup, setMuscleChartGroup] = useState<string | null>(null);
+  const feedbackCaptureRef = useRef<View>(null);
   const loader = useCallback(async () => {
     const [workouts, planned, volumeSets, progress, programme, adherence] = await Promise.all([
       listRecentWorkouts(db, 100),
@@ -83,8 +85,9 @@ export default function TrainScreen() {
   ).size : 0, [activeChartMuscle, data?.volumeSets]);
 
   return (
+    <View ref={feedbackCaptureRef} collapsable={false} style={styles.screen}>
     <Screen>
-      <ScreenHeading title="Training" />
+      <ScreenHeading title="Training" action={<FeedbackLauncher screenName="Training" captureTarget={feedbackCaptureRef} />} />
       <View accessibilityLabel="Log training" style={styles.trainingTools}>
         <View style={styles.primaryAction}><Button icon="barbell-outline" label="Log workout" accessibilityLabel="Log workout" onPress={() => router.push('/workouts/new')} /></View>
         <View style={styles.primaryAction}><Button icon="walk-outline" label="Log cardio" accessibilityLabel="Log cardio" onPress={() => router.push('/cardio' as never)} variant="secondary" /></View>
@@ -244,6 +247,7 @@ export default function TrainScreen() {
       {!filterActive && visibleHistory.length < filteredHistory.length ? <Button label={`Load ${Math.min(12, filteredHistory.length - visibleHistory.length)} older sessions`} onPress={() => setVisibleHistoryCount((count) => count + 12)} variant="secondary" /> : null}
       </> : null}
     </Screen>
+    </View>
   );
 }
 
@@ -342,6 +346,7 @@ function MetricBarChart({
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   trainingTools: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   primaryAction: { flexGrow: 1, flexBasis: 150 },
   viewSwitcher: { alignSelf: 'flex-start', flexDirection: 'row', gap: spacing.xs, borderRadius: radii.pill, padding: spacing.xxs },
