@@ -231,12 +231,13 @@ export async function getWorkoutDetail(
     kind: SetKind;
     completed_at: string;
     sort_order: number;
+    group_id: string | null;
   }>(
     `SELECT s.id, s.exercise_id, e.name AS exercise_name,
       COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS primary_muscle_group,
       COALESCE(s.secondary_muscle_groups, e.secondary_muscle_groups) AS secondary_muscle_groups,
       e.target_rep_min, e.target_rep_max, e.load_increment,
-      s.reps, s.load_value, s.load_unit, s.rpe, s.kind, s.completed_at, s.sort_order
+      s.reps, s.load_value, s.load_unit, s.rpe, s.kind, s.completed_at, s.sort_order, s.group_id
      FROM workout_sets s
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.workout_id = ? AND s.deleted_at IS NULL
@@ -260,6 +261,7 @@ export async function getWorkoutDetail(
     kind: set.kind,
     completedAt: set.completed_at,
     sortOrder: set.sort_order,
+    groupId: set.group_id,
   }));
 
   return {
@@ -356,6 +358,7 @@ export async function saveWorkout(
   if (input.exercises.some((entry) => entry.sets.some((set) => set.reps <= 0 || set.loadValue < 0))) {
     throw new Error('Reps must be positive and load cannot be negative.');
   }
+  validateWorkoutGroups(input.exercises);
 
   const startedAt = new Date(input.startedAt);
   if (!Number.isFinite(startedAt.getTime()) || startedAt.getTime() > Date.now() + 60_000) {
@@ -421,6 +424,7 @@ export async function saveWorkout(
           rpe: set.rpe ?? null,
           primary_muscle_group: normalizeMuscleGroupKey(entry.exercise.primaryMuscleGroup),
           secondary_muscle_groups: [...new Set(entry.exercise.secondaryMuscleGroups.map(normalizeMuscleGroupKey))],
+          group_id: entry.groupId ?? null,
           completed_at: completedAt,
           notes: null,
           created_at: completedAt,
@@ -430,9 +434,9 @@ export async function saveWorkout(
         await db.runAsync(
           `INSERT INTO workout_sets (
             id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-            rpe, primary_muscle_group, secondary_muscle_groups, completed_at,
+            rpe, primary_muscle_group, secondary_muscle_groups, group_id, completed_at,
             created_at, updated_at, client_updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             setId,
             id,
@@ -445,6 +449,7 @@ export async function saveWorkout(
             setPayload.rpe,
             setPayload.primary_muscle_group,
             JSON.stringify(setPayload.secondary_muscle_groups),
+            setPayload.group_id,
             completedAt,
             completedAt,
             completedAt,
@@ -472,6 +477,7 @@ export async function updateWorkout(
   if (input.exercises.some((entry) => entry.sets.some((set) => set.reps <= 0 || set.loadValue < 0))) {
     throw new Error('Reps must be positive and load cannot be negative.');
   }
+  validateWorkoutGroups(input.exercises);
   const startedAt = new Date(input.startedAt);
   if (!Number.isFinite(startedAt.getTime()) || startedAt.getTime() > Date.now() + 60_000) {
     throw new Error('Completed workouts must use today or an earlier calendar date.');
@@ -492,11 +498,11 @@ export async function updateWorkout(
     const existingSets = await db.getAllAsync<{
       id: string; workout_id: string; exercise_id: string; sort_order: number; kind: SetKind;
       reps: number; load_value: number; load_unit: LoadUnit; rpe: number | null;
-      primary_muscle_group: string | null; secondary_muscle_groups: string | null;
+      primary_muscle_group: string | null; secondary_muscle_groups: string | null; group_id: string | null;
       completed_at: string; notes: string | null; created_at: string;
     }>(
       `SELECT id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-        rpe, primary_muscle_group, secondary_muscle_groups, completed_at, notes, created_at FROM workout_sets
+        rpe, primary_muscle_group, secondary_muscle_groups, group_id, completed_at, notes, created_at FROM workout_sets
        WHERE workout_id = ? AND deleted_at IS NULL`,
       [workoutId],
     );
@@ -550,6 +556,7 @@ export async function updateWorkout(
           rpe: set.rpe ?? null,
           primary_muscle_group: primaryMuscleGroup,
           secondary_muscle_groups: secondaryMuscleGroups,
+          group_id: entry.groupId ?? null,
           completed_at: completedAt,
           notes: current?.notes ?? null,
           created_at: current?.created_at ?? changedAt,
@@ -560,22 +567,22 @@ export async function updateWorkout(
           await db.runAsync(
             `UPDATE workout_sets SET exercise_id = ?, sort_order = ?, kind = ?, reps = ?,
               load_value = ?, load_unit = ?, rpe = ?, primary_muscle_group = ?,
-              secondary_muscle_groups = ?, completed_at = ?, deleted_at = NULL,
+              secondary_muscle_groups = ?, group_id = ?, completed_at = ?, deleted_at = NULL,
               updated_at = ?, client_updated_at = ? WHERE id = ?`,
             [entry.exercise.id, sortOrder, payload.kind, set.reps, set.loadValue, set.loadUnit,
               payload.rpe, payload.primary_muscle_group, JSON.stringify(payload.secondary_muscle_groups),
-              completedAt, changedAt, changedAt, setId],
+              payload.group_id, completedAt, changedAt, changedAt, setId],
           );
         } else {
           await db.runAsync(
             `INSERT INTO workout_sets (
               id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-              rpe, primary_muscle_group, secondary_muscle_groups, completed_at,
+              rpe, primary_muscle_group, secondary_muscle_groups, group_id, completed_at,
               created_at, updated_at, client_updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [setId, workoutId, entry.exercise.id, sortOrder, payload.kind, set.reps,
               set.loadValue, set.loadUnit, payload.rpe, payload.primary_muscle_group,
-              JSON.stringify(payload.secondary_muscle_groups), completedAt, changedAt, changedAt, changedAt],
+              JSON.stringify(payload.secondary_muscle_groups), payload.group_id, completedAt, changedAt, changedAt, changedAt],
           );
         }
         await enqueueUpsert(db, 'sets', setId, payload);
@@ -603,6 +610,7 @@ export async function updateWorkout(
         secondary_muscle_groups: current.secondary_muscle_groups
           ? JSON.parse(current.secondary_muscle_groups) as string[]
           : [],
+        group_id: current.group_id,
         completed_at: current.completed_at,
         notes: current.notes,
         created_at: current.created_at,
@@ -626,6 +634,7 @@ export async function completePlannedWorkout(
   if (input.exercises.some((entry) => entry.sets.some((set) => set.reps <= 0 || set.loadValue < 0))) {
     throw new Error('Reps must be positive and load cannot be negative.');
   }
+  validateWorkoutGroups(input.exercises);
   const existing = await db.getFirstAsync<{
     id: string;
     title: string;
@@ -691,6 +700,7 @@ export async function completePlannedWorkout(
           rpe: set.rpe ?? null,
           primary_muscle_group: normalizeMuscleGroupKey(entry.exercise.primaryMuscleGroup),
           secondary_muscle_groups: [...new Set(entry.exercise.secondaryMuscleGroups.map(normalizeMuscleGroupKey))],
+          group_id: entry.groupId ?? null,
           completed_at: completedAt,
           notes: null,
           created_at: completedAt,
@@ -700,14 +710,14 @@ export async function completePlannedWorkout(
         await db.runAsync(
           `INSERT INTO workout_sets (
             id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-            rpe, primary_muscle_group, secondary_muscle_groups, completed_at,
+            rpe, primary_muscle_group, secondary_muscle_groups, group_id, completed_at,
             created_at, updated_at, client_updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             setId, plannedWorkoutId, entry.exercise.id, sortOrder, setPayload.kind,
             set.reps, set.loadValue, set.loadUnit, setPayload.rpe,
             setPayload.primary_muscle_group, JSON.stringify(setPayload.secondary_muscle_groups),
-            completedAt, completedAt, completedAt, completedAt,
+            setPayload.group_id, completedAt, completedAt, completedAt, completedAt,
           ],
         );
         await enqueueUpsert(db, 'sets', setId, setPayload);
@@ -838,12 +848,13 @@ export async function deleteWorkout(db: SQLiteDatabase, workoutId: string): Prom
     rpe: number | null;
     primary_muscle_group: string | null;
     secondary_muscle_groups: string | null;
+    group_id: string | null;
     completed_at: string;
     notes: string | null;
     created_at: string;
   }>(
     `SELECT id, workout_id, exercise_id, sort_order, kind, reps, load_value, load_unit,
-      rpe, primary_muscle_group, secondary_muscle_groups, completed_at, notes, created_at
+      rpe, primary_muscle_group, secondary_muscle_groups, group_id, completed_at, notes, created_at
      FROM workout_sets WHERE workout_id = ? AND deleted_at IS NULL`,
     [workoutId],
   );
@@ -899,12 +910,13 @@ export async function getExerciseHistory(
     kind: SetKind;
     completed_at: string;
     sort_order: number;
+    group_id: string | null;
   }>(
     `SELECT s.id, s.exercise_id, e.name AS exercise_name,
       COALESCE(s.primary_muscle_group, e.primary_muscle_group) AS primary_muscle_group,
       COALESCE(s.secondary_muscle_groups, e.secondary_muscle_groups) AS secondary_muscle_groups,
       e.target_rep_min, e.target_rep_max, e.load_increment,
-      s.reps, s.load_value, s.load_unit, s.rpe, s.kind, s.completed_at, s.sort_order
+      s.reps, s.load_value, s.load_unit, s.rpe, s.kind, s.completed_at, s.sort_order, s.group_id
      FROM workout_sets s
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.exercise_id = ? AND ${progressionSetSql('s.kind')} AND s.deleted_at IS NULL
@@ -928,6 +940,7 @@ export async function getExerciseHistory(
     kind: set.kind,
     completedAt: set.completed_at,
     sortOrder: set.sort_order,
+    groupId: set.group_id,
   }));
 }
 
@@ -1195,4 +1208,18 @@ export async function listVolumeHistory(
     primaryMuscleGroup: row.primary_muscle_group,
     secondaryMuscleGroups: JSON.parse(row.secondary_muscle_groups) as string[],
   }));
+}
+
+function validateWorkoutGroups(exercises: SaveWorkoutInput['exercises']): void {
+  const counts = new Map<string, number>();
+  for (const entry of exercises) {
+    if (!entry.groupId) continue;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entry.groupId)) {
+      throw new Error('Rebuild the superset or circuit before saving.');
+    }
+    counts.set(entry.groupId, (counts.get(entry.groupId) ?? 0) + 1);
+  }
+  if ([...counts.values()].some((count) => count < 2)) {
+    throw new Error('A superset or circuit needs at least two exercises.');
+  }
 }

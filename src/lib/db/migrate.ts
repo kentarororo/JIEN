@@ -5,7 +5,7 @@ import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 import { migratePrivateFoods } from './private-food-migration.ts';
 
-export const LATEST_DATABASE_VERSION = 19;
+export const LATEST_DATABASE_VERSION = 22;
 
 const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -747,6 +747,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     await withExclusiveTransaction(db, async (db) => {
       await addColumnIfMissing(db, 'nutrition_targets', 'weekly_check_in_day', 'INTEGER');
       await db.execAsync('PRAGMA user_version = 19;');
+    });
+  }
+  if (currentVersion < 22) {
+    await withExclusiveTransaction(db, async (db) => {
+      await addColumnIfMissing(db, 'workout_sets', 'group_id', 'TEXT');
+      await db.execAsync('CREATE INDEX IF NOT EXISTS workout_sets_group_idx ON workout_sets(workout_id, group_id, sort_order);');
+      await db.execAsync('PRAGMA user_version = 22;');
     });
   }
 }

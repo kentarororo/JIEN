@@ -65,7 +65,7 @@ test('version two drafts preserve performed state and set kind while version one
     blocks: [{ exerciseId: 'row', sets: [{ load: '50', reps: '10', rpe: '8', kind: 'warmup', completed: true }] }],
   });
   const parsed = parseWorkoutDraft(versionTwo, owner, 'new:2026-09-04');
-  assert.equal(parsed?.version, 2);
+  assert.equal(parsed?.version, 3);
   assert.equal(parsed?.blocks[0]?.sets[0]?.kind, 'warmup');
   assert.equal(parsed?.blocks[0]?.sets[0]?.completed, true);
   assert.equal(parsed?.restTimerSeconds, 90);

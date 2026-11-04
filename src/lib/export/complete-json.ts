@@ -90,7 +90,7 @@ function mapWorkout(row: ExportDatabaseRow): JsonObject {
 function mapWorkoutSet(row: ExportDatabaseRow): JsonObject {
   return {
     id: value(row, 'id'), workoutId: value(row, 'workout_id'), exerciseId: value(row, 'exercise_id'),
-    sortOrder: value(row, 'sort_order'), kind: value(row, 'kind'), reps: value(row, 'reps'),
+    sortOrder: value(row, 'sort_order'), groupId: value(row, 'group_id'), kind: value(row, 'kind'), reps: value(row, 'reps'),
     loadValue: value(row, 'load_value'), loadUnit: value(row, 'load_unit'), rpe: value(row, 'rpe'),
     completedAt: value(row, 'completed_at'), notes: value(row, 'notes'),
     createdAt: value(row, 'created_at'), updatedAt: value(row, 'updated_at'),
