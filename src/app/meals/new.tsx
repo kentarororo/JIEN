@@ -866,7 +866,7 @@ export default function NewMealScreen() {
         </View>
       ) : undefined}
     >
-      {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
+      {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '700' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
       {draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Your unfinished meal was restored. The draft remains available until you save it.</AppText></View> : null}
       {templateLoaded && !draftRecovered ? <View accessibilityLiveRegion="polite" style={[styles.message, { backgroundColor: colors.successSoft }]}><AppText>Saved meal copied. Adjust any portion or macro, then save it as a new log.</AppText></View> : null}
       {templateError ? <View accessibilityRole="alert" style={[styles.message, { backgroundColor: colors.warningSoft }]}><AppText style={{ color: colors.warning }}>{templateError}</AppText></View> : null}
@@ -1367,10 +1367,10 @@ const styles = StyleSheet.create({
   barcodeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: spacing.sm },
   results: { gap: 0 },
   resultHeading: { gap: spacing.xs, paddingTop: spacing.sm, paddingBottom: spacing.xs },
-  resultHeadingTitle: { ...typography.label, fontWeight: '800' },
+  resultHeadingTitle: { ...typography.label, fontWeight: '700' },
   resultRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
   resultName: { fontWeight: '700' },
-  resultCalories: { fontWeight: '800', textAlign: 'right' },
+  resultCalories: { fontWeight: '700', textAlign: 'right' },
   attribution: { ...typography.caption },
   privateFoodPrompt: { minHeight: 76, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   cameraFrame: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, overflow: 'hidden', borderRadius: radii.card },
@@ -1378,14 +1378,14 @@ const styles = StyleSheet.create({
   cameraSheet: { width: '100%', maxWidth: 760, maxHeight: '96%', alignSelf: 'center', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: spacing.lg },
   cameraLoading: { position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' },
   scannerStatus: { gap: spacing.xs },
-  detectedBarcode: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  detectedBarcode: { ...typography.bodyLarge, fontWeight: '700', fontVariant: ['tabular-nums'] },
   photoPreview: { width: '100%', maxWidth: 640, alignSelf: 'center', aspectRatio: 4 / 3, borderRadius: radii.card },
   photoSheetScroll: { width: '100%' },
   photoSheetContent: { gap: spacing.sm, paddingBottom: spacing.xs },
   photoReviewNotes: { gap: spacing.xs },
   photoReviewActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   photoSuccess: { minHeight: 72, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  photoSuccessCount: { ...typography.title, fontWeight: '800', minWidth: 36, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  photoSuccessCount: { ...typography.title, fontWeight: '700', minWidth: 36, textAlign: 'center', fontVariant: ['tabular-nums'] },
   message: { padding: spacing.md, borderRadius: radii.control },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   foodTitle: { ...typography.section, fontWeight: '700' },
@@ -1400,10 +1400,10 @@ const styles = StyleSheet.create({
   draftSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   mealSummaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   mealSummaryMetric: { flexGrow: 1, flexBasis: 112 },
-  mealSummaryValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  mealSummaryValue: { ...typography.section, fontWeight: '700', fontVariant: ['tabular-nums'] },
   stickySubmitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   stickySubmitCopy: { flex: 1, minWidth: 0 },
-  stickySubmitTitle: { ...typography.label, fontWeight: '800' },
+  stickySubmitTitle: { ...typography.label, fontWeight: '700' },
   mealItemsSection: { gap: spacing.lg },
   gridField: { flexGrow: 1, flexBasis: 240, minWidth: 140 },
   macroField: { flexGrow: 1, flexBasis: 150, minWidth: 118 },

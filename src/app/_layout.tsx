@@ -138,7 +138,7 @@ export default function RootLayout() {
   }, []);
 
   if (!webUrlReady) {
-    return <View style={styles.boot}><ActivityIndicator color="#71452F" /></View>;
+    return <View style={styles.boot}><ActivityIndicator color={themes.light.colors.accent} /></View>;
   }
 
   let callbackRequest: OAuthCallbackRequest | null = null;

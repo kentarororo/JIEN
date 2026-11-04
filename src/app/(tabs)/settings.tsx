@@ -357,7 +357,7 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   pillRow: { flexDirection: 'row', flexWrap: 'wrap' },
-  viewSwitcher: { alignSelf: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', borderRadius: 999, padding: spacing.xxs, gap: spacing.xxs },
+  viewSwitcher: { alignSelf: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', borderRadius: radii.pill, padding: spacing.xxs, gap: spacing.xxs },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   syncHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
   copy: { flex: 1, gap: spacing.xxs },

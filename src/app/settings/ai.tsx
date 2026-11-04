@@ -254,7 +254,7 @@ function Acknowledgement({ label, value, onValueChange }: { label: string; value
 
 const styles = StyleSheet.create({
   cardTitle: { ...typography.bodyLarge, fontWeight: '700' },
-  strong: { fontWeight: '800' },
+  strong: { fontWeight: '700' },
   small: { ...typography.caption },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   ackRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 52 },
