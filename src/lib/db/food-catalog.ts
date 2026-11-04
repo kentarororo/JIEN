@@ -148,6 +148,19 @@ function foodTimeBand(hour: number): 'morning' | 'midday' | 'evening' | 'late' {
   return 'late';
 }
 
+export function rankFoodCatalogMatches(query: string, items: FoodCatalogItem[]): FoodCatalogItem[] {
+  const clean = query.trim().toLocaleLowerCase();
+  const sourceRank = (source: FoodCatalogItem['source']) => source === 'custom' ? 0 : source === 'sg_estimate' ? 1 : 2;
+  const textRank = (name: string) => {
+    const normalized = name.toLocaleLowerCase();
+    return normalized === clean ? 0 : normalized.startsWith(clean) ? 1 : 2;
+  };
+  return items.map((item, index) => ({ item, index })).sort((a, b) =>
+    sourceRank(a.item.source) - sourceRank(b.item.source)
+      || textRank(a.item.name) - textRank(b.item.name)
+      || a.index - b.index).map(({ item }) => item);
+}
+
 export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatalogItem[]): Promise<void> {
   // FatSecret search payloads are not a general-purpose offline catalog. A selected
   // item is preserved by saveMeal as part of the user's meal history, but unselected

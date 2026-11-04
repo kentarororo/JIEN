@@ -1330,6 +1330,7 @@ function MealSummaryMetric({ label, value }: { label: string; value: string }) {
 function sourceName(source: FoodCatalogItem['source']): string {
   if (source === 'community') return 'Community · unverified';
   if (source === 'custom') return 'Private food';
+  if (source === 'sg_estimate') return 'JIEN estimate (SG)';
   if (source === 'usda_fdc') return 'USDA FoodData Central';
   if (source === 'open_food_facts') return 'Open Food Facts';
   if (source === 'fatsecret') return 'FatSecret Platform';
