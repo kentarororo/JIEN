@@ -8,7 +8,15 @@ import { useSQLiteContext } from '@/lib/db/database-context';
 import { shiftLocalDateKey } from '@/lib/time';
 import { spacing, useJienTheme } from '@/theme';
 
-export function FoodCopyActions({ date, onCopied }: { date: string; onCopied: (message: string) => void }) {
+export function FoodCopyActions({
+  date,
+  onCopied,
+  onOpenChange,
+}: {
+  date: string;
+  onCopied: (message: string) => void;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const db = useSQLiteContext();
   const { colors } = useJienTheme();
   const [days, setDays] = useState<FoodCopyDay[]>([]);
@@ -19,6 +27,10 @@ export function FoodCopyActions({ date, onCopied }: { date: string; onCopied: (m
   const [open, setOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const changeOpen = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
   useEffect(() => {
     let active = true;
     setLoading(true); setError(null);
@@ -39,7 +51,7 @@ export function FoodCopyActions({ date, onCopied }: { date: string; onCopied: (m
     try {
       const count = await copyFoodHistoryToDay(db, { targetDate: date, ...input });
       onCopied(`${count} food${count === 1 ? '' : 's'} copied from ${label}.`);
-      setOpen(false); setSelectedIds([]);
+      changeOpen(false); setSelectedIds([]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The food could not be copied. Try again.');
     } finally { setBusy(false); }
@@ -61,12 +73,12 @@ export function FoodCopyActions({ date, onCopied }: { date: string; onCopied: (m
         busy={busy && Boolean(yesterday)} disabled={busy || !yesterday} variant="secondary" />
       <Button label="Copy previous meal" onPress={() => previousMeal && void copy({ mealId: previousMeal.id }, previousMeal.name)}
         disabled={busy || !previousMeal} variant="secondary" />
-      <Button label="Choose past food" onPress={() => setOpen(true)} disabled={busy || !days.length} variant="quiet" />
+      <Button label="Choose past food" onPress={() => changeOpen(true)} disabled={busy || !days.length} variant="quiet" />
     </View>
-    <Modal visible={open} animationType="none" onRequestClose={() => { if (!busy) setOpen(false); }}>
+    <Modal visible={open} animationType="none" onRequestClose={() => { if (!busy) changeOpen(false); }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top', 'bottom']}>
         <Screen>
-          <ScreenHeading eyebrow={date} title="Copy past food" action={<Button label="Close" onPress={() => setOpen(false)} disabled={busy} variant="quiet" />} />
+          <ScreenHeading eyebrow={date} title="Copy past food" action={<Button label="Close" onPress={() => changeOpen(false)} disabled={busy} variant="quiet" />} />
           <View style={styles.actions}>{days.map((day) => <Button key={day.date} label={`${day.date} · ${day.items.length} food${day.items.length === 1 ? '' : 's'}`}
             onPress={() => chooseDay(day.date)} variant={selectedDate === day.date ? 'primary' : 'secondary'} />)}</View>
           {chosenDay ? <Card>
