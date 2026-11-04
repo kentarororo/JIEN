@@ -1,0 +1,9 @@
+"title","start_time","end_time","description","exercise_title","superset_id","exercise_notes","set_index","set_type","weight_kg","reps","distance_km","duration_seconds","rpe"
+"QA Push A","1 Sep 2026, 07:30","1 Sep 2026, 08:20","Synthetic fixture, no real data","Barbell Bench Press",,"",0,"warmup",40,10,,,
+"QA Push A","1 Sep 2026, 07:30","1 Sep 2026, 08:20","Synthetic fixture, no real data","Barbell Bench Press",,"",1,"normal",80,8,,,8
+"QA Push A","1 Sep 2026, 07:30","1 Sep 2026, 08:20","Synthetic fixture, no real data","Barbell Bench Press",,"",2,"normal",80,7,,,9
+"QA Push A","1 Sep 2026, 07:30","1 Sep 2026, 08:20","Synthetic fixture, no real data","QA Cable Fly (Synthetic)",,"",0,"normal",15,12,,,
+"QA Push A","1 Sep 2026, 07:30","1 Sep 2026, 08:20","Synthetic fixture, no real data","QA Cable Fly (Synthetic)",,"",1,"dropset",10,10,,,
+"QA Push A","1 Sep 2026, 07:30","1 Sep 2026, 08:20","Synthetic fixture, no real data","QA Plank Hold (Synthetic)",,"",0,"normal",,,,60,
+"QA Push B","4 Sep 2026, 18:05","4 Sep 2026, 18:55","","Barbell Bench Press",,"",0,"normal",82.5,8,,,
+"QA Push B","4 Sep 2026, 18:05","4 Sep 2026, 18:55","","QA Cable Fly (Synthetic)",,"",0,"failure",15,14,,,10

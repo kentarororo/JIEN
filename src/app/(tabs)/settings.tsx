@@ -300,6 +300,15 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
+        <SectionHeading title="Import" detail="Bring existing training history into JIEN" />
+        <Card>
+          <AppText style={styles.cardTitle}>Hevy or Strong workout CSV</AppText>
+          <AppText style={{ color: theme.colors.textMuted }}>Preview workouts, resolve unmatched exercise names, and confirm before anything is written. Re-importing the same file will not duplicate sessions.</AppText>
+          <View style={styles.dataActions}>
+            <Button label="Import workout history" onPress={() => router.push('/settings/import-workouts' as never)} variant="secondary" />
+          </View>
+        </Card>
+
         {data?.account.user || cloudDeletedForUserId ? <>
           <SectionHeading title="Delete account" detail="Permanent account and data removal" />
           <Card style={{ backgroundColor: theme.colors.dangerSoft, borderColor: theme.colors.danger }}>
