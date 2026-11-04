@@ -41,6 +41,9 @@ export default function MealDetailScreen() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const repeatTarget = resolveRepeatMealTarget(repeatDate, undefined, repeatTargetDate);
+  const backfillChipDate = repeatTarget.date !== repeatTarget.today && repeatTarget.date !== repeatTarget.yesterday
+    ? repeatTarget.date
+    : null;
   const [repeatChoice, setRepeatChoice] = useState(repeatTarget.date);
   const [customRepeatDate, setCustomRepeatDate] = useState(repeatTarget.date);
   const [pickingRepeatDate, setPickingRepeatDate] = useState(false);
@@ -168,13 +171,15 @@ export default function MealDetailScreen() {
           <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}>
             <AppText style={styles.itemTitle}>Eat this often?</AppText>
             <AppText style={{ color: colors.textMuted }}>
-              Choose when to copy these portions and macros. Today is selected by default, and the saved record stays unchanged.
+              Choose when to copy these portions and macros. {repeatTarget.date === repeatTarget.today
+                ? 'Today is selected by default.'
+                : `${formatRepeatDate(repeatTarget.date)} is selected because you came from that food day.`} The saved record stays unchanged.
             </AppText>
             <View accessibilityRole="radiogroup" accessibilityLabel="Day for repeated meal" style={styles.actions}>
-              <Pill label="Today" active={!pickingRepeatDate && repeatChoice === repeatTarget.today} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.today); }} />
-              <Pill label="Yesterday" active={!pickingRepeatDate && repeatChoice === repeatTarget.yesterday} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.yesterday); }} />
-              {repeatTarget.viewedDate ? <Pill label={`Viewed ${formatRepeatDate(repeatTarget.viewedDate)}`} active={!pickingRepeatDate && repeatChoice === repeatTarget.viewedDate} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.viewedDate!); }} /> : null}
-              <Pill label="Pick a date" active={pickingRepeatDate} onPress={() => setPickingRepeatDate(true)} />
+              <Pill accessibilityRole="radio" label="Today" active={!pickingRepeatDate && repeatChoice === repeatTarget.today} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.today); }} />
+              <Pill accessibilityRole="radio" label="Yesterday" active={!pickingRepeatDate && repeatChoice === repeatTarget.yesterday} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(repeatTarget.yesterday); }} />
+              {backfillChipDate ? <Pill accessibilityRole="radio" label={`Back-fill ${formatRepeatDate(backfillChipDate)}`} active={!pickingRepeatDate && repeatChoice === backfillChipDate} onPress={() => { setPickingRepeatDate(false); setRepeatChoice(backfillChipDate); }} /> : null}
+              <Pill accessibilityRole="radio" label="Pick a date" active={pickingRepeatDate} onPress={() => setPickingRepeatDate(true)} />
             </View>
             {pickingRepeatDate ? <Field label="Repeat on" hint="YYYY-MM-DD" value={customRepeatDate} onChangeText={setCustomRepeatDate} autoCapitalize="none" /> : null}
             {!customRepeatDateValid ? <AppText accessibilityRole="alert" style={{ color: colors.danger }}>Choose today or an earlier calendar date in YYYY-MM-DD format.</AppText> : null}

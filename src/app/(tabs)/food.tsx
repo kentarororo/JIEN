@@ -122,7 +122,7 @@ export default function FoodScreen() {
       pathname: '/food',
       params: {
         ...(nextDate === todayKey ? {} : { date: nextDate }),
-        repeatTargetDate: selectedDate,
+        ...(nextDate < todayKey ? { repeatTargetDate: selectedDate } : {}),
       },
     } as never);
   };
