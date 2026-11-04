@@ -6,7 +6,7 @@ import { withExclusiveTransaction } from './exclusive-transaction.ts';
 import { addColumnIfMissing } from './migration-utils.ts';
 import { migratePrivateFoods } from './private-food-migration.ts';
 
-export const LATEST_DATABASE_VERSION = 20;
+export const LATEST_DATABASE_VERSION = 21;
 
 const CORE_EXERCISES = [
   ['10000000-0000-4000-8000-000000000001', 'Machine Chest Press', 'horizontal_push', 'chest', '["triceps","front_delts"]', 'machine', 8, 12, 2.5],
@@ -751,7 +751,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.execAsync('PRAGMA user_version = 19;');
     });
   }
-  if (currentVersion < 20) {
+  if (currentVersion < 21) {
     await withExclusiveTransaction(db, async (db) => {
       await addColumnIfMissing(db, 'food_catalog_cache', 'metadata_json', "TEXT NOT NULL DEFAULT '{}'");
       const foodNow = new Date().toISOString();
@@ -773,7 +773,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
           ],
         );
       }
-      await db.execAsync('PRAGMA user_version = 20;');
+      await db.execAsync('PRAGMA user_version = 21;');
     });
   }
 }

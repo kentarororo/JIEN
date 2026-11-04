@@ -513,7 +513,7 @@ table. It stores normalized food names, brands, portions, macros, optional barco
 provider attribution, source identifiers, and a `metadata_json` object. Starter
 entries keep core food search useful offline. Migration 13 also seeds a small set of
 public-domain USDA regional records, retaining each FoodData Central identifier;
-migration 20 adds recipe-derived Singapore estimates whose metadata retains every
+migration 21 adds recipe-derived Singapore estimates whose metadata retains every
 ingredient's gram weight and USDA FoodData Central reference. Other Open Food Facts
 and USDA results are cached only after retrieval. User-created foods now live in the private
 food library above, not the provider cache. Any meal saved from one is still captured
