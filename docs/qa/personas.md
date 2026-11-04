@@ -126,6 +126,13 @@ volume per muscle is visible and trustworthy.
   PERSONA_REPORT=1 pnpm e2e:web e2e/persona-recreational.spec.ts --project=android-chrome
   ```
 
+  Persona 3 has `e2e/persona-bodybuilder.spec.ts`. It fixes the clock, builds gram-weighed meals
+  from the starter foods (per-100 g references), copies days, and reads macros against targets:
+
+  ```
+  PERSONA_REPORT=1 pnpm e2e:web e2e/persona-bodybuilder.spec.ts --project=android-chrome
+  ```
+
   The founder spec assumes the first hawker search finds nothing. When the Singapore starter
   set (#21) lands, update step (a) to tap the result, then compare the numbers (AC6 of
   #27).
@@ -147,7 +154,7 @@ tap counts.
 | (c) Full food day: 7 items, all previously saved, then mark complete | 21 | 30 | 4.0 s | ~38 s |
 | (d) Push day: 5 machine/cable exercises, 16 sets including 1 drop set | 46 | 57 | 2.9 s | ~75 s |
 
-The friction findings are in the #27 comment.
+The friction findings are in the #27 comment (#73, #74).
 
 ### Persona 1, re-run after #32, #40 and #41: 2026-10-27, `main` @ fb00dba, isolated e2e build, Pixel 7 and iPhone 13
 
@@ -175,5 +182,28 @@ Both phone projects gave the same tap counts.
 | Plan tomorrow from the Full body starter | 6 | 0 | ~8 s |
 | (d) Full body from the missed-session prompt: 5 exercises, 15 sets | 32 | 35 | ~51 s |
 
-The friction findings are in the #27 comment.
+The friction findings are in the #27 comment (#73, #74).
+
+### Persona 3, run 1: 2026-11-04, `main` @ a1b3c88, isolated e2e build, Pixel 7 and iPhone 13
+
+Food days 1 to 3 only. Recipes (#14) are not on `main` yet, so meals are built from single
+ingredients. Training (Push A and later) and the day 7 weekly review are not in this run.
+Both phone projects gave the same tap counts.
+
+| Task | Taps | Typed chars | Est. human time |
+|---|---|---|---|
+| Set calorie and macro targets from the Food tab | 7 | 12 | ~12 s |
+| Meal 1, first time: oats 80 g + whey (typed and saved) | 13 | 41 | ~28 s |
+| Meal 2: chicken 150 g + rice 200 g + broccoli 100 g from the starter foods | 14 | 28 | ~26 s |
+| Meal 3, same as meal 2: **Copy previous meal** | 1 | 0 | ~1 s |
+| Meal 4, first time: egg whites (typed and saved) + rice 150 g | 13 | 32 | ~26 s |
+| Meal 5: chicken 200 g + rice 150 g + broccoli 150 g | 14 | 28 | ~26 s |
+| Meal 6: oats 40 g + saved whey from search | 10 | 11 | ~16 s |
+| (c) Day 1 total: 6 meals, 15 items | 65 | 140 | ~124 s |
+| (b) Day 2: **Copy yesterday** | 1 | 0 | ~1 s |
+| Day 2: change two portions in grams | 6 | 6 | ~10 s |
+| (b) Day 3: **Copy yesterday** + one cheat item typed in | 9 | 23 | ~18 s |
+
+Gram portions scale exactly from the per-100 g references, and Copy yesterday copies all 15
+items in one tap. The friction findings are in the #27 comment (#73, #74).
 
