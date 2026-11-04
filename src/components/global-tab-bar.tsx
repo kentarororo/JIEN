@@ -62,7 +62,7 @@ export function GlobalTabBar() {
 const styles = StyleSheet.create({
   safeArea: { borderTopWidth: StyleSheet.hairlineWidth },
   row: { width: '100%', maxWidth: 760, alignSelf: 'center', flexDirection: 'row', paddingHorizontal: spacing.xs, paddingTop: spacing.xs, gap: spacing.xxs },
-  item: { flex: 1, minHeight: 48, borderWidth: 2, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: spacing.xxs },
+  item: { flex: 1, minHeight: 48, borderWidth: 2, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xxs },
   label: { ...typography.caption, fontWeight: '700' },
   pressed: { opacity: 0.68 },
 });

@@ -666,9 +666,12 @@ export default function NewWorkoutScreen() {
   const commonExercises = catalog?.slice(0, COMMON_EXERCISE_COUNT) ?? [];
 
   return (
-    <Screen contentContainerStyle={styles.screenContent}>
-      {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '800' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
-      {draftRecovered ? <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}><AppText style={{ color: colors.success, fontWeight: '800' }}>Unfinished workout restored</AppText><AppText style={{ color: colors.textMuted }}>Set entries, completion state, set types, and the rest timer were restored from this device.</AppText></Card> : null}
+    <Screen
+      contentContainerStyle={styles.screenContent}
+      footer={<Button label={editWorkoutId ? 'Save workout changes' : planWorkoutId ? 'Complete planned workout' : 'Save completed workout'} onPress={() => void submit()} busy={saving} />}
+    >
+      {date ? <Card style={{ backgroundColor: colors.surfaceMuted }}><AppText>Logging for <AppText style={{ fontWeight: '700' }}>{formatShortDate(`${date}T12:00:00`)}</AppText></AppText></Card> : null}
+      {draftRecovered ? <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}><AppText style={{ color: colors.success, fontWeight: '700' }}>Unfinished workout restored</AppText><AppText style={{ color: colors.textMuted }}>Set entries, completion state, set types, and the rest timer were restored from this device.</AppText></Card> : null}
       {planWorkoutId || templateWorkoutId ? <Button label={showWorkoutOptions ? 'Hide workout options' : 'Workout options'} expanded={showWorkoutOptions} onPress={() => setShowWorkoutOptions((value) => !value)} variant="quiet" /> : null}
       {showWorkoutOptions ? <View style={[styles.sessionFields, !compact && styles.sessionFieldsWide]}>
         <Field label="Session name" value={title} onChangeText={setTitle} returnKeyType="done" containerStyle={styles.flex} />
@@ -848,7 +851,7 @@ export default function NewWorkoutScreen() {
                       accessibilityState={{ checked: set.completed }}
                       onPress={() => toggleSetCompleted(block.key, set.key)}
                       style={({ pressed }) => [styles.setDone, { backgroundColor: set.completed ? colors.successSoft : colors.surfaceRaised, borderColor: set.completed ? colors.success : colors.border }, pressed && styles.pressed]}
-                    ><AppText style={{ color: set.completed ? colors.success : colors.textMuted, fontWeight: '800' }}>{set.completed ? '✓' : '○'}</AppText></Pressable>
+                    ><AppText style={{ color: set.completed ? colors.success : colors.textMuted, fontWeight: '700' }}>{set.completed ? '✓' : '○'}</AppText></Pressable>
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Remove set ${setIndex + 1}`}
@@ -1001,7 +1004,6 @@ export default function NewWorkoutScreen() {
           <View style={styles.draftSummaryMetric}><AppText style={styles.draftSummaryValue}>{completedBlockCount}/{blocks.length}</AppText><AppText style={{ color: colors.textMuted }}>exercises checked</AppText></View>
         </View>
       </Card>
-      <Button label={editWorkoutId ? 'Save workout changes' : planWorkoutId ? 'Complete planned workout' : 'Save completed workout'} onPress={() => void submit()} busy={saving} />
     </Screen>
   );
 }
@@ -1019,11 +1021,11 @@ const styles = StyleSheet.create({
   rpeGuide: { gap: spacing.sm },
   rpeScale: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   rpeItem: { ...typography.label },
-  rpeNumber: { fontWeight: '800' },
+  rpeNumber: { fontWeight: '700' },
   timerCard: { gap: spacing.sm },
   timerHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   timerValue: { minHeight: 48, borderRadius: radii.control, paddingLeft: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  timerDigits: { ...typography.section, minWidth: 64, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  timerDigits: { ...typography.section, minWidth: 64, fontWeight: '700', fontVariant: ['tabular-nums'] },
   exerciseCard: { paddingHorizontal: 0, overflow: 'hidden' },
   blockHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, gap: spacing.sm },
   blockHeaderActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.xs },
@@ -1039,7 +1041,7 @@ const styles = StyleSheet.create({
   noResult: { padding: spacing.md },
   searchResults: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   muscleSection: { gap: spacing.xs },
-  muscleSectionLabel: { ...typography.caption, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  muscleSectionLabel: { ...typography.caption, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   range: { paddingHorizontal: spacing.md },
   suggestion: { marginHorizontal: spacing.md, padding: spacing.sm, borderRadius: radii.control, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   suggestionCopy: { flex: 1, gap: spacing.xxs },
@@ -1054,13 +1056,13 @@ const styles = StyleSheet.create({
   setDoneLabel: { width: 44, textAlign: 'center', ...typography.caption, fontWeight: '700', opacity: 0.7 },
   setField: { flex: 1, minWidth: 0 },
   compactInput: { textAlign: 'center', paddingHorizontal: spacing.xs },
-  setCue: { marginLeft: 48, paddingLeft: spacing.xs, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
+  setCue: { marginLeft: spacing.jumbo, paddingLeft: spacing.xs, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
   setCueCopy: { flexGrow: 1, flexBasis: 180 },
   setCueCompact: { marginLeft: 0, paddingLeft: 0, flexDirection: 'column', alignItems: 'stretch' },
   removeColumn: { width: 44 },
   setDone: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
   removeSet: { width: 44, minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
-  setKindPicker: { marginLeft: 48, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  setKindPicker: { marginLeft: spacing.jumbo, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   setActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md },
   setActionNote: { ...typography.caption, flexGrow: 1, flexBasis: 220 },
   completeSets: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.xs, paddingHorizontal: spacing.md, paddingTop: spacing.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
@@ -1068,16 +1070,16 @@ const styles = StyleSheet.create({
   completionReview: { marginHorizontal: spacing.md, padding: spacing.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, gap: spacing.sm },
   historyRetryAction: { alignItems: 'flex-start' },
   completionHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-  completionEyebrow: { ...typography.caption, fontWeight: '800', letterSpacing: 0.7, opacity: 0.68 },
-  completionTitle: { ...typography.section, fontWeight: '800' },
+  completionEyebrow: { ...typography.caption, fontWeight: '700', letterSpacing: 0.7, opacity: 0.68 },
+  completionTitle: { ...typography.section, fontWeight: '700' },
   completionMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   completionMetric: { flexGrow: 1, flexBasis: 120 },
-  completionValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  completionValue: { ...typography.section, fontWeight: '700', fontVariant: ['tabular-nums'] },
   nextExposure: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, gap: spacing.xxs },
   draftSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   draftSummaryMetrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   draftSummaryMetric: { flexGrow: 1, flexBasis: 160 },
-  draftSummaryValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  draftSummaryValue: { ...typography.section, fontWeight: '700', fontVariant: ['tabular-nums'] },
   sessionMuscleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   mobileSetList: { paddingHorizontal: spacing.md, gap: spacing.sm },
   mobileSetCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, padding: spacing.sm, gap: spacing.sm },

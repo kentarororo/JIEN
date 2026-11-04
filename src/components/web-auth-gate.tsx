@@ -117,7 +117,7 @@ function WebAccountPanel({ state, onRetry }: { state: Exclude<GateState, { kind:
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: spacing.lg, justifyContent: 'center' },
   card: { width: '100%', maxWidth: 520, alignSelf: 'center', borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.xl, gap: spacing.md },
-  brand: { ...typography.bodyLarge, fontWeight: '800', letterSpacing: 1.2 },
+  brand: { ...typography.bodyLarge, fontWeight: '700', letterSpacing: 1.2 },
   title: { ...typography.title, fontWeight: '700' },
   body: { ...typography.body },
   error: { ...typography.label, fontWeight: '600' },

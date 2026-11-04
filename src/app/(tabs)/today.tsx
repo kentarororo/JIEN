@@ -204,7 +204,7 @@ export default function TodayScreen() {
                   pressed && styles.pressed,
                 ]}
               >
-                <AppText style={[styles.dayNumber, { color: cell.isCurrentMonth ? colors.text : colors.textMuted }, selected && { color: colors.accent, fontWeight: '800' }]}>{cell.dayNumber}</AppText>
+                <AppText style={[styles.dayNumber, { color: cell.isCurrentMonth ? colors.text : colors.textMuted }, selected && { color: colors.accent, fontWeight: '700' }]}>{cell.dayNumber}</AppText>
                 <View style={styles.dayDots}>
                   {day?.workoutCount ? <View accessibilityLabel="Workout logged" style={[styles.dot, { backgroundColor: colors.success }]} /> : null}
                   {day?.plannedWorkoutCount ? <View accessibilityLabel="Workout planned" style={[styles.dot, { backgroundColor: colors.accent }]} /> : null}
@@ -234,7 +234,7 @@ export default function TodayScreen() {
       </Card>
 
       {dayWorkspaceOpen ? <Modal visible transparent animationType={compactRecords ? 'slide' : 'fade'} onRequestClose={() => setDayWorkspaceOpen(false)}>
-        <View style={styles.dayWorkspaceOverlay}>
+        <View style={[styles.dayWorkspaceOverlay, { backgroundColor: colors.overlay }]}>
           <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={() => setDayWorkspaceOpen(false)} style={StyleSheet.absoluteFill} />
           <View role="dialog" accessibilityLabel="Day details" accessibilityViewIsModal style={[styles.dayWorkspaceSheet, compactRecords && styles.dayWorkspaceSheetCompact, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
             <ScrollView contentContainerStyle={styles.dayWorkspaceScroll} keyboardShouldPersistTaps="handled">
@@ -300,7 +300,7 @@ export default function TodayScreen() {
             <Link key={workout.id} href={{ pathname: '/workouts/[id]', params: { id: workout.id } }} onPress={(event) => { event.preventDefault(); openFromDay({ pathname: '/workouts/[id]', params: { id: workout.id } }); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{workout.title}</AppText><AppText style={{ color: colors.textMuted }}>{workout.exerciseCount} exercise{workout.exerciseCount === 1 ? '' : 's'} · {workout.setCount} sets · {Math.round(workout.totalVolumeKg).toLocaleString()} kg·reps</AppText>{workout.muscleGroups.length ? <View style={styles.workoutTags}>{workout.muscleGroups.slice(0, 4).map((group) => <Pill key={group} label={muscleGroupLabel(group)} />)}</View> : null}</View>
-                <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
+                <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={{ color: colors.textMuted }}>{workout.completedAt ? formatTime(workout.completedAt) : 'Completed'}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Review · Edit</AppText></View>
               </Pressable>
             </Link>
           ))}</View> : null}
@@ -308,7 +308,7 @@ export default function TodayScreen() {
             <Link key={meal.id} href={`/meals/${meal.id}` as Href} onPress={(event) => { event.preventDefault(); openFromDay(`/meals/${meal.id}` as Href); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{meal.name}</AppText><AppText style={{ color: colors.textMuted }}>{meal.itemCount} item{meal.itemCount === 1 ? '' : 's'} · P {Math.round(meal.proteinG)} · C {Math.round(meal.carbohydrateG)} · F {Math.round(meal.fatG)}</AppText></View>
-                <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
+                <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={styles.value}>{Math.round(meal.caloriesKcal)} kcal</AppText><AppText style={{ color: colors.textMuted }}>{formatTime(meal.eatenAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Review · Edit</AppText></View>
               </Pressable>
             </Link>
           ))}</View> : null}
@@ -322,7 +322,7 @@ export default function TodayScreen() {
             <Link key={sleep.id} href={{ pathname: '/wellness/sleep', params: { id: sleep.id, date: sleep.loggedOn } } as never} onPress={(event) => { event.preventDefault(); openFromDay({ pathname: '/wellness/sleep', params: { id: sleep.id, date: sleep.loggedOn } } as never); }} asChild>
               <Pressable style={({ pressed }) => [styles.selectedRecord, compactRecords && styles.selectedRecordCompact, { borderColor: colors.border }, pressed && styles.pressed]}>
                 <View style={styles.flex}><AppText style={styles.value}>{formatSleepDuration(sleep.sleepDurationMinutes)}</AppText><AppText style={{ color: colors.textMuted }}>{sleep.sleepQualityScore == null ? 'Quality not rated' : `Quality ${sleep.sleepQualityScore}/5`}</AppText></View>
-                <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={{ color: colors.textMuted }}>{formatTime(sleep.loggedAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Review · Edit</AppText></View>
+                <View style={[styles.recordEnd, compactRecords && styles.recordEndCompact]}><AppText style={{ color: colors.textMuted }}>{formatTime(sleep.loggedAt)}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Review · Edit</AppText></View>
               </Pressable>
             </Link>
           ))}</View> : null}
@@ -427,60 +427,60 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   heroStats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   heroStat: { flexGrow: 1, flexBasis: 104, minWidth: 96, borderRadius: radii.control, padding: spacing.sm },
-  heroStatValue: { ...typography.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  heroStatLabel: { ...typography.label, fontWeight: '800' },
+  heroStatValue: { ...typography.title, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  heroStatLabel: { ...typography.label, fontWeight: '700' },
   heroStatDetail: { ...typography.caption },
   sessionTitle: { ...typography.bodyLarge, fontWeight: '700' },
   metricCard: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, padding: spacing.xs },
   weekMetric: { flexGrow: 1, flexBasis: 180, minHeight: 112, justifyContent: 'center', borderRadius: radii.control, padding: spacing.md },
-  weekMetricLabel: { ...typography.label, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  weekMetricLabel: { ...typography.label, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   metric: { ...typography.display, fontWeight: '700', fontVariant: ['tabular-nums'] },
   macroRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
   value: { fontWeight: '700' },
   flex: { flex: 1 },
-  kicker: { ...typography.caption, fontWeight: '800', letterSpacing: 0.6 },
+  kicker: { ...typography.caption, fontWeight: '700', letterSpacing: 0.6 },
   progressCard: { padding: spacing.lg },
-  progressMetric: { ...typography.title, fontWeight: '800' },
+  progressMetric: { ...typography.title, fontWeight: '700' },
   exerciseProgressList: { gap: spacing.xs, marginTop: spacing.xs },
   focusPills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   bodyCard: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: spacing.lg },
   adaptiveGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   adaptiveMetric: { flex: 1, minWidth: 220, gap: spacing.xxs },
-  adaptiveMetricValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  adaptiveMetricValue: { ...typography.section, fontWeight: '700', fontVariant: ['tabular-nums'] },
   calendarCard: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: spacing.sm },
   screenCompact: { paddingHorizontal: spacing.md },
   calendarCardCompact: { paddingHorizontal: 0 },
   calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   calendarTitleWrap: { flex: 1, alignItems: 'center' },
-  calendarTitle: { ...typography.bodyLarge, fontWeight: '800' },
+  calendarTitle: { ...typography.bodyLarge, fontWeight: '700' },
   calendarModeRow: { flexDirection: 'row', justifyContent: 'center' },
   weekRow: { flexDirection: 'row' },
-  weekday: { flex: 1, textAlign: 'center', ...typography.caption, fontWeight: '800' },
+  weekday: { flex: 1, textAlign: 'center', ...typography.caption, fontWeight: '700' },
   monthGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radii.compact, gap: 2 },
+  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radii.compact, gap: spacing.xxs },
   weekDayCell: { aspectRatio: undefined, minHeight: 68 },
   dayNumber: { ...typography.label },
-  dayDots: { height: 5, flexDirection: 'row', gap: 3 },
+  dayDots: { height: 5, flexDirection: 'row', gap: spacing.xxs },
   dot: { width: 5, height: 5, borderRadius: radii.pill },
   calendarLegend: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.sm },
   calendarLegendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
   dayWorkspacePrompt: { minHeight: 64, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-  dayWorkspaceOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.48)', padding: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  dayWorkspaceOverlay: { flex: 1, padding: spacing.md, alignItems: 'center', justifyContent: 'center' },
   dayWorkspaceSheet: { width: '100%', maxWidth: 920, maxHeight: '92%', borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.sheet, overflow: 'hidden' },
   dayWorkspaceSheetCompact: { maxHeight: '94%', marginTop: 'auto', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
   dayWorkspaceScroll: { padding: spacing.md },
   workspaceTopBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   selectedDay: { padding: spacing.sm, borderRadius: radii.control, gap: spacing.sm },
   selectedDayNavigator: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  selectedDateTitle: { ...typography.bodyLarge, fontWeight: '800' },
+  selectedDateTitle: { ...typography.bodyLarge, fontWeight: '700' },
   selectedDayHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   selectedDayActions: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   actionGroup: { flexGrow: 1, flexBasis: 240, minWidth: 220, borderRadius: radii.control, padding: spacing.sm, gap: spacing.xs },
-  actionGroupTitle: { ...typography.label, fontWeight: '800' },
+  actionGroupTitle: { ...typography.label, fontWeight: '700' },
   actionGroupButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   selectedLoading: { minHeight: 58, alignItems: 'center', justifyContent: 'center' },
   selectedRecords: { gap: spacing.xs },
-  selectedRecordsTitle: { ...typography.label, fontWeight: '800' },
+  selectedRecordsTitle: { ...typography.label, fontWeight: '700' },
   selectedRecord: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },
   selectedRecordCompact: { alignItems: 'stretch', flexDirection: 'column' },
   workoutTags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },

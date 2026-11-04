@@ -3,6 +3,7 @@ import type { ComponentProps, PropsWithChildren, ReactNode, Ref } from 'react';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -18,7 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { radii, spacing, typography, useJienTheme } from '@/theme';
+import { controls, radii, spacing, typography, useJienTheme } from '@/theme';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -36,6 +37,7 @@ export function Screen({
   const { colors } = useJienTheme();
   return (
     <SafeAreaView edges={['left', 'right']} style={[styles.screen, { backgroundColor: colors.canvas }]}>
+      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
         ref={scrollViewRef}
         style={styles.screenScroll}
@@ -49,6 +51,7 @@ export function Screen({
           <View style={styles.screenFooterContent}>{footer}</View>
         </View>
       ) : null}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -361,11 +364,11 @@ const styles = StyleSheet.create({
   heroTitle: { ...typography.display, fontWeight: '700', letterSpacing: -0.9 },
   heroBody: { ...typography.bodyLarge, maxWidth: 600 },
   heroContent: { gap: spacing.md },
-  sectionHeading: { gap: 2 },
+  sectionHeading: { gap: spacing.xxs },
   sectionTitle: { ...typography.section, fontWeight: '700' },
   muted: { ...typography.label, opacity: 0.7 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.md, gap: spacing.sm },
-  button: { minHeight: 48, paddingHorizontal: spacing.lg, borderRadius: radii.control, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  button: { minHeight: controls.height, paddingHorizontal: spacing.lg, borderRadius: radii.control, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   buttonContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
   buttonLabel: { fontWeight: '700' },
   busyContent: { opacity: 0 },
@@ -373,23 +376,23 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.48 },
   // Reserve focus-ring space so focusing a wrapping chip cannot move it mid-tap.
-  pill: { minHeight: 44, borderWidth: 2, borderRadius: radii.pill, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
+  pill: { minHeight: controls.minimumTouchTarget, borderWidth: 2, borderRadius: radii.pill, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' },
   pillLabel: { ...typography.label, fontWeight: '600' },
   focusedControl: { borderWidth: 2 },
   actionCard: { flex: 1, minWidth: 220, minHeight: 84, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  actionIcon: { width: 44, height: 44, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
-  actionCopy: { flex: 1, minWidth: 0, gap: 1 },
+  actionIcon: { width: controls.iconTouchTarget, height: controls.iconTouchTarget, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center' },
+  actionCopy: { flex: 1, minWidth: 0, gap: spacing.xxs },
   actionTitle: { ...typography.bodyLarge, fontWeight: '700' },
   actionDetail: { ...typography.label },
   choice: { minHeight: 72, borderWidth: 1, borderRadius: radii.card, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   choiceCopy: { flex: 1, gap: spacing.xxs },
   choiceTitle: { ...typography.bodyLarge, fontWeight: '700' },
   choiceBody: { ...typography.label },
-  choiceMark: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  choiceMark: { width: 24, height: 24, borderRadius: radii.control, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   choiceTick: { ...typography.caption, fontWeight: '700' },
   field: { gap: spacing.xs },
   fieldLabel: { ...typography.label, fontWeight: '700' },
-  input: { minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, paddingHorizontal: spacing.md, ...typography.body },
+  input: { minHeight: controls.height, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.control, paddingHorizontal: spacing.md, ...typography.body },
   fieldHint: { ...typography.caption, opacity: 0.7 },
   statePanel: { alignItems: 'flex-start', paddingVertical: spacing.xl },
   stateTitle: { ...typography.bodyLarge, fontWeight: '700' },

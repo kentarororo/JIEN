@@ -84,7 +84,7 @@ export default function IndexRoute() {
 const styles = StyleSheet.create({
   screen: { width: '100%', maxWidth: 620, alignSelf: 'center', flexGrow: 1, justifyContent: 'center' },
   heading: { gap: spacing.xs },
-  brand: { ...typography.bodyLarge, fontWeight: '800', letterSpacing: 1.2 },
+  brand: { ...typography.bodyLarge, fontWeight: '700', letterSpacing: 1.2 },
   title: { ...typography.display, fontWeight: '700', letterSpacing: -0.7 },
   subtitle: { ...typography.bodyLarge },
   authCard: { padding: spacing.lg, gap: spacing.md },

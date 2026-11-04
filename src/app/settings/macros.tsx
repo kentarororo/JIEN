@@ -246,6 +246,6 @@ const styles = StyleSheet.create({
   twoCol: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   flex: { flex: 1, minWidth: 150 },
   dayRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  adaptiveTitle: { ...typography.bodyLarge, fontWeight: '800' },
-  adaptiveMetric: { ...typography.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  adaptiveTitle: { ...typography.bodyLarge, fontWeight: '700' },
+  adaptiveMetric: { ...typography.title, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });
