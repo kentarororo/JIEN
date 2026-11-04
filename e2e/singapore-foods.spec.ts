@@ -12,7 +12,8 @@ test('Singapore starter foods are searchable offline in Quick add and Add food, 
 
   // Quick add: local-only, so SG estimates come straight from the bundled seed.
   await page.getByLabel('Quick add', { exact: true }).fill('chicken rice');
-  const chickenRice = page.getByRole('button', { name: 'Add Chicken rice, steamed chicken', exact: true });
+  // One-tap Add logs straight away, so open the portion sheet to see the source label first.
+  const chickenRice = page.getByRole('button', { name: 'Adjust Chicken rice, steamed chicken portion', exact: true });
   await expect(chickenRice).toBeVisible();
   await chickenRice.click();
   await expect(page.getByText('JIEN estimate (SG) · USDA recipe-derived', { exact: true })).toBeVisible();
@@ -37,7 +38,7 @@ test('Singapore starter foods are searchable offline in Quick add and Add food, 
   await expect(page.getByLabel('Calories', { exact: true })).toHaveValue('250');
   // ...and savable as a private food, which then ranks above the SG estimate.
   await page.getByRole('button', { name: 'Save as private food', exact: true }).click();
-  await expect(page.getByText('Private food saved', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Roti prata, plain saved to your private foods/)).toBeVisible();
   await search.fill('roti prata');
   await expect(page.getByText('Roti prata, plain', { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/Private food$/).first()).toBeVisible();
