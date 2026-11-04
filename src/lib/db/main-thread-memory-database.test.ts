@@ -42,7 +42,15 @@ import {
 } from './workouts.ts';
 import { getDashboardSummary } from './dashboard.ts';
 import { saveMeal, getDailyNutrition, getMealDetail, getMealLoggingPattern, setNutritionDayState } from './nutrition.ts';
-import { listDailyFoodItems, changeDailyFoodPortion, removeDailyFoodItem } from './daily-food.ts';
+import {
+  addFoodCatalogItemsToDay,
+  changeDailyFoodPortion,
+  copyFoodHistoryToDay,
+  getLatestFoodCopyMeal,
+  listDailyFoodItems,
+  listRecentFoodCopyDays,
+  removeDailyFoodItem,
+} from './daily-food.ts';
 import { getWellnessHubSummary } from './wellness.ts';
 import { listCalendarActivity } from './calendar.ts';
 import { toLocalDateKey } from '../time.ts';
@@ -112,6 +120,24 @@ test('daily food items preserve meal history, isolate edits and atomically sync 
     await saveMeal(db, { name: 'Other day', type: 'other', eatenAt: new Date(2026, 0, 1, 12).toISOString(), items: [food] });
     assert.equal((await getMealLoggingPattern(db, new Date(2026, 0, 3))).sampleDays, 1, 'individual day entries do not establish meal-frequency patterns');
     const [rice, chicken] = await listDailyFoodItems(db, '2026-01-02');
+    const recentRice = (await searchLocalFoodCatalog(db, 'rize'))[0];
+    assert.equal(recentRice?.name, 'Rice', 'fuzzy local search finds history without a provider request');
+    assert.equal(recentRice?.isFromHistory, true);
+    assert.equal(recentRice?.servingQuantity, 100, 'history suggestions retain the last logged portion');
+    const copyDays = await listRecentFoodCopyDays(db, '2026-01-03');
+    assert.deepEqual(copyDays.map((day) => day.date), ['2026-01-02', '2026-01-01']);
+    assert.equal(copyDays[0]?.items.length, 2);
+    assert.equal((await getLatestFoodCopyMeal(db, '2026-01-02'))?.id, id, 'previous meal includes the selected day');
+    assert.equal(await copyFoodHistoryToDay(db, { targetDate: '2026-01-03', mealId: id }), 2);
+    assert.equal((await listDailyFoodItems(db, '2026-01-03')).length, 2);
+    await db.execAsync(`CREATE TEMP TRIGGER reject_copy_outbox BEFORE INSERT ON sync_queue
+      BEGIN SELECT RAISE(ABORT, 'copy queue rejected'); END;`);
+    await assert.rejects(copyFoodHistoryToDay(db, { targetDate: '2026-01-04', sourceDate: '2026-01-01' }), /copy queue rejected/);
+    assert.equal((await listDailyFoodItems(db, '2026-01-04')).length, 0, 'copy and outbox roll back together');
+    await db.execAsync('DROP TRIGGER reject_copy_outbox');
+    const banana = (await searchLocalFoodCatalog(db, 'banana'))[0]!;
+    await addFoodCatalogItemsToDay(db, '2026-01-05', [banana]);
+    assert.equal((await listDailyFoodItems(db, '2026-01-05'))[0]?.name, 'Banana');
     assert.equal(rice?.mealId, id);
     assert.equal(chicken?.name, 'Chicken');
     assert.equal((await getDailyNutrition(db, '2026-01-02')).totals.caloriesKcal, 330);
@@ -223,7 +249,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 18);
+    assert.equal(version?.user_version, 19);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -317,6 +343,7 @@ test('main-thread database persists committed work and isolates delayed transact
     assert.equal(exercises?.count, 132);
     assert.equal(foodColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), false);
     assert.equal(targetColumns.some((column) => column.name === 'desired_weekly_weight_change_percent'), true);
+    assert.equal(targetColumns.some((column) => column.name === 'weekly_check_in_day'), true, 'migration 19 adds the weekly check-in weekday');
     assert.equal(setColumns.some((column) => column.name === 'primary_muscle_group'), true);
     assert.equal(setColumns.some((column) => column.name === 'secondary_muscle_groups'), true);
     await recordAccountSyncHealth(database, {
@@ -985,7 +1012,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 18 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 19 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 

@@ -21,6 +21,17 @@
 - Food search, barcode and photo controls appear first. Manual entry has a direct
   action. Meal name and type are optional details; existing search, serving review,
   photo consent, manual macros, private foods and save behavior are unchanged.
+- Food now ranks the user's last logged portions, saved foods and time-of-day
+  frequency before built-in or provider results. Local abbreviations and small
+  spelling errors are resolved on-device. A suggestion can be added in one tap, or
+  several suggestions can be selected and committed once.
+- Copy yesterday, copy the latest earlier meal, and past-day item selection create
+  new editable snapshots in one local transaction. The source records are unchanged.
+  Quick macros records calories and protein with optional carbs and fat without
+  requiring a food-catalog entry.
+- Portion controls keep natural count units (piece, bowl, plate and scoop) beside
+  mass and volume units and expose half, one, one-and-a-half and double multipliers
+  inline.
 
 ## Live target contract
 
@@ -46,7 +57,10 @@ volume summary and completed-session feedback remain separate.
 
 ## Storage and release
 
-Existing SQLite records, draft persistence and sync remain in use. Only direct
+Existing SQLite records, draft persistence and sync remain in use. Food history
+ranking is calculated from existing meal snapshots, so no search terms or new
+preference table are stored. Quick add and every copy action write the new meal and
+food snapshots plus their idempotent outbox rows in one transaction. Only direct
 next-workout draft keys gain a choice suffix; existing plain-repeat and plan draft
 keys stay compatible. No schema, SQL migration, external provider or permission
 change is required. No personal production records are used for QA.

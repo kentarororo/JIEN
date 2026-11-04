@@ -47,14 +47,20 @@ async function openFoodDay(page: Page, daysAgo: number) {
   for (let day = 0; day < daysAgo; day += 1) await visible(page.getByRole('button', { name: 'Previous day', exact: true })).click();
 }
 
-/** Fill row `index` of the Add food draft; optionally save it as a private food for reuse. */
-async function enterFood(m: Meter, page: Page, index: number, food: Food, saveForReuse: boolean) {
+/**
+ * Fill row `index` of the Add food draft; optionally save it as a private food for reuse.
+ * `quick` enters only name, kcal and protein (carbs and fat are optional since #30), which is
+ * what a hurried user does for a one-off dish.
+ */
+async function enterFood(m: Meter, page: Page, index: number, food: Food, saveForReuse: boolean, quick = false) {
   if (index > 0) await m.tap(page.getByRole('button', { name: 'Add a blank food', exact: true }));
   await m.type(page.getByRole('textbox', { name: 'Food', exact: true }).nth(index), food.name);
-  for (const [label, value] of [['Calories', food.kcal], ['Protein (g)', food.protein], ['Carbs (g)', food.carbs], ['Fat (g)', food.fat]] as const) {
+  const macros = [['Calories', food.kcal], ['Protein (g)', food.protein], ['Carbs (g)', food.carbs], ['Fat (g)', food.fat]] as const;
+  for (const [label, value] of quick ? macros.slice(0, 2) : macros) {
     await m.type(page.getByLabel(label, { exact: true }).nth(index), value);
   }
   if (saveForReuse) {
+    // Since #30 Save as private food sits on the row beside More details (no extra tap).
     await m.tap(page.getByRole('button', { name: 'Save as private food', exact: true }).last());
     await expect(page.getByText(new RegExp(`${food.name.replace(/[()]/g, '\\$&')}.*saved|Saved`, 'i')).first()).toBeVisible();
   }
@@ -65,7 +71,10 @@ async function searchThenManual(m: Meter, page: Page, query: string) {
   const search = page.getByLabel('Food search', { exact: true });
   await m.type(search, query);
   await m.submit(search);
-  await expect(page.getByText(`Create private food for “${query}”`, { exact: true })).toBeVisible();
+  // Since #32 the bundled catalog can return a near miss (e.g. "Chicken curry with rice") instead of
+  // "Create private food for …"; either way the blank Food row below is where the dish is typed in.
+  await expect(page.getByText(`Create private food for “${query}”`, { exact: true })
+    .or(page.getByText(/^Found \d+ match/)).first()).toBeVisible();
 }
 
 async function addToDay(m: Meter, page: Page) {
@@ -87,21 +96,31 @@ async function saveInMyFoods(page: Page, food: Food) {
   await expect(page.getByText(food.name, { exact: true }).first()).toBeVisible();
 }
 
-/** Repeat a saved food from the Food tab's Quick add: type a few letters, tap it, confirm. */
+/**
+ * Repeat a saved or recent food from the Food tab's Quick add. Since #32 "Add <food>" logs the last
+ * portion in one tap (no confirm dialog); a different portion goes through "Adjust <food> portion".
+ */
 async function quickAdd(m: Meter, page: Page, query: string, name: string, portion?: string) {
   const field = visible(page.getByLabel('Quick add', { exact: true }));
-  await expect(field).toHaveValue('');
-  await expect(visible(page.getByText('Recent & common', { exact: true })).first()).toBeVisible();
+  await field.fill('');
+  await expect(visible(page.getByText('Recent & frequent for this time of day', { exact: true })).first()).toBeVisible();
   const item = visible(page.getByRole('button', { name: `Add ${name}`, exact: true })).first();
-  // Minimal path: tap it straight from "Recent & common" when it is listed, otherwise type to find it.
+  // Minimal path: tap it straight from the recent list when it is listed, otherwise type to find it.
   if (!(await item.count())) {
     await m.type(field, query);
-    await expect(visible(page.getByText('Saved matches', { exact: true })).first()).toBeVisible();
+    await expect(field).toHaveValue(query);
+    await expect(item).toBeVisible();
   }
-  await m.tap(item);
-  if (portion) await m.type(page.getByLabel('Portion', { exact: true }), portion);
-  await m.tap(page.getByRole('dialog').getByRole('button', { name: 'Add to day', exact: true }));
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  if (portion) {
+    await m.tap(visible(page.getByRole('button', { name: `Adjust ${name} portion`, exact: true })).first());
+    await m.type(page.getByLabel('Portion', { exact: true }), portion);
+    await m.tap(page.getByRole('dialog').getByRole('button', { name: /^Add/ }).first());
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  } else {
+    await m.tap(item);
+  }
+  await expect(page.getByText(/ added\.$/).last()).toBeVisible();
+  await expect(field).toHaveValue('');
 }
 
 test('persona 1 founder-type lifter: hawker food first, then a push day', async ({ context, page }, testInfo) => {
@@ -125,14 +144,19 @@ test('persona 1 founder-type lifter: hawker food first, then a push day', async 
   await enterFood(m, page, 0, CHICKEN_RICE, true);
   await enterFood(m, page, 1, KOPI_C, true);
   await addToDay(m, page);
-  m.stop('(a) Hawker meal, first time: chicken rice + kopi C, saved for reuse');
+  const savedHawker = m.stop('(a) Hawker meal, first time: chicken rice + kopi C, saved for reuse');
+  // #30 AC5: no worse than run 1's 17 taps, now without the ~2 screens of scrolling run 1 needed
+  // (Save as private food stays on the row, so no More details tap).
+  expect(savedHawker.taps).toBeLessThanOrEqual(17);
 
   // Day 1 dinner: single hawker dish, first time, not saved (what a hurried user does).
   m.start();
   await searchThenManual(m, page, 'mee rebus');
-  await enterFood(m, page, 0, MEE_REBUS, false);
+  await enterFood(m, page, 0, MEE_REBUS, false, true);
   await addToDay(m, page);
-  m.stop('(a) Hawker dish, first time: mee rebus, not saved');
+  const hurriedDish = m.stop('(a) Hawker dish, first time: mee rebus, not saved, name + kcal + protein');
+  // #30 AC4/AC5: search, submit, name, kcal, protein, Add to day. With carbs and fat required (run 1) this path was 9 taps.
+  expect(hurriedDish.taps).toBe(7);
 
   // Day 1 snack: protein shake created once and saved.
   m.start();
@@ -150,9 +174,16 @@ test('persona 1 founder-type lifter: hawker food first, then a push day', async 
 
   // Day 2: repeat yesterday's unsaved mee rebus. Today's build does not list unsaved foods under
   // Recent & common, so the fastest path is via yesterday's entry. If a later build lists it, use that.
+  // Since #32 unsaved foods from history are searchable in Quick add even when the short recent list
+  // doesn't show them, so probe by typing first.
   const recentMee = visible(page.getByRole('button', { name: `Add ${MEE_REBUS.name}`, exact: true }));
-  testInfo.annotations.push({ type: 'unsaved-food-in-recents', description: String(await recentMee.count() > 0) });
-  if (await recentMee.count()) {
+  const quickField = visible(page.getByLabel('Quick add', { exact: true }));
+  const listedWithoutTyping = await recentMee.count() > 0;
+  await quickField.fill('mee');
+  const findable = await recentMee.first().waitFor({ timeout: 3_000 }).then(() => true, () => false);
+  await quickField.fill('');
+  testInfo.annotations.push({ type: 'unsaved-food-in-recents', description: `listed=${listedWithoutTyping} findable=${findable}` });
+  if (findable) {
     m.start();
     await quickAdd(m, page, 'mee', MEE_REBUS.name);
   } else {

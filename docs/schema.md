@@ -328,6 +328,7 @@ See `docs/adaptive-nutrition.md`.
 | `protein_g`, `carbohydrate_g`, `fat_g` | `numeric(10,2)` | Non-negative daily macro targets |
 | `fibre_g` | `numeric(10,2)` | Optional non-negative daily fibre target |
 | `desired_weekly_weight_change_percent` | `numeric(5,2)` | User-chosen trend from `-1` through `+1`; never inferred from a broad goal |
+| `weekly_check_in_day` | `smallint` | Optional local weekday (`0` Sunday through `6` Saturday) for the review-only weekly check-in |
 | `source` | `nutrition_target_source` | `manual` or `adaptive` |
 | `rationale` | `text` | Optional plain-language reason for a change |
 | sync columns | timestamps | `created_at`, `updated_at`, `client_updated_at`, `deleted_at` |

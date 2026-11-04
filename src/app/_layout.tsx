@@ -11,6 +11,7 @@ import { GlobalTabBar } from '@/components/global-tab-bar';
 import { OAuthCallbackCompletion } from '@/components/oauth-callback-completion';
 import { WebAuthGate } from '@/components/web-auth-gate';
 import { WebCloudHydrationGate } from '@/components/web-cloud-hydration-gate';
+import { WebUpdateBanner } from '@/components/web-update-banner';
 import {
   reportWebSQLiteProviderError,
   WebSQLiteDatabaseLifecycle,
@@ -24,6 +25,7 @@ import {
 } from '@/lib/auth/oauth';
 import { migrateDatabase, recordRuntimeDiagnostic } from '@/lib/db';
 import { configureNotificationHandling } from '@/lib/notifications';
+import { registerOfflineAppShell } from '@/lib/pwa';
 import { JienThemeProvider, themes, useJienTheme } from '@/theme';
 
 configureNotificationHandling();
@@ -71,6 +73,7 @@ function AppNavigator() {
         <Stack.Screen name="settings/account" options={{ title: 'Account', presentation: 'modal' }} />
         <Stack.Screen name="settings/ai" options={{ title: 'AI connection', presentation: 'modal' }} />
       </Stack>
+      <WebUpdateBanner />
       <GlobalTabBar />
       <StatusBar style={isDark ? 'light' : 'dark'} />
     </View>
@@ -128,6 +131,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (Platform.OS === 'web') setWebUrlReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') void registerOfflineAppShell();
   }, []);
 
   if (!webUrlReady) {
