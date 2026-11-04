@@ -17,6 +17,7 @@ import {
 import { foodItemsEligibleForDiscoveryCache, parseFoodSearchData } from './food-search-contract';
 import { parseCommunityFoods } from './community-food-contract';
 import type { FoodCatalogItem } from './types';
+import { normalizeFoodSearch, rankFoodCandidates } from '../nutrition/food-ranking';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import {
   getSupabaseClient,
@@ -38,6 +39,7 @@ type FoodCatalogRow = {
   source_ref: string | null;
   barcode: string | null;
   is_shared?: number;
+  last_used_at?: string | null;
 };
 
 function mapFood(row: FoodCatalogRow): FoodCatalogItem {
@@ -57,6 +59,7 @@ function mapFood(row: FoodCatalogRow): FoodCatalogItem {
     barcode: row.barcode,
     confidence: null,
     isShared: Boolean(row.is_shared),
+    lastUsedAt: row.last_used_at ?? null,
   };
 }
 
@@ -72,31 +75,77 @@ export async function searchLocalFoodCatalog(
   db: SQLiteDatabase,
   query: string,
   limit = 8,
+  options: { at?: Date } = {},
 ): Promise<FoodCatalogItem[]> {
   const clean = query.trim();
-  if (clean.length === 0) {
-    const commonRows = await db.getAllAsync<FoodCatalogRow>(
+  if (clean.length === 1) return [];
+  const at = options.at ?? new Date();
+  const [catalogRows, historyRows] = await Promise.all([
+    db.getAllAsync<FoodCatalogRow>(
       `SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
-        protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode, is_shared
+        protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode,
+        is_shared, last_used_at
        FROM ${LOCAL_CATALOG}
-       ORDER BY CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC, name
-       LIMIT ?`,
-      [limit],
-    );
-    return commonRows.map(mapFood);
+       LIMIT 500`,
+    ),
+    db.getAllAsync<FoodCatalogRow & { eaten_at: string }>(
+      `SELECT 'history:' || f.id AS id, f.name, NULL AS brand,
+        f.quantity AS serving_quantity, f.unit AS serving_unit,
+        f.calories_kcal, f.protein_g, f.carbohydrate_g, f.fat_g, f.fibre_g,
+        'custom' AS source, NULL AS source_ref, NULL AS barcode, 0 AS is_shared,
+        m.eaten_at AS last_used_at, m.eaten_at
+       FROM food_items f
+       JOIN meals m ON m.id = f.meal_id
+       WHERE f.deleted_at IS NULL AND m.deleted_at IS NULL
+       ORDER BY m.eaten_at DESC, f.id DESC
+       LIMIT 1000`,
+    ),
+  ]);
+  const candidates = mergeFoodUsage(catalogRows, historyRows, at);
+  const barcode = clean.replace(/[\s-]/g, '');
+  if (/^\d{8,14}$/.test(barcode)) {
+    const exact = candidates.filter((item) => item.barcode === barcode);
+    if (exact.length) return exact.slice(0, limit);
   }
-  if (clean.length < 2) return [];
-  const rows = await db.getAllAsync<FoodCatalogRow>(
-    `SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
-      protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode, is_shared
-     FROM ${LOCAL_CATALOG}
-     WHERE name LIKE ? COLLATE NOCASE OR brand LIKE ? COLLATE NOCASE OR barcode = ?
-     ORDER BY CASE WHEN name LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
-       CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC, name
-     LIMIT ?`,
-    [`%${clean}%`, `%${clean}%`, clean.replace(/[\s-]/g, ''), `${clean}%`, limit],
-  );
-  return rows.map(mapFood);
+  return rankFoodCandidates(candidates, clean, limit, at);
+}
+
+function mergeFoodUsage(
+  catalogRows: FoodCatalogRow[],
+  historyRows: Array<FoodCatalogRow & { eaten_at: string }>,
+  at: Date,
+): FoodCatalogItem[] {
+  const candidates = new Map<string, FoodCatalogItem>();
+  for (const row of catalogRows) {
+    const item = mapFood(row);
+    candidates.set(foodUsageKey(item.name, item.brand), item);
+  }
+  for (const row of historyRows) {
+    const key = foodUsageKey(row.name, row.brand);
+    const existing = candidates.get(key);
+    const latest = existing?.isFromHistory ? existing : mapFood(row);
+    const usedAt = new Date(row.eaten_at);
+    const sameTimeOfDay = Number.isFinite(usedAt.getTime()) && foodTimeBand(usedAt.getHours()) === foodTimeBand(at.getHours());
+    candidates.set(key, {
+      ...latest,
+      isFromHistory: true,
+      usageCount: (existing?.usageCount ?? 0) + 1,
+      timeOfDayUsageCount: (existing?.timeOfDayUsageCount ?? 0) + (sameTimeOfDay ? 1 : 0),
+      lastUsedAt: existing?.lastUsedAt && existing.lastUsedAt > row.eaten_at ? existing.lastUsedAt : row.eaten_at,
+    });
+  }
+  return [...candidates.values()];
+}
+
+function foodUsageKey(name: string, brand: string | null): string {
+  return `${normalizeFoodSearch(name)}|${normalizeFoodSearch(brand ?? '')}`;
+}
+
+function foodTimeBand(hour: number): 'morning' | 'midday' | 'evening' | 'late' {
+  if (hour < 10) return 'morning';
+  if (hour < 15) return 'midday';
+  if (hour < 21) return 'evening';
+  return 'late';
 }
 
 export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatalogItem[]): Promise<void> {

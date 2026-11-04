@@ -633,3 +633,171 @@ function session(completedAt: string, reps: number) {
     secondaryMuscleGroups: ['triceps', 'front_delts'],
   }));
 }
+
+// #22 progress charts: pure aggregation over a large synthetic 2+ year history.
+import type { ExerciseHistorySession } from '../db/types.ts';
+import {
+  buildExerciseWeeklyTrend,
+  buildMuscleWeeklyTrend,
+  PROGRESS_CHART_RANGES,
+  progressChartMuscles,
+} from '../training/progress-charts.ts';
+import { isoWeekKey } from './index.ts';
+
+function seededRandom(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    return state / 2 ** 32;
+  };
+}
+
+function addDays(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const CHART_END = new Date(2026, 9, 24, 9); // Saturday 2026-10-24, local time
+const CHART_END_KEY = '2026-10-24';
+
+/** About 2.5 years of 3 sessions/week (Mon/Wed/Fri), working sets 5–15 reps, some lb sets. */
+function syntheticExerciseHistory(weeks = 130, seed = 22): ExerciseHistorySession[] {
+  const random = seededRandom(seed);
+  const sessions: ExerciseHistorySession[] = [];
+  const lastMonday = addDays(CHART_END_KEY, -5);
+  for (let week = weeks - 1; week >= 0; week -= 1) {
+    for (const offset of [0, 2, 4]) {
+      const performedOn = addDays(lastMonday, -week * 7 + offset);
+      if (performedOn > CHART_END_KEY || random() < 0.1) continue; // ~10% missed sessions leave gaps
+      const sets = Array.from({ length: 3 }, (_, index) => {
+        const lb = random() < 0.15;
+        const loadKg = Math.round((40 + (weeks - week) * 0.2 + random() * 10) * 2) / 2;
+        return {
+          id: `${performedOn}-${index}`,
+          reps: 5 + Math.floor(random() * 11),
+          loadValue: lb ? Math.round(loadKg / 0.45359237) : loadKg,
+          loadUnit: lb ? 'lb' as const : 'kg' as const,
+          rpe: null,
+        };
+      });
+      const volumeKg = sets.reduce((sum, set) => sum + (set.loadUnit === 'lb' ? set.loadValue * 0.45359237 : set.loadValue) * set.reps, 0);
+      sessions.push({ workoutId: `w-${performedOn}`, workoutTitle: 'Synthetic', performedOn, completedAt: `${performedOn}T10:00:00.000Z`, jointHold: false, volumeKg, sets });
+    }
+  }
+  return sessions.reverse(); // newest first, like getExerciseSessionHistory
+}
+
+function expectedExerciseWeek(sessions: ExerciseHistorySession[], week: string, repMin: number, repMax: number) {
+  const inWeek = sessions.filter((session) => isoWeekKey(session.performedOn) === week);
+  let best: { loadKg: number; reps: number } | null = null;
+  for (const set of inWeek.flatMap((session) => session.sets)) {
+    if (set.reps < repMin || set.reps > repMax) continue;
+    const loadKg = set.loadUnit === 'lb' ? set.loadValue * 0.45359237 : set.loadValue;
+    if (!best || loadKg > best.loadKg || (loadKg === best.loadKg && set.reps > best.reps)) best = { loadKg, reps: set.reps };
+  }
+  return {
+    volumeKg: Math.round(inWeek.reduce((sum, session) => sum + session.volumeKg, 0) * 100) / 100,
+    bestLoadKg: best ? Math.round(best.loadKg * 100) / 100 : null,
+    bestReps: best?.reps ?? null,
+  };
+}
+
+test('#22 exercise trend over 2+ years: dense consecutive weeks ending this week, exact weekly volume and best in-range set', () => {
+  const sessions = syntheticExerciseHistory();
+  assert.ok(sessions.length > 300, `synthetic history has ${sessions.length} sessions`);
+  assert.ok(sessions.at(-1)!.performedOn < addDays(CHART_END_KEY, -2 * 365), 'history spans more than two years');
+  for (const range of PROGRESS_CHART_RANGES) {
+    const points = buildExerciseWeeklyTrend(sessions, 8, 12, range, CHART_END);
+    assert.equal(points.length, range);
+    assert.equal(points.at(-1)!.week, isoWeekKey(CHART_END_KEY));
+    assert.equal(points[0]!.week, isoWeekKey(addDays(CHART_END_KEY, -(range - 1) * 7)));
+    assert.equal(new Set(points.map((point) => point.week)).size, range, 'no duplicate weeks');
+    for (const point of points) {
+      assert.deepEqual(Object.keys(point).sort(), ['bestLoadKg', 'bestReps', 'volumeKg', 'week'], 'no 1RM or estimate fields');
+      assert.deepEqual({ volumeKg: point.volumeKg, bestLoadKg: point.bestLoadKg, bestReps: point.bestReps }, expectedExerciseWeek(sessions, point.week, 8, 12), point.week);
+      if (point.bestReps != null) assert.ok(point.bestReps >= 8 && point.bestReps <= 12);
+    }
+  }
+  // Shorter ranges are exact suffixes of the 52-week series.
+  const year = buildExerciseWeeklyTrend(sessions, 8, 12, 52, CHART_END);
+  assert.deepEqual(buildExerciseWeeklyTrend(sessions, 8, 12, 12, CHART_END), year.slice(-12));
+  assert.deepEqual(buildExerciseWeeklyTrend(sessions, 8, 12, 26, CHART_END), year.slice(-26));
+  // Deterministic and independent of input order.
+  const shuffled = [...sessions].sort((a, b) => a.workoutId.localeCompare(b.workoutId) * (a.performedOn.endsWith('1') ? -1 : 1));
+  assert.deepEqual(buildExerciseWeeklyTrend(shuffled, 8, 12, 52, CHART_END), year);
+});
+
+test('#22 exercise trend: out-of-range reps, older sessions, gaps, lb loads and ties', () => {
+  const thisMonday = addDays(CHART_END_KEY, -5);
+  const session = (performedOn: string, sets: Array<[number, number, 'kg' | 'lb']>): ExerciseHistorySession => ({
+    workoutId: performedOn, workoutTitle: 'QA', performedOn, completedAt: `${performedOn}T10:00:00.000Z`, jointHold: false,
+    volumeKg: sets.reduce((sum, [load, reps, unit]) => sum + (unit === 'lb' ? load * 0.45359237 : load) * reps, 0),
+    sets: sets.map(([loadValue, reps, loadUnit], index) => ({ id: `${performedOn}-${index}`, reps, loadValue, loadUnit, rpe: null })),
+  });
+  const points = buildExerciseWeeklyTrend([
+    session(thisMonday, [[100, 3, 'kg'], [60, 8, 'kg'], [60, 10, 'kg']]), // the heavy triple is outside 8–12: best is 60 × 10 (tie → more reps)
+    session(addDays(thisMonday, -7), [[150, 8, 'lb']]), // 68.04 kg
+    session(addDays(thisMonday, -14), [[50, 15, 'kg']]), // logged, but no in-range set
+    session(addDays(thisMonday, -7 * 12), [[999, 10, 'kg']]), // older than 12 weeks: ignored
+  ], 8, 12, 12, CHART_END);
+  assert.deepEqual(points.at(-1), { week: isoWeekKey(thisMonday), volumeKg: 1380, bestLoadKg: 60, bestReps: 10 });
+  assert.deepEqual(points.at(-2), { week: isoWeekKey(addDays(thisMonday, -7)), volumeKg: 544.31, bestLoadKg: 68.04, bestReps: 8 });
+  assert.deepEqual(points.at(-3), { week: isoWeekKey(addDays(thisMonday, -14)), volumeKg: 750, bestLoadKg: null, bestReps: null });
+  assert.ok(points.slice(0, -3).every((point) => point.volumeKg === 0 && point.bestLoadKg == null), 'empty weeks are zero, not interpolated');
+  assert.ok(points.every((point) => point.bestLoadKg !== 999));
+  assert.deepEqual(buildExerciseWeeklyTrend([], 8, 12, 26, CHART_END).filter((point) => point.volumeKg || point.bestLoadKg), []);
+});
+
+test('#22 week keys stay consecutive across a 53-week ISO year', () => {
+  // ISO 2026 has 53 weeks; a 12-week window ending in early January 2027 must include 2026-W53 once.
+  const weeks = buildExerciseWeeklyTrend([], 8, 12, 12, new Date(2027, 0, 6, 12)).map((point) => point.week);
+  assert.deepEqual(weeks.slice(-3), ['2026-W52', '2026-W53', '2027-W01']);
+  assert.equal(new Set(weeks).size, 12);
+});
+
+test('#22 muscle trend over 2+ years matches aggregateWeeklyVolume per week, with programme muscles listed even before training', () => {
+  const random = seededRandom(7);
+  const sets = [];
+  for (let day = 0; day < 800; day += 2) {
+    const performedOn = addDays(CHART_END_KEY, -day);
+    for (let index = 0; index < 4; index += 1) {
+      sets.push({
+        reps: 6 + Math.floor(random() * 8), loadValue: 20 + Math.floor(random() * 60), loadUnit: 'kg' as const,
+        kind: index === 0 ? 'warmup' as const : 'working' as const,
+        completedAt: `${performedOn}T1${index}:00:00.000Z`, performedOn, movementPattern: 'squat',
+        primaryMuscleGroup: day % 4 === 0 ? 'quads' : 'chest', secondaryMuscleGroups: day % 4 === 0 ? ['glutes'] : ['triceps'],
+      });
+    }
+  }
+  const started = performance.now();
+  const weeks = aggregateWeeklyVolume(sets);
+  const quads = buildMuscleWeeklyTrend(weeks, 'quads', 52, CHART_END);
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 1_000, `aggregation took ${elapsed.toFixed(1)} ms for ${sets.length} sets`);
+  assert.equal(quads.length, 52);
+  assert.equal(quads.at(-1)!.week, isoWeekKey(CHART_END_KEY));
+  const byWeek = new Map(weeks.map((week) => [week.week, week]));
+  for (const point of quads) {
+    const week = byWeek.get(point.week);
+    assert.equal(point.setCredits, Math.round((week?.muscleGroupSets.quads ?? 0) * 100) / 100);
+    assert.equal(point.volumeKg, Math.round((week?.muscleGroups.quads ?? 0) * 100) / 100);
+  }
+  // Full weeks: 3 or 4 quad sessions × 3 working sets each (warm-ups excluded).
+  assert.ok(quads.slice(1, -1).every((point) => point.setCredits >= 3 && point.setCredits <= 12), JSON.stringify(quads.map((point) => point.setCredits)));
+  const glutes = buildMuscleWeeklyTrend(weeks, 'glutes', 12, CHART_END);
+  assert.deepEqual(glutes.map((point) => point.setCredits), quads.slice(-12).map((point) => point.setCredits / 2), 'assisting muscles count 0.5');
+  assert.deepEqual(buildMuscleWeeklyTrend(weeks, 'hamstrings', 12, CHART_END).map((point) => point.setCredits), Array(12).fill(0));
+  assert.deepEqual(progressChartMuscles(weeks, ['hamstrings', 'chest']), ['chest', 'glutes', 'hamstrings', 'quads', 'triceps']);
+  assert.deepEqual(progressChartMuscles([], ['lats']), ['lats']);
+});
+
+test('#22 20,000 synthetic sessions aggregate into a 52-week chart quickly', () => {
+  const base = syntheticExerciseHistory();
+  const sessions = Array.from({ length: 20_000 }, (_, index) => ({ ...base[index % base.length]!, workoutId: `w-${index}` }));
+  const started = performance.now();
+  const points = buildExerciseWeeklyTrend(sessions, 6, 12, 52, CHART_END);
+  const elapsed = performance.now() - started;
+  assert.equal(points.length, 52);
+  assert.ok(elapsed < 500, `took ${elapsed.toFixed(1)} ms`);
+});

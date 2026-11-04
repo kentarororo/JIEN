@@ -1,28 +1,37 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSQLiteContext } from '@/lib/db/database-context';
-import { AppText, Button, Card, Field, Screen, ScreenHeading, StatePanel } from '@/components/ui';
+import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, StatePanel } from '@/components/ui';
 import {
   changeDailyFoodPortion, markFoodCatalogItemUsed, removeDailyFoodItem, saveMeal, searchLocalFoodCatalog,
   type DailyFoodItem, type FoodCatalogItem,
 } from '@/lib/db';
 import { localTimestampForDate } from '@/lib/time';
+import { convertServingQuantity, multipliedPortion, PORTION_MULTIPLIERS, servingScale, servingUnitOptions } from '@/lib/nutrition/serving';
 import { spacing, typography, useJienTheme } from '@/theme';
 
 export type FoodSelection = { kind: 'logged'; food: DailyFoodItem } | { kind: 'catalog'; food: FoodCatalogItem };
 
-export function DailyFoodQuickAdd({ onSelect, onMore }: { onSelect: (selection: FoodSelection) => void; onMore: (query: string) => void }) {
+export function DailyFoodQuickAdd({ onSelect, onQuickAdd, onMultiAdd, onMore }: {
+  onSelect: (selection: FoodSelection) => void;
+  onQuickAdd: (food: FoodCatalogItem) => Promise<void>;
+  onMultiAdd: (foods: FoodCatalogItem[]) => Promise<void>;
+  onMore: (query: string) => void;
+}) {
   const db = useSQLiteContext();
   const { colors } = useJienTheme();
   const [query, setQuery] = useState('');
   const [foods, setFoods] = useState<FoodCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [savingId, setSavingId] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
+    setSelectedIds([]);
     const timer = setTimeout(() => {
       void searchLocalFoodCatalog(db, query, query.trim() ? 8 : 3).then((rows) => {
         if (active) setFoods(rows);
@@ -32,13 +41,56 @@ export function DailyFoodQuickAdd({ onSelect, onMore }: { onSelect: (selection: 
     }, 150);
     return () => { active = false; clearTimeout(timer); };
   }, [db, query]);
+  const toggle = (id: string) => setSelectedIds((current) => current.includes(id)
+    ? current.filter((value) => value !== id)
+    : [...current, id]);
+  const quickAdd = async (food: FoodCatalogItem) => {
+    setSavingId(food.id); setError(null);
+    try { await onQuickAdd(food); } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The food could not be added. Try again.');
+    } finally { setSavingId(null); }
+  };
+  const multiAdd = async () => {
+    const selected = foods.filter((food) => selectedIds.includes(food.id));
+    if (!selected.length) return;
+    setSavingId('multi'); setError(null);
+    try { await onMultiAdd(selected); setSelectedIds([]); } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The selected foods could not be added. Try again.');
+    } finally { setSavingId(null); }
+  };
   return <Card>
     <Field label="Quick add" placeholder="Search saved foods" value={query} onChangeText={setQuery} returnKeyType="search" onSubmitEditing={() => onMore(query)} />
     {error ? <AppText accessibilityRole="alert" style={{ color: colors.danger }}>{error}</AppText> : null}
     {loading ? <AppText style={{ color: colors.textMuted }}>Finding saved foods…</AppText> : foods.length ? <>
-      <AppText style={{ color: colors.textMuted }}>{query.trim() ? 'Saved matches' : 'Recent & common'}</AppText>
-      {foods.map((food) => <Button key={food.id} label={`${food.name}${food.brand ? ` · ${food.brand}` : ''}`}
-        accessibilityLabel={`Add ${food.name}`} variant="quiet" onPress={() => onSelect({ kind: 'catalog', food })} />)}
+      <AppText style={{ color: colors.textMuted }}>{query.trim() ? 'Your matches first' : 'Recent & frequent for this time of day'}</AppText>
+      <View style={styles.suggestionList}>{foods.map((food) => {
+        const selected = selectedIds.includes(food.id);
+        return <View key={food.id} style={[styles.suggestionRow, { borderColor: colors.border }]}>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityLabel={`Select ${food.name}`}
+            accessibilityState={{ checked: selected }}
+            onPress={() => toggle(food.id)}
+            style={({ pressed }) => [styles.suggestionChoice, pressed && styles.pressed]}
+          >
+            <View style={[styles.check, { borderColor: selected ? colors.accent : colors.border, backgroundColor: selected ? colors.accent : 'transparent' }]}>
+              {selected ? <AppText style={{ color: colors.textOnAccent }}>✓</AppText> : null}
+            </View>
+            <View style={styles.suggestionCopy}>
+              <AppText style={styles.suggestionName}>{food.name}{food.brand ? ` · ${food.brand}` : ''}</AppText>
+              <AppText style={{ color: colors.textMuted }}>{food.servingQuantity} {food.servingUnit} · {Math.round(food.caloriesKcal)} kcal{food.isFromHistory ? ' · last logged portion' : ''}</AppText>
+            </View>
+          </Pressable>
+          <View style={styles.suggestionActions}>
+            <Button label={`Add ${food.name}`} accessibilityLabel={`Add ${food.name}`} variant="secondary"
+              busy={savingId === food.id} disabled={savingId != null} onPress={() => void quickAdd(food)} />
+            <Button label="Portion" accessibilityLabel={`Adjust ${food.name} portion`} variant="quiet"
+              disabled={savingId != null} onPress={() => onSelect({ kind: 'catalog', food })} />
+          </View>
+        </View>;
+      })}</View>
+      {selectedIds.length ? <Button label={`Add ${selectedIds.length} selected food${selectedIds.length === 1 ? '' : 's'}`}
+        busy={savingId === 'multi'} disabled={savingId != null} onPress={() => void multiAdd()} /> : null}
     </> : <AppText style={{ color: colors.textMuted }}>No saved matches. Search online or enter a new food.</AppText>}
     <Button label="More foods, barcode or photo" variant="secondary" onPress={() => onMore(query)} />
   </Card>;
@@ -52,19 +104,29 @@ export function DailyFoodEntry({ selection, date, onClose, onSaved, onDetails }:
   const db = useSQLiteContext();
   const { colors } = useJienTheme();
   const originalQuantity = selection.kind === 'logged' ? selection.food.quantity : selection.food.servingQuantity;
-  const unit = selection.kind === 'logged' ? selection.food.unit : selection.food.servingUnit;
+  const originalUnit = selection.kind === 'logged' ? selection.food.unit : selection.food.servingUnit;
   const [quantity, setQuantity] = useState(String(originalQuantity));
+  const [unit, setUnit] = useState(originalUnit);
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const valid = quantity.trim() !== '' && Number.isFinite(Number(quantity)) && Number(quantity) > 0 && originalQuantity > 0;
-  const scale = valid ? Number(quantity) / originalQuantity : 0;
+  const scale = valid ? servingScale(Number(quantity), unit, originalQuantity, originalUnit) ?? 0 : 0;
   const food = selection.food;
   const totals = {
     caloriesKcal: food.caloriesKcal * scale, proteinG: food.proteinG * scale,
     carbohydrateG: food.carbohydrateG * scale, fatG: food.fatG * scale,
     fibreG: food.fibreG == null ? null : food.fibreG * scale,
+  };
+  const useMultiplier = (multiplier: number) => {
+    const next = multipliedPortion(originalQuantity, multiplier);
+    if (next != null) { setUnit(originalUnit); setQuantity(String(next)); }
+  };
+  const changeUnit = (nextUnit: string) => {
+    const converted = convertServingQuantity(Number(quantity), unit, nextUnit);
+    setUnit(nextUnit);
+    if (converted != null) setQuantity(String(Math.round(converted * 100) / 100));
   };
   const save = async (remove = false) => {
     if (lock.current) return;
@@ -72,7 +134,7 @@ export function DailyFoodEntry({ selection, date, onClose, onSaved, onDetails }:
     try {
       if (selection.kind === 'logged') {
         if (remove) await removeDailyFoodItem(db, food.id);
-        else await changeDailyFoodPortion(db, food.id, Number(quantity));
+        else await changeDailyFoodPortion(db, food.id, Number(quantity), unit);
       } else {
         if (!valid || Object.values(totals).some((value) => value != null && !Number.isFinite(value))) throw new Error('Enter a valid portion.');
         await saveMeal(db, {
@@ -102,6 +164,14 @@ export function DailyFoodEntry({ selection, date, onClose, onSaved, onDetails }:
             fatsecret: 'FatSecret Platform', ai_photo: 'Photo estimate',
           })[selection.food.source]}</AppText> : null}
           <Field label="Portion" hint={unit} value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" editable={!busy} />
+          <View style={styles.multiplierRow}>{servingUnitOptions(unit).map((option) => <Pill key={option}
+            label={option} active={unit === option} onPress={() => changeUnit(option)} />)}</View>
+          <View style={styles.multiplierRow}>
+            {PORTION_MULTIPLIERS.map((multiplier) => <Button key={multiplier}
+              label={multiplier === 0.5 ? '½×' : multiplier === 1.5 ? '1½×' : `${multiplier}×`}
+              accessibilityLabel={`${multiplier} times the saved portion`}
+              onPress={() => useMultiplier(multiplier)} disabled={busy} variant="quiet" />)}
+          </View>
           <AppText style={{ color: colors.textMuted }}>Calories and macros scale with the portion.</AppText>
           <AppText style={styles.title}>{Math.round(totals.caloriesKcal)} kcal</AppText>
           <AppText>P {round(totals.proteinG)} g · C {round(totals.carbohydrateG)} g · F {round(totals.fatG)} g</AppText>
@@ -130,4 +200,13 @@ const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: 700, alignSelf: 'center' },
   title: { ...typography.section, fontWeight: '700' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  suggestionList: { gap: spacing.xs },
+  suggestionRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.xs, gap: spacing.xs },
+  suggestionChoice: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  suggestionCopy: { flex: 1, minWidth: 0 },
+  suggestionName: { fontWeight: '700' },
+  suggestionActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  check: { width: 24, height: 24, borderWidth: 1.5, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  multiplierRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  pressed: { opacity: 0.68 },
 });

@@ -5,9 +5,9 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { listBodyMeasurements, saveBodyMeasurement } from '@/lib/db';
+import { getAdaptiveNutritionHistory, listBodyMeasurements, saveBodyMeasurement } from '@/lib/db';
+import { buildAdaptiveNutritionMetrics } from '@/lib/nutrition/adaptive-metrics';
 import { formatShortDate, localTimestampForDate, toLocalDateKey } from '@/lib/time';
-import { buildBodyWeightTrend } from '@/lib/wellness/body-trend';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function BodyMeasurementsScreen() {
@@ -17,7 +17,13 @@ export default function BodyMeasurementsScreen() {
   const { colors } = useJienTheme();
   const { width } = useWindowDimensions();
   const selectedDate = normalizeDate(firstParam(params.date));
-  const loader = useCallback(() => listBodyMeasurements(db, 90), [db]);
+  const loader = useCallback(async () => {
+    const [measurements, adaptiveHistory] = await Promise.all([
+      listBodyMeasurements(db, 90),
+      getAdaptiveNutritionHistory(db, 42),
+    ]);
+    return { measurements, adaptiveHistory };
+  }, [db]);
   const { data, error, loading, reload } = useScreenData(loader);
   const initialized = useRef(false);
   const [heightCm, setHeightCm] = useState('');
@@ -26,8 +32,9 @@ export default function BodyMeasurementsScreen() {
   const [bodyFatIsEstimated, setBodyFatIsEstimated] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const history = data ?? [];
-  const trend = useMemo(() => buildBodyWeightTrend(history), [history]);
+  const history = data?.measurements ?? [];
+  const metrics = useMemo(() => buildAdaptiveNutritionMetrics(data?.adaptiveHistory ?? []), [data?.adaptiveHistory]);
+  const trend = metrics.bodyTrend;
 
   useEffect(() => {
     if (initialized.current || loading) return;
@@ -64,7 +71,7 @@ export default function BodyMeasurementsScreen() {
   if (error) return <Screen><StatePanel title="Body history is unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /></Screen>;
 
   const chartPoints = trend.points.slice(width >= 700 ? -14 : -8);
-  const chartWeights = chartPoints.map((point) => point.bodyWeightKg);
+  const chartWeights = chartPoints.flatMap((point) => [point.bodyWeightKg, point.trendKg]);
   const chartMin = chartWeights.length ? Math.min(...chartWeights) : 0;
   const chartMax = chartWeights.length ? Math.max(...chartWeights) : 0;
   const chartRange = Math.max(0.5, chartMax - chartMin);
@@ -100,17 +107,22 @@ export default function BodyMeasurementsScreen() {
         <Card>
           <View style={styles.metricRow}>
             <Metric label="Latest" value={`${formatKg(trend.latestKg)} kg`} />
-            <Metric label="Last 7 logged days" value={`${formatKg(trend.recentAverageKg)} kg`} />
+            <Metric label="Trend weight" value={trend.trendWeightReady
+              ? `${formatKg(trend.latestTrendKg)} kg`
+              : `Need more data (${trend.trendWeightDays} of ${trend.trendWeightRequiredDays} days)`} />
             <Metric label={trend.averageChangeKg == null ? 'Previous entry' : 'Average change'} value={formatChange(trend.averageChangeKg ?? trend.latestChangeKg)} />
           </View>
+          <View style={styles.legendRow}><View style={[styles.legendSwatch, { backgroundColor: colors.wood }]} /><AppText style={{ color: colors.textMuted }}>Raw</AppText><View style={[styles.legendLine, { backgroundColor: colors.accent }]} /><AppText style={{ color: colors.textMuted }}>Trend</AppText></View>
           <View accessibilityLabel="Recent logged weight trend" style={styles.chart}>
             {chartPoints.map((point, index) => {
               const ratio = (point.bodyWeightKg - chartMin) / chartRange;
+              const trendRatio = (point.trendKg - chartMin) / chartRange;
               return (
                 <View key={point.id} style={styles.chartColumn}>
                   <AppText style={[styles.chartValue, { color: colors.textMuted }]}>{point.bodyWeightKg.toFixed(1)}</AppText>
                   <View style={[styles.chartTrack, { backgroundColor: colors.surfaceMuted }]}>
                     <View style={[styles.chartBar, { backgroundColor: colors.wood, height: `${Math.max(12, 18 + ratio * 82)}%` }]} />
+                    <View style={[styles.trendMarker, { backgroundColor: colors.accent, bottom: `${Math.max(2, Math.min(98, trendRatio * 100))}%` }]} />
                   </View>
                   <AppText style={[styles.chartDate, { color: colors.textMuted }]}>{index === 0 || index === chartPoints.length - 1 ? formatShortDate(point.loggedAt) : '·'}</AppText>
                 </View>
@@ -119,6 +131,18 @@ export default function BodyMeasurementsScreen() {
           </View>
         </Card>
       ) : <StatePanel title="No body measurements yet" body="Add a weight entry to start a trend. Averages appear after enough measurements are available." />}
+
+      <SectionHeading title="Estimated expenditure" detail="Rolling 28-day maintenance range" />
+      <Card>
+        <AppText style={styles.metricValue}>{metrics.expenditure.ready
+          ? `~${metrics.expenditure.estimateKcal?.toLocaleString()} kcal/day`
+          : `Need more data (${Math.min(metrics.expenditure.completeDays, metrics.expenditure.requiredCompleteDays)} of ${metrics.expenditure.requiredCompleteDays} days)`}</AppText>
+        <AppText style={{ color: colors.textMuted }}>{metrics.expenditure.ready
+          ? `${metrics.expenditure.rangeLowKcal?.toLocaleString()}–${metrics.expenditure.rangeHighKcal?.toLocaleString()} kcal/day · ${metrics.expenditure.confidence} confidence`
+          : `${metrics.expenditure.weightDays} of ${metrics.expenditure.requiredWeightDays} weigh-in days · ${metrics.expenditure.spanDays} of ${metrics.expenditure.requiredSpanDays} elapsed days`}</AppText>
+        <AppText style={{ color: colors.textMuted }}>Only plausible Complete food days count. Partial and missing days are excluded, never treated as zero. Not medical advice.</AppText>
+        <Button label="Review weekly targets" onPress={() => router.push('/settings/macros')} variant="secondary" />
+      </Card>
 
       {history.length ? (
         <>
@@ -181,11 +205,15 @@ const styles = StyleSheet.create({
   metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   metric: { flex: 1, minWidth: 130 },
   metricValue: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  legendSwatch: { width: 12, height: 12, borderRadius: radii.compact },
+  legendLine: { width: 18, height: 3, borderRadius: radii.compact },
   chart: { height: 180, flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xxs, paddingTop: spacing.sm },
   chartColumn: { flex: 1, height: '100%', minWidth: 18, alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
   chartValue: { ...typography.caption, fontVariant: ['tabular-nums'] },
   chartTrack: { width: '72%', flex: 1, borderRadius: radii.compact, justifyContent: 'flex-end', overflow: 'hidden' },
   chartBar: { width: '100%', minHeight: 8, borderRadius: radii.compact },
+  trendMarker: { position: 'absolute', left: 0, right: 0, height: 3, borderRadius: radii.compact },
   chartDate: { ...typography.caption, minHeight: 16 },
   historyRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs, borderBottomWidth: StyleSheet.hairlineWidth },
   historyWeight: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
