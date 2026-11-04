@@ -6,6 +6,32 @@ recommendation. It cannot write a target, close an effective target range, or ch
 macros automatically. The macro-target screen may copy a recommendation into its
 editable form only after the user selects it; saving remains a separate confirmation.
 
+## Trend weight
+
+Trend weight is a time-aware exponentially weighted moving average of the latest valid
+weight on each local date. The first reading seeds the series. Later readings use a
+seven-day half-life, so half of a reading's influence remains after seven calendar
+days; gaps advance the decay by the actual number of elapsed days. Raw measurements
+are never rewritten. JIEN shows `Need more data (x of 7 days)` until seven distinct
+weigh-in days exist, then shows the latest trend beside the raw points.
+
+## Expenditure estimate
+
+Estimated expenditure uses the latest 28 local days. Only food days explicitly marked
+Complete with at least 800 kcal contribute to average intake. Partial, not-logged,
+empty, and implausibly low Complete days are excluded rather than treated as zero.
+The estimate is:
+
+`average complete-day intake - (trend-weight change / elapsed days × 7,700 kcal/kg)`
+
+The `7,700 kcal/kg` energy-density value is a sizing heuristic, not an individual
+physiology claim. A value is withheld until the window has at least 14 qualifying
+intake days, seven weigh-in days, and 21 elapsed days between its first and last trend
+points. The displayed range combines robust intake variation, raw-to-trend weight
+noise, and missing-day coverage, rounds to 25 kcal, and is bounded to a 100–500 kcal
+half-width. High confidence requires 21 qualifying intake days, 14 weigh-in days, and
+the full 28-day span; otherwise a qualifying estimate is medium confidence.
+
 ## Inputs
 
 - Current daily calorie and protein targets.
@@ -74,3 +100,13 @@ protein target; this evaluator never invents or applies a new protein target.
 The evaluator makes no diagnosis or treatment claim. Illness, pregnancy, disordered-
 eating concerns, unexplained weight changes, or other clinical contexts belong
 outside this calculation and require appropriate professional review.
+
+## Weekly check-in
+
+The user may opt into a local weekday stored with the versioned nutrition target. On
+that day, the existing deterministic evaluator produces a review card. Insufficient
+history shows coverage progress; an in-range result recommends holding; an out-of-
+range result shows the conservatively capped calorie target and the existing protein
+target. Weight-rate evidence does not invent a new protein prescription. Nothing is
+written until the user taps **Apply weekly targets**. That action uses the normal
+local-first target save and queues the accepted `adaptive` target for sync.

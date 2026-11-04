@@ -1,9 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { localTimestampForDate, toLocalDateKey } from '../time';
+import { buildFoodCopyMeals, type FoodCopyRow } from '../nutrition/food-copy';
 import { mealDateQueryKey } from '../nutrition/meal-record';
+import { servingScale } from '../nutrition/serving';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import { enqueueUpsert } from './sync-queue';
-import type { MealSource } from './types';
+import { saveMeals } from './nutrition';
+import type { FoodCatalogItem, MealSource, MealType } from './types';
 
 type FoodRow = {
   id: string; meal_id: string; sort_order: number; name: string; quantity: number; unit: string;
@@ -17,6 +21,139 @@ export type DailyFoodItem = {
   caloriesKcal: number; proteinG: number; carbohydrateG: number; fatG: number; fibreG: number | null;
   source: MealSource; originalSource: MealSource;
 };
+
+export type FoodCopyDay = {
+  date: string;
+  meals: FoodCopyMeal[];
+  items: Array<{ id: string; mealId: string; name: string; quantity: number; unit: string; caloriesKcal: number }>;
+};
+
+export type FoodCopyMeal = { id: string; name: string; type: MealType | null; eatenAt: string; itemCount: number };
+
+export async function addFoodCatalogItemsToDay(
+  db: SQLiteDatabase,
+  date: string,
+  foods: FoodCatalogItem[],
+): Promise<void> {
+  if (!foods.length) throw new Error('Select at least one food.');
+  await saveMeals(db, [{
+    name: foods.length === 1 ? foods[0]!.name : 'Quick add',
+    type: 'other',
+    eatenAt: localTimestampForDate(mealDateQueryKey(date)),
+    items: foods.map((food) => ({
+      name: food.name,
+      quantity: food.servingQuantity,
+      unit: food.servingUnit,
+      caloriesKcal: food.caloriesKcal,
+      proteinG: food.proteinG,
+      carbohydrateG: food.carbohydrateG,
+      fatG: food.fatG,
+      fibreG: food.fibreG,
+      source: food.source === 'starter' || food.source === 'custom' ? 'manual' : 'imported',
+      confidence: null,
+    })),
+  }]);
+}
+
+export async function listRecentFoodCopyDays(
+  db: SQLiteDatabase,
+  beforeDate: string,
+  limit = 7,
+): Promise<FoodCopyDay[]> {
+  const dates = await db.getAllAsync<{ eaten_on: string }>(
+    `SELECT DISTINCT m.eaten_on FROM meals m
+     JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
+     WHERE m.eaten_on < ? AND m.deleted_at IS NULL
+     ORDER BY m.eaten_on DESC LIMIT ?`,
+    [mealDateQueryKey(beforeDate), limit],
+  );
+  if (!dates.length) return [];
+  const placeholders = dates.map(() => '?').join(', ');
+  const rows = await db.getAllAsync<Omit<FoodCopyRow, 'mealType'> & { meal_type: MealType | null; targetDate: string }>(
+    `SELECT m.id AS mealId, m.name AS mealName, m.type AS meal_type, m.eaten_at AS eatenAt,
+      f.id AS itemId, f.sort_order AS sortOrder, f.name, f.quantity, f.unit,
+      f.calories_kcal AS caloriesKcal, f.protein_g AS proteinG,
+      f.carbohydrate_g AS carbohydrateG, f.fat_g AS fatG, f.fibre_g AS fibreG,
+      m.eaten_on AS targetDate
+     FROM meals m JOIN food_items f ON f.meal_id = m.id
+     WHERE m.eaten_on IN (${placeholders}) AND m.deleted_at IS NULL AND f.deleted_at IS NULL
+     ORDER BY m.eaten_on DESC, m.eaten_at, m.id, f.sort_order`,
+    dates.map((row) => row.eaten_on),
+  );
+  return dates.map(({ eaten_on }) => {
+    const dayRows = rows.filter((row) => row.targetDate === eaten_on);
+    const meals = new Map<string, FoodCopyDay['meals'][number]>();
+    for (const row of dayRows) {
+      const meal = meals.get(row.mealId);
+      meals.set(row.mealId, {
+        id: row.mealId, name: row.mealName, type: row.meal_type, eatenAt: row.eatenAt,
+        itemCount: (meal?.itemCount ?? 0) + 1,
+      });
+    }
+    return {
+      date: eaten_on,
+      meals: [...meals.values()],
+      items: dayRows.map((row) => ({
+        id: row.itemId, mealId: row.mealId, name: row.name, quantity: row.quantity,
+        unit: row.unit, caloriesKcal: row.caloriesKcal,
+      })),
+    };
+  });
+}
+
+export async function getLatestFoodCopyMeal(
+  db: SQLiteDatabase,
+  throughDate: string,
+): Promise<FoodCopyMeal | null> {
+  const row = await db.getFirstAsync<{
+    id: string; name: string; type: MealType | null; eatenAt: string; itemCount: number;
+  }>(
+    `SELECT m.id, m.name, m.type, m.eaten_at AS eatenAt, COUNT(f.id) AS itemCount
+     FROM meals m JOIN food_items f ON f.meal_id = m.id AND f.deleted_at IS NULL
+     WHERE m.eaten_on <= ? AND m.deleted_at IS NULL
+     GROUP BY m.id, m.name, m.type, m.eaten_at
+     ORDER BY m.eaten_at DESC, m.id DESC LIMIT 1`,
+    [mealDateQueryKey(throughDate)],
+  );
+  return row ?? null;
+}
+
+export async function copyFoodHistoryToDay(db: SQLiteDatabase, input: {
+  targetDate: string;
+  sourceDate?: string;
+  mealId?: string;
+  itemIds?: string[];
+}): Promise<number> {
+  const targetDate = mealDateQueryKey(input.targetDate);
+  if (targetDate > toLocalDateKey()) throw new Error('Copied food must use today or an earlier date.');
+  const clauses = ['m.deleted_at IS NULL', 'f.deleted_at IS NULL'];
+  const values: Array<string> = [];
+  if (input.itemIds?.length) {
+    clauses.push(`f.id IN (${input.itemIds.map(() => '?').join(', ')})`);
+    values.push(...input.itemIds);
+  } else if (input.mealId) {
+    clauses.push('m.id = ?');
+    values.push(input.mealId);
+  } else if (input.sourceDate) {
+    clauses.push('m.eaten_on = ?');
+    values.push(mealDateQueryKey(input.sourceDate));
+  } else {
+    throw new Error('Choose a past meal or day to copy.');
+  }
+  const rows = await db.getAllAsync<FoodCopyRow>(
+    `SELECT m.id AS mealId, m.name AS mealName, m.type AS mealType, m.eaten_at AS eatenAt,
+      f.id AS itemId, f.sort_order AS sortOrder, f.name, f.quantity, f.unit,
+      f.calories_kcal AS caloriesKcal, f.protein_g AS proteinG,
+      f.carbohydrate_g AS carbohydrateG, f.fat_g AS fatG, f.fibre_g AS fibreG
+     FROM meals m JOIN food_items f ON f.meal_id = m.id
+     WHERE ${clauses.join(' AND ')} ORDER BY m.eaten_at, m.id, f.sort_order`,
+    values,
+  );
+  if (!rows.length) throw new Error('That past food is no longer available.');
+  const meals = buildFoodCopyMeals(rows, targetDate);
+  await saveMeals(db, meals);
+  return rows.length;
+}
 
 /** One query across both old multi-item meals and new individual entries. */
 export async function listDailyFoodItems(db: SQLiteDatabase, date: string): Promise<DailyFoodItem[]> {
@@ -34,25 +171,27 @@ export async function listDailyFoodItems(db: SQLiteDatabase, date: string): Prom
 }
 
 /** Read, scale and enqueue in one transaction; never rewrite sibling foods. */
-export async function changeDailyFoodPortion(db: SQLiteDatabase, itemId: string, quantity: number): Promise<void> {
+export async function changeDailyFoodPortion(db: SQLiteDatabase, itemId: string, quantity: number, unit?: string): Promise<void> {
   if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Enter a portion greater than zero.');
   await withExclusiveTransaction(db, async (tx) => {
     const row = await activeFood(tx, itemId);
     if (!Number.isFinite(row.quantity) || row.quantity <= 0) throw new Error('Open the saved entry to correct its original portion.');
-    if (row.quantity === quantity) return;
-    const scale = quantity / row.quantity;
+    const nextUnit = unit?.trim() || row.unit;
+    if (row.quantity === quantity && row.unit === nextUnit) return;
+    const scale = servingScale(quantity, nextUnit, row.quantity, row.unit);
+    if (scale == null) throw new Error('Choose a compatible portion unit.');
     const now = new Date().toISOString();
     const values = [row.calories_kcal, row.protein_g, row.carbohydrate_g, row.fat_g].map((n) => n * scale);
     const fibre = row.fibre_g == null ? null : row.fibre_g * scale;
     if ([...values, fibre ?? 0].some((n) => !Number.isFinite(n) || n < 0)) throw new Error('That portion is too large. Enter a smaller amount.');
     await tx.runAsync(
-      `UPDATE food_items SET quantity = ?, calories_kcal = ?, protein_g = ?, carbohydrate_g = ?,
+      `UPDATE food_items SET quantity = ?, unit = ?, calories_kcal = ?, protein_g = ?, carbohydrate_g = ?,
        fat_g = ?, fibre_g = ?, source = 'manual', confidence = NULL, original_source = ?,
        original_confidence = ?, is_user_edited = 1, updated_at = ?, client_updated_at = ? WHERE id = ?`,
-      [quantity, ...values, fibre, row.original_source ?? row.source, row.original_confidence ?? row.confidence, now, now, itemId],
+      [quantity, nextUnit, ...values, fibre, row.original_source ?? row.source, row.original_confidence ?? row.confidence, now, now, itemId],
     );
     await enqueueUpsert(tx, 'food_items', itemId, {
-      ...foodPayload(row), quantity, calories_kcal: values[0], protein_g: values[1],
+      ...foodPayload(row), quantity, unit: nextUnit, calories_kcal: values[0], protein_g: values[1],
       carbohydrate_g: values[2], fat_g: values[3], fibre_g: fibre, source: 'manual', confidence: null,
       is_user_edited: true, client_updated_at: now, deleted_at: null,
     });

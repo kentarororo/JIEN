@@ -1,7 +1,7 @@
 import { Link, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, ProgressBar, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
@@ -11,6 +11,7 @@ import { getWorkoutProgressComparison, listRecentWorkouts, listUpcomingPlannedWo
 import { aggregateWeeklyVolume, buildMuscleGroupAdvisory, buildMuscleGroupTrends, buildMuscleVolumeDropFlags, muscleGroupLabel, type MuscleGroupAdvisory, type MuscleGroupTrend, type WeeklyVolume } from '@/lib/progression';
 import { formatShortDate, formatTime } from '@/lib/time';
 import { filterWorkoutHistory, groupWorkoutHistoryByMonth } from '@/lib/training/history';
+import { buildMuscleWeeklyTrend, progressChartMuscles, PROGRESS_CHART_RANGES, type MuscleWeeklyTrendPoint, type ProgressChartRange } from '@/lib/training/progress-charts';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function TrainScreen() {
@@ -23,11 +24,13 @@ export default function TrainScreen() {
   const [historyMuscle, setHistoryMuscle] = useState<string | null>(null);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(12);
   const [showAllHistoryMuscles, setShowAllHistoryMuscles] = useState(false);
+  const [muscleChartRange, setMuscleChartRange] = useState<ProgressChartRange>(12);
+  const [muscleChartGroup, setMuscleChartGroup] = useState<string | null>(null);
   const loader = useCallback(async () => {
     const [workouts, planned, volumeSets, progress, programme, adherence] = await Promise.all([
       listRecentWorkouts(db, 100),
       listUpcomingPlannedWorkouts(db),
-      listVolumeHistory(db),
+      listVolumeHistory(db, new Date(Date.now() - 370 * 86_400_000)),
       getWorkoutProgressComparison(db),
       getTrainingProgrammeProgress(db),
       getTrainingAdherence(db),
@@ -36,6 +39,7 @@ export default function TrainScreen() {
     return {
       workouts,
       planned,
+      volumeSets,
       weeks,
       advisory: buildMuscleGroupAdvisory(volumeSets),
       muscleTrends: buildMuscleGroupTrends(weeks),
@@ -60,6 +64,23 @@ export default function TrainScreen() {
     const primary = historyMuscles.slice(0, 7);
     return historyMuscle && !primary.includes(historyMuscle) ? [...primary, historyMuscle] : primary;
   }, [historyMuscle, historyMuscles, showAllHistoryMuscles]);
+  const chartMuscles = useMemo(() => progressChartMuscles(
+    data?.weeks ?? [],
+    data?.programme?.programme.targets.map((target) => target.muscleGroup) ?? [],
+  ).sort((a, b) => muscleGroupLabel(a).localeCompare(muscleGroupLabel(b))), [data?.programme, data?.weeks]);
+  const activeChartMuscle = muscleChartGroup && chartMuscles.includes(muscleChartGroup)
+    ? muscleChartGroup
+    : chartMuscles[0] ?? null;
+  const muscleChartPoints = useMemo(() => activeChartMuscle
+    ? buildMuscleWeeklyTrend(data?.weeks ?? [], activeChartMuscle, muscleChartRange)
+    : [], [activeChartMuscle, data?.weeks, muscleChartRange]);
+  const muscleChartTarget = data?.programme?.programme.targets
+    .find((target) => target.muscleGroup === activeChartMuscle)?.weeklySetCredits ?? null;
+  const muscleChartSessionCount = useMemo(() => activeChartMuscle ? new Set(
+    (data?.volumeSets ?? [])
+      .filter((set) => set.kind !== 'warmup' && (set.primaryMuscleGroup === activeChartMuscle || set.secondaryMuscleGroups.includes(activeChartMuscle)))
+      .map((set) => set.completedAt),
+  ).size : 0, [activeChartMuscle, data?.volumeSets]);
 
   return (
     <Screen>
@@ -154,6 +175,17 @@ export default function TrainScreen() {
           <AppText style={[styles.chartNote, { color: colors.textMuted }]}>Completed working, failure and drop-set load × reps—not a strength or muscle-growth score.</AppText>
         </Card>
       ) : null}
+      {data && muscleChartSessionCount >= 2 && activeChartMuscle ? <>
+        <SectionHeading title="Muscle trends" detail="Weekly training-set credits and logged work" />
+        <Card>
+          <ChartRangePicker value={muscleChartRange} onChange={setMuscleChartRange} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.muscleChartFilters}>
+            {chartMuscles.map((muscle) => <Pill key={muscle} label={muscleGroupLabel(muscle)} active={activeChartMuscle === muscle} onPress={() => setMuscleChartGroup(muscle)} />)}
+          </ScrollView>
+          <MuscleWeeklyCharts muscleGroup={activeChartMuscle} points={muscleChartPoints} targetSetCredits={muscleChartTarget} />
+          <AppText style={[styles.chartNote, { color: colors.textMuted }]}>Primary targets count 1.0 set credit and assisting targets count 0.5. Logged load × reps is shown separately; neither chart estimates maximum strength.</AppText>
+        </Card>
+      </> : data && activeChartMuscle && data.workouts.length > 0 ? <StatePanel title="Log 2 sessions to see a trend" body={muscleChartSessionCount === 1 ? 'One completed session is saved as your baseline. Complete another session to compare weekly muscle work.' : `Train ${muscleGroupLabel(activeChartMuscle)} in two sessions to compare weekly muscle work.`} /> : null}
       {data?.muscleTrends.length ? <>
         <SectionHeading title="Muscle-group coverage" detail="Completed training-set credits by muscle" />
         <Card>
@@ -215,6 +247,100 @@ export default function TrainScreen() {
   );
 }
 
+function ChartRangePicker({ value, onChange }: { value: ProgressChartRange; onChange: (value: ProgressChartRange) => void }) {
+  return (
+    <View accessibilityRole="tablist" accessibilityLabel="Chart time range" style={styles.rangePicker}>
+      {PROGRESS_CHART_RANGES.map((range) => <Pill key={range} label={`${range} weeks`} active={value === range} onPress={() => onChange(range)} />)}
+    </View>
+  );
+}
+
+function MuscleWeeklyCharts({
+  muscleGroup,
+  points,
+  targetSetCredits,
+}: {
+  muscleGroup: string;
+  points: MuscleWeeklyTrendPoint[];
+  targetSetCredits: number | null;
+}) {
+  const { colors } = useJienTheme();
+  const { width } = useWindowDimensions();
+  const chartWidth = Math.max(520, width - spacing.xl * 4, points.length * 28);
+  const latest = points.at(-1);
+  return (
+    <View style={styles.chartStack}>
+      <View style={styles.metricChart}>
+        <SectionHeading
+          title="Weekly training-set credits"
+          detail={targetSetCredits == null ? 'No programme target set' : `Programme target ${formatSetEquivalents(targetSetCredits)} per week`}
+        />
+        <MetricBarChart
+          accessibilityLabel={`${muscleGroupLabel(muscleGroup)} weekly training-set credits over ${points.length} weeks`}
+          chartWidth={chartWidth}
+          points={points}
+          value={(point) => point.setCredits}
+          target={targetSetCredits}
+          barColor={colors.accent}
+        />
+        <AppText style={[styles.metricSummary, { color: colors.textMuted }]}>Latest week: {formatSetEquivalents(latest?.setCredits ?? 0)} set credits</AppText>
+      </View>
+      <View style={styles.metricChart}>
+        <SectionHeading title="Weekly volume" detail="Completed load × reps" />
+        <MetricBarChart
+          accessibilityLabel={`${muscleGroupLabel(muscleGroup)} weekly logged volume over ${points.length} weeks`}
+          chartWidth={chartWidth}
+          points={points}
+          value={(point) => point.volumeKg}
+          target={null}
+          barColor={colors.wood}
+        />
+        <AppText style={[styles.metricSummary, { color: colors.textMuted }]}>Latest week: {formatWork(latest?.volumeKg ?? 0)}</AppText>
+      </View>
+    </View>
+  );
+}
+
+function MetricBarChart({
+  accessibilityLabel,
+  chartWidth,
+  points,
+  value,
+  target,
+  barColor,
+}: {
+  accessibilityLabel: string;
+  chartWidth: number;
+  points: MuscleWeeklyTrendPoint[];
+  value: (point: MuscleWeeklyTrendPoint) => number;
+  target: number | null;
+  barColor: string;
+}) {
+  const { colors } = useJienTheme();
+  const values = points.map(value);
+  const maximum = Math.max(1, target ?? 0, ...values);
+  const labelEvery = Math.max(1, Math.ceil(points.length / 8));
+  const targetTop = target == null ? null : 116 - target / maximum * 116;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChartContent}>
+      <View accessibilityLabel={accessibilityLabel} style={[styles.metricBarPlot, { width: chartWidth }]}>
+        {targetTop == null ? null : <View accessibilityLabel={`Programme target band at ${formatSetEquivalents(target!)} set credits`} style={[styles.targetBand, { backgroundColor: colors.warningSoft, borderColor: colors.warning, top: targetTop }]} />}
+        {points.map((point, index) => {
+          const amount = values[index] ?? 0;
+          return (
+            <View key={point.week} style={styles.metricBarColumn}>
+              <View style={[styles.metricBarTrack, { backgroundColor: colors.surfaceMuted }]}>
+                <View style={[styles.metricBar, { height: amount ? `${Math.max(4, amount / maximum * 100)}%` : 0, backgroundColor: barColor }]} />
+              </View>
+              <AppText style={[styles.axisLabel, { color: colors.textMuted }]}>{index % labelEvery === 0 || index === points.length - 1 ? formatWeek(point.week) : ''}</AppText>
+            </View>
+          );
+        })}
+      </View>
+    </ScrollView>
+  );
+}
+
 const styles = StyleSheet.create({
   trainingTools: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   primaryAction: { flexGrow: 1, flexBasis: 150 },
@@ -253,6 +379,18 @@ const styles = StyleSheet.create({
   historyFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   historyFilterActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   historyMonth: { gap: spacing.sm },
+  rangePicker: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  muscleChartFilters: { gap: spacing.xs, paddingVertical: spacing.xxs },
+  chartStack: { gap: spacing.lg },
+  metricChart: { gap: spacing.xs },
+  horizontalChartContent: { minWidth: '100%' },
+  metricBarPlot: { height: 146, flexDirection: 'row', alignItems: 'flex-end', paddingTop: spacing.sm, position: 'relative' },
+  metricBarColumn: { flex: 1, minWidth: 22, alignItems: 'center', justifyContent: 'flex-end', gap: spacing.xxs, zIndex: 1 },
+  metricBarTrack: { width: '64%', minWidth: 8, maxWidth: 28, height: 116, borderRadius: radii.compact, justifyContent: 'flex-end', overflow: 'hidden' },
+  metricBar: { width: '100%', minHeight: 0, borderRadius: radii.compact },
+  targetBand: { position: 'absolute', left: 0, right: 0, height: 6, borderTopWidth: 1, borderBottomWidth: 1, opacity: 0.75, zIndex: 2 },
+  axisLabel: { ...typography.caption, height: 20, minWidth: 28, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  metricSummary: { ...typography.caption, fontVariant: ['tabular-nums'] },
   trendPlot: { minHeight: 172, flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs, paddingTop: spacing.lg },
   trendColumn: { flex: 1, minWidth: 36, alignItems: 'center', justifyContent: 'flex-end', gap: spacing.xs },
   trendValue: { ...typography.caption, fontWeight: '700', fontVariant: ['tabular-nums'] },

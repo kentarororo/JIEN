@@ -66,8 +66,8 @@ Full feature spec: `PROJECT_BRIEF.md`. Current milestones: `docs/roadmap.md`.
 - Add a new npm dependency without checking Expo managed-workflow compatibility first
 - Build a 1RM-chasing or max-effort-testing feature
 - Request the broad Google `drive` scope (`drive.file` only)
-- Push to `main` or merge a PR. Only Ken merges; `main` deploys straight to the live
-  web app
+- Push to `main`, or merge a PR outside the merge rule below. `main` deploys straight
+  to the live web app
 
 ---
 
@@ -75,8 +75,8 @@ Full feature spec: `PROJECT_BRIEF.md`. Current milestones: `docs/roadmap.md`.
 
 | Who | Role | Owns | Branch prefix |
 |---|---|---|---|
-| **Ken** | Product owner | Priorities, final call, **merging** | — |
-| **Claude** | Project manager | Issues, acceptance criteria, `docs/roadmap.md`, weekly review | `claude/` |
+| **Ken** | Product owner | Priorities, taste, final call, **merging "taste" PRs** | — |
+| **Claude** | Project manager | Issues, acceptance criteria, `docs/roadmap.md`, weekly review, **merging "easy" PRs** | `claude/` |
 | **Codex** | Dev | Feature code, migrations, `docs/schema.md` | `codex/` |
 | **Grok** | Tester + assistant dev | Test code (`**/*.test.ts`, `**/*.test.mjs`, `e2e/`), PR verification, small assigned tickets | `grok/` |
 
@@ -97,8 +97,20 @@ If it isn't written on the issue or PR, the next agent doesn't know it.
    files only). Post one PR review comment with the verdict (format below).
 4. **Fix round.** If the verdict is CHANGES, Codex fixes on the same branch and
    re-labels `needs-test`. Repeat step 3.
-5. **Ken merges** (squash) once the PR check is green and Grok's verdict is PASS.
-   Claude updates `docs/roadmap.md` if a milestone moved.
+5. **Merge** (squash), per the merge rule below. Claude updates `docs/roadmap.md` if a
+   milestone moved.
+
+### Merge rule
+**Claude merges** a PR when all of these hold: Grok's latest verdict is PASS on the
+latest commit; the PR check is green; no database migration (`supabase/migrations/`);
+no new npm dependency; no change to the core rules in this file; and it does only what
+its issue's acceptance criteria already agreed. Claude merges oldest first, in batches,
+and posts one line per merge for Ken.
+
+**Ken merges** everything else: migrations (he applies them in Supabase first), new
+flows or screens where look and feel is a judgement call, feature behaviour beyond the
+agreed criteria, app direction and priorities, privacy/consent copy, money and store
+decisions. If in doubt, it goes to Ken.
 
 ### Keeping the queue moving
 - The work order lives in `docs/roadmap.md` under **Next up**. Pull from it; don't wait
@@ -121,6 +133,7 @@ Checked: typecheck ✓/✗ · unit tests ✓/✗ · e2e <spec> ✓/✗/n/a
 Acceptance criteria: 1 ✓ · 2 ✓ · 3 ✗ (why)
 Rule checks: offline-first ✓ · loading/empty/error states ✓ · no client AI calls ✓ · disclaimer n/a
 Tests added: <files or "none">
+Merge: easy | taste (why)
 Findings (most severe first):
 - <file:line> — what breaks, how to reproduce
 ```

@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   convertServingQuantity,
+  multipliedPortion,
+  PORTION_MULTIPLIERS,
   scaleServingMacros,
   servingScale,
   servingUnitOptions,
@@ -25,4 +27,11 @@ test('converts compatible units without changing the physical portion', () => {
   assert.equal(servingScale(1, 'kg', 100, 'g'), 10);
   assert.equal(servingScale(1, 'cup', 100, 'g'), null);
   assert.deepEqual(servingUnitOptions('ml'), ['ml', 'l', 'cup', 'tbsp', 'tsp']);
+});
+
+test('offers natural count units and inline multipliers from the saved portion', () => {
+  assert.deepEqual(servingUnitOptions('plate'), ['plate', 'piece', 'bowl', 'scoop', 'serving']);
+  assert.deepEqual(PORTION_MULTIPLIERS, [0.5, 1, 1.5, 2]);
+  assert.equal(multipliedPortion(1.5, 0.5), 0.75);
+  assert.equal(multipliedPortion(0, 2), null);
 });

@@ -13,7 +13,8 @@
       "predictiveBackGestureEnabled": true
     },
     "web": {
-      "output": "static"
+      "output": "static",
+      "favicon": "./public/icons/icon-192.png"
     },
     "plugins": [
       "expo-router",

@@ -8,6 +8,12 @@ import {
   MIN_PLAUSIBLE_COMPLETE_DAY_KCAL,
   type AdaptiveNutritionHistoryDay,
 } from './adaptive-targets.ts';
+import {
+  buildAdaptiveNutritionMetrics,
+  EXPENDITURE_ENERGY_DENSITY_KCAL_PER_KG,
+} from './adaptive-metrics.ts';
+import { buildWeeklyNutritionCheckIn } from './weekly-check-in.ts';
+import type { NutritionTarget } from '../db/types.ts';
 
 test('creates an editable starting target from weight and goal', () => {
   assert.deepEqual(calculateStartingNutritionTarget({ bodyWeightKg: 80, goals: ['composition'] }), {
@@ -241,3 +247,200 @@ function buildHistory(
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// #19 AC5: synthetic 4-8 week datasets for trend weight, expenditure and the
+// weekly check-in. Each scenario has a known "true" maintenance intake so the
+// estimate can be checked against physics, not against the implementation.
+// ---------------------------------------------------------------------------
+
+type Scenario = {
+  weeks: number;
+  intakeKcal: number;
+  weeklyChangeKg: number;
+  startKg?: number;
+  weightNoiseKg?: number;
+  intakeNoiseKcal?: number;
+  /** Returns how a day is logged; default is a weigh-in and a Complete food day. */
+  logging?: (index: number, random: () => number) => { weighIn: boolean; dayState: AdaptiveNutritionHistoryDay['dayState'] };
+  seed?: number;
+};
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+function syntheticHistory(scenario: Scenario): AdaptiveNutritionHistoryDay[] {
+  const random = seededRandom(scenario.seed ?? 19);
+  const start = Date.UTC(2026, 7, 3);
+  const noise = (amplitude = 0) => (random() * 2 - 1) * amplitude;
+  return Array.from({ length: scenario.weeks * 7 }, (_, index) => {
+    const logging = scenario.logging?.(index, random) ?? { weighIn: true, dayState: 'complete' as const };
+    const trueKg = (scenario.startKg ?? 80) + scenario.weeklyChangeKg * index / 7;
+    const complete = logging.dayState === 'complete';
+    return {
+      date: new Date(start + index * 86_400_000).toISOString().slice(0, 10),
+      dayState: logging.dayState,
+      bodyWeightKg: logging.weighIn ? Math.round((trueKg + noise(scenario.weightNoiseKg)) * 10) / 10 : null,
+      caloriesKcal: complete ? Math.round(scenario.intakeKcal + noise(scenario.intakeNoiseKcal)) : null,
+      proteinG: complete ? 160 : null,
+    };
+  });
+}
+
+function trueExpenditureKcal(scenario: Scenario): number {
+  return scenario.intakeKcal - scenario.weeklyChangeKg / 7 * EXPENDITURE_ENERGY_DENSITY_KCAL_PER_KG;
+}
+
+function assertEstimateMatchesTruth(scenario: Scenario, toleranceKcal: number) {
+  const { expenditure } = buildAdaptiveNutritionMetrics(syntheticHistory(scenario));
+  const truth = trueExpenditureKcal(scenario);
+  assert.equal(expenditure.ready, true, 'enough history produces an estimate');
+  assert.ok(expenditure.estimateKcal != null && expenditure.rangeLowKcal != null && expenditure.rangeHighKcal != null);
+  assert.ok(Math.abs(expenditure.estimateKcal - truth) <= toleranceKcal,
+    `estimate ${expenditure.estimateKcal} within ${toleranceKcal} kcal of true ${truth}`);
+  assert.ok(expenditure.rangeLowKcal <= truth && truth <= expenditure.rangeHighKcal,
+    `true ${truth} inside ${expenditure.rangeLowKcal}-${expenditure.rangeHighKcal}`);
+  assert.equal(expenditure.estimateKcal % 25, 0, 'rounded to 25 kcal');
+  const halfWidth = (expenditure.rangeHighKcal - expenditure.rangeLowKcal) / 2;
+  assert.ok(halfWidth >= 100 && halfWidth <= 500, 'range half-width is bounded to 100-500 kcal');
+  return expenditure;
+}
+
+const STABLE: Scenario = { weeks: 6, intakeKcal: 2_500, weeklyChangeKg: 0 };
+const CUTTING: Scenario = { weeks: 6, intakeKcal: 2_000, weeklyChangeKg: -0.5 };
+const GAINING: Scenario = { weeks: 8, intakeKcal: 3_000, weeklyChangeKg: 0.25 };
+const NOISY: Scenario = { weeks: 6, intakeKcal: 2_500, weeklyChangeKg: 0, weightNoiseKg: 0.8, intakeNoiseKcal: 400, seed: 7 };
+const GAPPY: Scenario = {
+  weeks: 6,
+  intakeKcal: 2_200,
+  weeklyChangeKg: -0.25,
+  // Every third day has no weigh-in; each week has one partial and one forgotten
+  // (not-logged) food day, which must be excluded rather than counted as 0 kcal.
+  logging: (index) => ({
+    weighIn: index % 3 !== 1,
+    dayState: index % 7 === 2 ? 'partial' : index % 7 === 5 ? 'not_logged' : 'complete',
+  }),
+};
+
+test('AC5 stable: 6 weeks at maintenance gives a flat trend and expenditure equal to intake, high confidence', () => {
+  const metrics = buildAdaptiveNutritionMetrics(syntheticHistory(STABLE));
+  assert.equal(metrics.bodyTrend.trendWeightReady, true);
+  assert.ok(Math.abs(metrics.bodyTrend.latestTrendKg! - 80) < 0.05);
+  const expenditure = assertEstimateMatchesTruth(STABLE, 50);
+  assert.equal(expenditure.confidence, 'high');
+  assert.equal(expenditure.completeDays, 28);
+});
+
+test('AC5 cutting: 6 weeks at 2,000 kcal losing 0.5 kg/week estimates ~2,550 kcal', () => {
+  const metrics = buildAdaptiveNutritionMetrics(syntheticHistory(CUTTING));
+  // Trend follows the loss but lags the newest raw weigh-in (smoothing, not echoing).
+  const latest = metrics.bodyTrend.points.at(-1)!;
+  assert.ok(latest.trendKg > latest.bodyWeightKg);
+  assert.ok(latest.trendKg < 80 - 2, 'trend has moved down most of the 3 kg lost');
+  assert.ok(metrics.expenditure.trendChangeKg! < 0);
+  assertEstimateMatchesTruth(CUTTING, 150);
+});
+
+test('AC5 gaining: 8 weeks at 3,000 kcal gaining 0.25 kg/week estimates ~2,725 kcal', () => {
+  const metrics = buildAdaptiveNutritionMetrics(syntheticHistory(GAINING));
+  assert.ok(metrics.expenditure.trendChangeKg! > 0);
+  assert.equal(metrics.expenditure.confidence, 'high');
+  assertEstimateMatchesTruth(GAINING, 100);
+});
+
+test('AC5 noisy: ±0.8 kg scale noise and ±400 kcal intake noise still land near truth with a wider range', () => {
+  const noisy = assertEstimateMatchesTruth(NOISY, 150);
+  const clean = buildAdaptiveNutritionMetrics(syntheticHistory(STABLE)).expenditure;
+  assert.ok(noisy.rangeHighKcal! - noisy.rangeLowKcal! > clean.rangeHighKcal! - clean.rangeLowKcal!,
+    'noisier input widens the range');
+  const trend = buildAdaptiveNutritionMetrics(syntheticHistory(NOISY)).bodyTrend;
+  const rawSpread = Math.max(...trend.points.map((point) => point.bodyWeightKg)) - Math.min(...trend.points.map((point) => point.bodyWeightKg));
+  const trendSpread = Math.max(...trend.points.slice(7).map((point) => point.trendKg)) - Math.min(...trend.points.slice(7).map((point) => point.trendKg));
+  assert.ok(trendSpread < rawSpread / 2, 'smoothing removes most day-to-day scale noise');
+});
+
+test('AC5 gappy: partial and forgotten days are excluded, never treated as 0 kcal', () => {
+  const history = syntheticHistory(GAPPY);
+  const expenditure = assertEstimateMatchesTruth(GAPPY, 150);
+  assert.equal(expenditure.completeDays, 20, '4 weeks × 5 Complete days in the 28-day window');
+  assert.equal(expenditure.confidence, 'medium', 'fewer than 21 Complete days is medium confidence');
+  assert.equal(expenditure.averageIntakeKcal, 2_200, 'missing days do not drag average intake down');
+  // Same data but with the gaps logged as Complete 0 kcal days: still excluded (<800 kcal guard).
+  const zeroed = history.map((day) => day.dayState === 'complete' ? day : { ...day, dayState: 'complete' as const, caloriesKcal: 0 });
+  assert.equal(buildAdaptiveNutritionMetrics(zeroed).expenditure.averageIntakeKcal, 2_200);
+});
+
+test('AC3: thin data shows "need more data" progress instead of a precise number', () => {
+  const tenDays = syntheticHistory({ ...STABLE, weeks: 4 }).slice(0, 10);
+  const metrics = buildAdaptiveNutritionMetrics(tenDays);
+  assert.equal(metrics.expenditure.ready, false);
+  assert.equal(metrics.expenditure.confidence, 'insufficient');
+  assert.equal(metrics.expenditure.estimateKcal, null);
+  assert.equal(metrics.expenditure.rangeLowKcal, null);
+  assert.deepEqual([metrics.expenditure.completeDays, metrics.expenditure.requiredCompleteDays], [10, 14]);
+  const fourWeighIns = syntheticHistory(STABLE).slice(0, 4);
+  const trend = buildAdaptiveNutritionMetrics(fourWeighIns).bodyTrend;
+  assert.equal(trend.trendWeightReady, false);
+  assert.equal(trend.latestTrendKg, null);
+  assert.deepEqual([trend.trendWeightDays, trend.trendWeightRequiredDays], [4, 7]);
+  assert.equal(buildAdaptiveNutritionMetrics([]).expenditure.confidence, 'insufficient');
+});
+
+const checkInTarget = (overrides: Partial<NutritionTarget> = {}): NutritionTarget => ({
+  id: 'target-1',
+  effectiveFrom: '2026-08-03',
+  caloriesKcal: 2_500,
+  proteinG: 160,
+  carbohydrateG: 300,
+  fatG: 70,
+  fibreG: 30,
+  desiredWeeklyWeightChangePercent: -0.5,
+  weeklyCheckInDay: 1,
+  ...overrides,
+});
+// 2026-09-14 is a Monday (weekday 1), the day after the 6-week datasets end.
+const CHECK_IN_MONDAY = new Date(2026, 8, 14, 9);
+
+function weeklyCheckIn(scenario: Scenario, target: NutritionTarget, today = CHECK_IN_MONDAY) {
+  const evaluation = evaluateAdaptiveNutritionTarget({
+    currentCaloriesKcal: target.caloriesKcal,
+    currentProteinTargetG: target.proteinG,
+    desiredWeeklyWeightChangePercent: target.desiredWeeklyWeightChangePercent,
+    history: syntheticHistory(scenario),
+  });
+  return buildWeeklyNutritionCheckIn(target, evaluation, today);
+}
+
+test('AC4 check-in: stable weight while aiming to cut proposes a capped decrease, protein unchanged, target untouched', () => {
+  const target = checkInTarget();
+  const before = structuredClone(target);
+  const checkIn = weeklyCheckIn(STABLE, target);
+  assert.equal(checkIn.state, 'ready');
+  assert.ok(checkIn.suggestedCaloriesKcal < 2_500);
+  assert.ok(2_500 - checkIn.suggestedCaloriesKcal <= 150, 'step capped at 150 kcal');
+  assert.equal(checkIn.suggestedProteinG, 160);
+  assert.deepEqual(target, before, 'building the card never mutates the saved target');
+});
+
+test('AC4 check-in: cutting on pace holds; gaining while aiming to gain holds', () => {
+  // -0.5 kg/week at ~79 kg is ~-0.63%/week, inside the band around -0.5%.
+  assert.equal(weeklyCheckIn(CUTTING, checkInTarget({ caloriesKcal: 2_000 })).state, 'hold');
+  const gain = weeklyCheckIn({ ...GAINING, weeks: 6 }, checkInTarget({ caloriesKcal: 3_000, desiredWeeklyWeightChangePercent: 0.3 }));
+  assert.equal(gain.state, 'hold');
+  assert.equal(gain.suggestedCaloriesKcal, 3_000);
+});
+
+test('AC4 check-in: off, not due, and not enough data never propose a change', () => {
+  assert.equal(weeklyCheckIn(STABLE, checkInTarget({ weeklyCheckInDay: null })).state, 'off');
+  assert.equal(weeklyCheckIn(STABLE, checkInTarget(), new Date(2026, 8, 15, 9)).state, 'not_due');
+  const thin = weeklyCheckIn({ ...STABLE, weeks: 2 }, checkInTarget());
+  assert.equal(thin.state, 'need_more_data');
+  assert.equal(thin.suggestedCaloriesKcal, 2_500);
+});
