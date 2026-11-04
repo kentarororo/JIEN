@@ -59,6 +59,7 @@ export async function enqueueUpsert(
   table: RemoteTable,
   entityId: string,
   payload: Record<string, unknown>,
+  options: { announce?: boolean } = {},
 ): Promise<void> {
   const now = new Date().toISOString();
   await db.runAsync(
@@ -76,7 +77,7 @@ export async function enqueueUpsert(
       retry_paused = 0`,
     [Crypto.randomUUID(), table, entityId, JSON.stringify(payload), now],
   );
-  announceQueuedLocalWrite();
+  if (options.announce !== false) announceQueuedLocalWrite();
 }
 
 export async function getSyncStatus(db: SQLiteDatabase): Promise<SyncStatus> {

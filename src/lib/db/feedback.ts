@@ -40,6 +40,6 @@ export async function queueFeedback(
     },
     screenshotBase64: screenshot,
     createdAt: now,
-  });
+  }, { announce: false });
   return id;
 }
