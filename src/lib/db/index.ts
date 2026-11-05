@@ -20,6 +20,10 @@ export {
 } from './exercises';
 export type { UpdateExerciseTargetsInput } from './exercises';
 export { getCompleteExportSnapshot } from './export';
+export { getGoogleSheetsExportData } from './google-sheets-export';
+export type { GoogleSheetsExportData, GoogleSheetsNutritionExportRow } from './google-sheets-export';
+export { GoogleSheetsApiError, replaceGoogleSheetExport } from './google-sheets-api';
+export type { GoogleSheetExportResult, GoogleSheetTabValues } from './google-sheets-api';
 export {
   analyzeMealPhoto,
   cacheFoodCatalogItems,

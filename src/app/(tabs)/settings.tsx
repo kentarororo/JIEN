@@ -1,13 +1,14 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Linking, Platform, StyleSheet, Switch, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
 import { getAccountState, signOut } from '@/lib/auth';
+import { prepareGoogleDriveAuthorization } from '@/lib/auth/google-drive';
 import { AccountDeletionDeviceError, finishAccountDeletionOnDevice } from '@/lib/account-deletion';
-import { exportAllJson, exportNutritionCsv, exportWorkoutsCsv } from '@/lib/export';
+import { exportAllJson, exportNutritionCsv, exportToGoogleSheets, exportWorkoutsCsv, GoogleSheetsExportError } from '@/lib/export';
 import { clearRuntimeDiagnostics, deleteCloudAccount, getAccountSyncHealth, getRuntimeDiagnostics, getSyncStatus, getUserProfile, listNotificationPreferences, saveNotificationPreference, subscribeToAccountSyncHealth, syncAccountData } from '@/lib/db';
 import { reconcileMealGapNotification, reconcileSyncAttentionNotification, reconcileWorkoutPlanNotification } from '@/lib/notifications';
 import { radii, spacing, typography, type ThemePreference, useJienTheme } from '@/theme';
@@ -39,8 +40,17 @@ export default function SettingsScreen() {
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [cloudDeletedForUserId, setCloudDeletedForUserId] = useState<string | null>(null);
+  const [sheetExport, setSheetExport] = useState<
+    | { state: 'idle' }
+    | { state: 'exporting' }
+    | { state: 'done'; url: string; created: boolean }
+    | { state: 'offline' | 'failed'; message: string }
+  >({ state: 'idle' });
 
   useEffect(() => subscribeToAccountSyncHealth(() => { void reload(); }), [reload]);
+  useEffect(() => {
+    if (Platform.OS === 'web') void prepareGoogleDriveAuthorization().catch(() => undefined);
+  }, []);
 
   const selectSettingsView = (view: 'general' | 'reminders' | 'data') => {
     setSettingsView(view);
@@ -146,6 +156,20 @@ export default function SettingsScreen() {
       }
       await reload();
     });
+  };
+
+  const performGoogleSheetsExport = async () => {
+    setSheetExport({ state: 'exporting' });
+    try {
+      const result = await exportToGoogleSheets(db);
+      setSheetExport({ state: 'done', url: result.url, created: result.created });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Google Sheets could not update the export. Try again.';
+      setSheetExport({
+        state: cause instanceof GoogleSheetsExportError && cause.code === 'OFFLINE' ? 'offline' : 'failed',
+        message,
+      });
+    }
   };
 
   const confirmClearRecoveryHistory = () => {
@@ -297,6 +321,25 @@ export default function SettingsScreen() {
             <Button label="Workout CSV" onPress={() => void run('workouts', () => exportWorkoutsCsv(db))} busy={busy === 'workouts'} variant="secondary" />
             <Button label="Nutrition CSV" onPress={() => void run('nutrition', () => exportNutritionCsv(db))} busy={busy === 'nutrition'} variant="secondary" />
             <Button label="Full data JSON" onPress={() => void run('all', async () => { await exportAllJson(db); setMessage(Platform.OS === 'web' ? 'Your full data JSON was downloaded by this browser.' : 'Your full data JSON was passed to the system share sheet.'); })} busy={busy === 'all'} variant="quiet" />
+          </View>
+          <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
+          <View style={styles.copy}>
+            <AppText style={styles.cardTitle}>Google Sheets</AppText>
+            {sheetExport.state === 'idle' ? <AppText style={{ color: theme.colors.textMuted }}>Not connected. Google will ask for access to files created by JIEN only. The export contains Workouts and Nutrition tabs.</AppText> : null}
+            {sheetExport.state === 'exporting' ? <AppText style={{ color: theme.colors.textMuted }}>Exporting local training and nutrition records to JIEN export…</AppText> : null}
+            {sheetExport.state === 'done' ? <AppText style={{ color: theme.colors.success }}>{sheetExport.created ? 'JIEN export was created in Google Drive.' : 'JIEN export was updated without duplicate rows.'}</AppText> : null}
+            {sheetExport.state === 'offline' || sheetExport.state === 'failed' ? <AppText style={{ color: theme.colors.warning }}>{sheetExport.message}</AppText> : null}
+            <AppText style={{ color: theme.colors.textMuted }}>Google access is requested with the drive.file scope. JIEN cannot read unrelated Drive files.</AppText>
+          </View>
+          <View style={styles.dataActions}>
+            {sheetExport.state === 'done' ? <Button label="Open Google Sheet" onPress={() => void Linking.openURL(sheetExport.url)} variant="secondary" /> : null}
+            <Button
+              label={sheetExport.state === 'offline' || sheetExport.state === 'failed' ? 'Retry Google Sheets export' : 'Export to Google Sheets'}
+              onPress={() => void performGoogleSheetsExport()}
+              busy={sheetExport.state === 'exporting'}
+              disabled={sheetExport.state === 'exporting' || Platform.OS !== 'web'}
+              variant="secondary"
+            />
           </View>
         </Card>
 

@@ -58,3 +58,5 @@ export async function exportAllJson(db: SQLiteDatabase): Promise<void> {
 
 export { nutritionToCsv, workoutsToCsv } from './csv';
 export { buildCompleteJsonExport, decodeExportJson, stringifyCompleteJsonExport } from './complete-json';
+export { exportToGoogleSheets, GoogleSheetsExportError } from './google-sheets';
+export { buildGoogleSheetsTabs } from './google-sheets-mapping';
