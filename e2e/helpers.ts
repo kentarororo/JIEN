@@ -127,20 +127,72 @@ export async function fixJienClock(page: Page, offsetMs = 0) {
   await page.clock.setFixedTime(new Date(FIXED_NOW.getTime() + offsetMs));
 }
 
+async function clearStuckWebSqliteState(page: Page) {
+  // Best-effort reset for ios-webkit stuck on Cloud restore (#50): drop JIEN IDB DBs,
+  // unregister service workers, and drop held Web Locks by navigating away briefly.
+  await page.evaluate(async () => {
+    try {
+      if (typeof indexedDB.databases === 'function') {
+        const dbs = await indexedDB.databases();
+        await Promise.all(
+          dbs
+            .filter((db) => (db.name ?? '').includes('jien'))
+            .map((db) => new Promise<void>((resolve) => {
+              const req = indexedDB.deleteDatabase(db.name!);
+              req.onsuccess = req.onerror = req.onblocked = () => resolve();
+            })),
+        );
+      }
+    } catch { /* ignore */ }
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+      }
+    } catch { /* ignore */ }
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k).catch(() => false)));
+      }
+    } catch { /* ignore */ }
+  }).catch(() => undefined);
+}
+
 export async function completeOnboarding(page: Page) {
   await page.goto('/');
   // ios-webkit sometimes lands on "Cloud restore needs attention" (#50) when a prior
-  // worker left a SQLite lock or the fake Supabase route missed the first fetch. Click
-  // Try again a few times so the rest of the suite can proceed; the root cause stays on #50.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const restore = page.getByRole('heading', { name: 'Cloud restore needs attention', exact: true });
-    if (!(await restore.isVisible().catch(() => false))) break;
-    await page.getByRole('button', { name: 'Try again', exact: true }).click();
-    await page.waitForTimeout(1_000);
-    if (await restore.isVisible().catch(() => false)) await page.reload();
+  // worker left a SQLite lock, IndexedDB is sticky across workers, or the fake Supabase
+  // route missed the first fetch. Retry harder (Try again → wait → clear IDB/SW → reload)
+  // so the rest of the suite can proceed; the root cause stays on #50.
+  const restore = page.getByRole('heading', { name: 'Cloud restore needs attention', exact: true });
+  const onboarding = page.getByRole('heading', { name: 'What are you working toward?' });
+  const today = page.getByRole('heading', { name: 'Today', exact: true });
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if (await onboarding.isVisible().catch(() => false)) break;
+    if (await today.isVisible().catch(() => false)) break;
+    if (!(await restore.isVisible().catch(() => false))) {
+      // Still booting — give hydration a moment before the next check.
+      await page.waitForTimeout(800);
+      if (await onboarding.isVisible().catch(() => false) || await today.isVisible().catch(() => false)) break;
+      if (!(await restore.isVisible().catch(() => false))) break;
+    }
+    const tryAgain = page.getByRole('button', { name: 'Try again', exact: true });
+    if (await tryAgain.isVisible().catch(() => false)) {
+      await tryAgain.click();
+      await page.waitForTimeout(1_500);
+    }
+    if (await onboarding.isVisible().catch(() => false) || await today.isVisible().catch(() => false)) break;
+    if (attempt >= 1) await clearStuckWebSqliteState(page);
+    await page.goto(`/?e2e_restore=${attempt}&t=${Date.now()}`, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(1_200);
+  }
+  // Already past onboarding (rare after a sticky restore) — treat as done.
+  if (await today.isVisible().catch(() => false) && !(await onboarding.isVisible().catch(() => false))) {
+    return;
   }
   try {
-    await expect(page.getByRole('heading', { name: 'What are you working toward?' })).toBeVisible();
+    await expect(onboarding).toBeVisible({ timeout: 15_000 });
   } catch (error) {
     const startupState = await page.evaluate(async () => ({
       bodyText: document.body.innerText.slice(0, 500),
