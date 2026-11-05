@@ -88,11 +88,11 @@ async function enterFood(m: Meter, page: Page, index: number, food: Food, saveFo
   if (saveForReuse) {
     // Since #30 Save as private food sits on the row beside More details (no extra tap).
     await m.tap(page.getByRole('button', { name: 'Save as private food', exact: true }).last());
-    // Do not match the search copy "saved foods" — that false-positive lets the next Add blank
-    // race the still-in-flight save remount (CI Food nth(1) timeout).
-    const saved = food.name.replace(/[()]/g, '\\$&');
-    await expect(page.getByText(new RegExp(`${saved} saved`, 'i')).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Update private food', exact: true }).last()).toBeVisible();
+    // Success signal is the button flipping to Update private food. Do not wait on the
+    // "<name> saved…" toolMessage alone — on CI it can be replaced by a later search/status
+    // line before the assert runs, and matching bare "saved" hits the "saved foods" copy
+    // (that false-positive let Add blank race the remount: Food nth(1) timeout).
+    await expect(page.getByRole('button', { name: 'Update private food', exact: true }).last()).toBeVisible({ timeout: 15_000 });
     await expect(addBlank()).toBeEnabled();
   }
 }

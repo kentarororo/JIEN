@@ -129,6 +129,16 @@ export async function fixJienClock(page: Page, offsetMs = 0) {
 
 export async function completeOnboarding(page: Page) {
   await page.goto('/');
+  // ios-webkit sometimes lands on "Cloud restore needs attention" (#50) when a prior
+  // worker left a SQLite lock or the fake Supabase route missed the first fetch. Click
+  // Try again a few times so the rest of the suite can proceed; the root cause stays on #50.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const restore = page.getByRole('heading', { name: 'Cloud restore needs attention', exact: true });
+    if (!(await restore.isVisible().catch(() => false))) break;
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await page.waitForTimeout(1_000);
+    if (await restore.isVisible().catch(() => false)) await page.reload();
+  }
   try {
     await expect(page.getByRole('heading', { name: 'What are you working toward?' })).toBeVisible();
   } catch (error) {
