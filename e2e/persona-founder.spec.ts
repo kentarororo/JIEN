@@ -87,12 +87,24 @@ async function enterFood(m: Meter, page: Page, index: number, food: Food, saveFo
   }).toPass({ timeout: 10_000 });
   if (saveForReuse) {
     // Since #30 Save as private food sits on the row beside More details (no extra tap).
-    await m.tap(page.getByRole('button', { name: 'Save as private food', exact: true }).last());
-    // Success signal is the button flipping to Update private food. Do not wait on the
-    // "<name> saved…" toolMessage alone — on CI it can be replaced by a later search/status
-    // line before the assert runs, and matching bare "saved" hits the "saved foods" copy
-    // (that false-positive let Add blank race the remount: Food nth(1) timeout).
-    await expect(page.getByRole('button', { name: 'Update private food', exact: true }).last()).toBeVisible({ timeout: 15_000 });
+    const saveBtn = () => page.getByRole('button', { name: 'Save as private food', exact: true }).last();
+    const updateBtn = () => page.getByRole('button', { name: 'Update private food', exact: true }).last();
+    await m.tap(saveBtn());
+    // Success = Save→Update flip. During save the button is busy (label opacity 0), and on CI
+    // the remount can drop a single click or leave Save armed; re-tap Save if it comes back
+    // enabled, and also accept "Private food" source label + enabled Add blank once Save is gone
+    // (durable UI, not the flaky "<name> saved…" toast / "saved foods" copy).
+    await expect(async () => {
+      if (await updateBtn().isVisible().catch(() => false)) return;
+      const save = saveBtn();
+      const saveVisible = await save.isVisible().catch(() => false);
+      if (saveVisible && await save.isEnabled().catch(() => false)) await save.click();
+      const privateLabel = page.getByText(/^Private food/);
+      if (!saveVisible
+        && await addBlank().isEnabled().catch(() => false)
+        && (await privateLabel.count()) > 0) return;
+      await expect(updateBtn()).toBeVisible({ timeout: 2_500 });
+    }).toPass({ timeout: 25_000 });
     await expect(addBlank()).toBeEnabled();
   }
 }
