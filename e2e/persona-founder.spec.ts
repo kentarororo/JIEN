@@ -101,14 +101,20 @@ async function saveInMyFoods(page: Page, food: Food) {
  * portion in one tap (no confirm dialog); a different portion goes through "Adjust <food> portion".
  */
 async function quickAdd(m: Meter, page: Page, query: string, name: string, portion?: string) {
-  const field = visible(page.getByLabel('Quick add', { exact: true }));
-  await field.fill('');
+  // Food-day remounts Quick add after each save; wait for a settled empty field so a stale
+  // instance cannot swallow the typed query (flake: empty Recent list, missing Add <food>).
+  const field = () => visible(page.getByLabel('Quick add', { exact: true })).first();
+  await expect.poll(async () => {
+    await field().fill('');
+    return field().inputValue();
+  }).toBe('');
   await expect(visible(page.getByText('Recent & frequent for this time of day', { exact: true })).first()).toBeVisible();
   const item = visible(page.getByRole('button', { name: `Add ${name}`, exact: true })).first();
   // Minimal path: tap it straight from the recent list when it is listed, otherwise type to find it.
   if (!(await item.count())) {
-    await m.type(field, query);
-    await expect(field).toHaveValue(query);
+    await m.type(field(), query);
+    await expect(field()).toHaveValue(query);
+    await expect(visible(page.getByText('Your matches first', { exact: true })).first()).toBeVisible();
     await expect(item).toBeVisible();
   }
   if (portion) {
@@ -120,7 +126,7 @@ async function quickAdd(m: Meter, page: Page, query: string, name: string, porti
     await m.tap(item);
   }
   await expect(page.getByText(/ added\.$/).last()).toBeVisible();
-  await expect(field).toHaveValue('');
+  await expect(field()).toHaveValue('');
 }
 
 test('persona 1 founder-type lifter: hawker food first, then a push day', async ({ context, page }, testInfo) => {
