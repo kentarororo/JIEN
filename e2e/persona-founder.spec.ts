@@ -53,8 +53,24 @@ async function openFoodDay(page: Page, daysAgo: number) {
  * what a hurried user does for a one-off dish.
  */
 async function enterFood(m: Meter, page: Page, index: number, food: Food, saveForReuse: boolean, quick = false) {
-  if (index > 0) await m.tap(page.getByRole('button', { name: 'Add a blank food', exact: true }));
-  await m.type(page.getByRole('textbox', { name: 'Food', exact: true }).nth(index), food.name);
+  const foodBox = () => page.getByRole('textbox', { name: 'Food', exact: true }).nth(index);
+  const addBlank = () => page.getByRole('button', { name: 'Add a blank food', exact: true });
+  if (index > 0) {
+    // After "Save as private food" the draft remounts (busy → catalogId/toolMessage). A click that
+    // lands mid-remount focuses Add a blank food without appending a row (CI: Food nth(1) missing
+    // while the button stays [active]). Wait for a settled control, then for the new Food box;
+    // re-click without counting taps if the row never appears.
+    await expect(addBlank()).toBeEnabled();
+    await m.tap(addBlank());
+    await expect(async () => {
+      if (await page.getByRole('textbox', { name: 'Food', exact: true }).count() <= index) {
+        await addBlank().click();
+      }
+      await expect(foodBox()).toBeVisible({ timeout: 2_000 });
+      await expect(foodBox()).toBeEditable({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+  }
+  await m.type(foodBox(), food.name);
   const macros = [['Calories', food.kcal], ['Protein (g)', food.protein], ['Carbs (g)', food.carbs], ['Fat (g)', food.fat]] as const;
   const fields = quick ? macros.slice(0, 2) : macros;
   for (const [label, value] of fields) {
@@ -64,7 +80,7 @@ async function enterFood(m: Meter, page: Page, index: number, food: Food, saveFo
   // field (seen: "Whey protein shake24" with Protein empty). Re-fill without counting extra taps.
   await expect(async () => {
     for (const [label, value] of [['Food', food.name] as const, ...fields]) {
-      const box = label === 'Food' ? page.getByRole('textbox', { name: 'Food', exact: true }).nth(index) : page.getByLabel(label, { exact: true }).nth(index);
+      const box = label === 'Food' ? foodBox() : page.getByLabel(label, { exact: true }).nth(index);
       if ((await box.inputValue()) !== value) await box.fill(value);
       await expect(box).toHaveValue(value, { timeout: 1_000 });
     }
@@ -72,7 +88,12 @@ async function enterFood(m: Meter, page: Page, index: number, food: Food, saveFo
   if (saveForReuse) {
     // Since #30 Save as private food sits on the row beside More details (no extra tap).
     await m.tap(page.getByRole('button', { name: 'Save as private food', exact: true }).last());
-    await expect(page.getByText(new RegExp(`${food.name.replace(/[()]/g, '\\$&')}.*saved|Saved`, 'i')).first()).toBeVisible();
+    // Do not match the search copy "saved foods" — that false-positive lets the next Add blank
+    // race the still-in-flight save remount (CI Food nth(1) timeout).
+    const saved = food.name.replace(/[()]/g, '\\$&');
+    await expect(page.getByText(new RegExp(`${saved} saved`, 'i')).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Update private food', exact: true }).last()).toBeVisible();
+    await expect(addBlank()).toBeEnabled();
   }
 }
 
