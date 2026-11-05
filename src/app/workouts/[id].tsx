@@ -12,6 +12,7 @@ import { applyStoredJointConsiderationHold, hasStoredJointConsideration } from '
 import { SESSION_APPROACHES, sessionApproachBody, sessionApproachTitle } from '@/lib/planning/session-approach';
 import type { SessionApproach } from '@/lib/db';
 import { formatShortDate, formatTime } from '@/lib/time';
+import { supersetLabels } from '@/lib/training/superset';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export default function WorkoutDetailScreen() {
@@ -53,9 +54,15 @@ export default function WorkoutDetailScreen() {
   const detail = data?.detail ?? null;
   const groups = useMemo(() => {
     const result = new Map<string, NonNullable<typeof detail>['sets']>();
-    detail?.sets.forEach((set) => result.set(set.exerciseName, [...(result.get(set.exerciseName) ?? []), set]));
-    return [...result.entries()];
+    detail?.sets.forEach((set) => result.set(set.exerciseId, [...(result.get(set.exerciseId) ?? []), set]));
+    const entries = [...result.entries()];
+    const labels = supersetLabels(entries.map(([exerciseId, sets]) => ({ key: exerciseId, groupId: sets[0]?.groupId ?? null })));
+    return entries.map(([exerciseId, sets]) => ({ exerciseId, exerciseName: sets[0]?.exerciseName ?? 'Exercise', sets, group: labels.get(exerciseId) }));
   }, [detail]);
+  const plannedGroupLabels = useMemo(() => supersetLabels(detail?.plan?.exercises.map((exercise) => ({
+    key: exercise.exerciseId,
+    groupId: exercise.groupId ?? null,
+  })) ?? []), [detail]);
 
   const removeWorkout = async () => {
     if (deleting) return;
@@ -134,7 +141,7 @@ export default function WorkoutDetailScreen() {
         ) : null}
         {detail.plan?.exercises.map((exercise) => (
           <View key={exercise.exerciseId} style={styles.group}>
-            <SectionHeading title={exercise.exerciseName} detail={`${exercise.primaryMuscleGroup.replaceAll('_', ' ')} · target ${exercise.targetRepMin}–${exercise.targetRepMax}`} />
+            <SectionHeading title={plannedGroupLabels.get(exercise.exerciseId) ? `${plannedGroupLabels.get(exercise.exerciseId)!.label} · ${exercise.exerciseName}` : exercise.exerciseName} detail={`${plannedGroupLabels.get(exercise.exerciseId) ? 'Superset or circuit · ' : ''}${exercise.primaryMuscleGroup.replaceAll('_', ' ')} · target ${exercise.targetRepMin}–${exercise.targetRepMax}`} />
             <Card>
               {exercise.sets.map((set, index) => {
                 const cue = exercise.progression.cues.find((item) => item.workingSetIndex === index);
@@ -239,9 +246,9 @@ export default function WorkoutDetailScreen() {
         </Card>
       ) : null}
 
-      {groups.map(([exerciseName, sets]) => (
-        <View key={exerciseName} style={styles.group}>
-          <SectionHeading title={exerciseName} detail={`${sets[0]?.primaryMuscleGroup.replaceAll('_', ' ')} · target ${sets[0]?.targetRepMin}–${sets[0]?.targetRepMax}`} />
+      {groups.map(({ exerciseId, exerciseName, sets, group }) => (
+        <View key={exerciseId} style={styles.group}>
+          <SectionHeading title={group ? `${group.label} · ${exerciseName}` : exerciseName} detail={`${group ? `Superset or circuit · ${group.memberCount} exercises · ` : ''}${sets[0]?.primaryMuscleGroup.replaceAll('_', ' ')} · target ${sets[0]?.targetRepMin}–${sets[0]?.targetRepMax}`} />
           <Card>
             {sets.map((set, index) => <View key={set.id} style={styles.setRow}><AppText style={styles.setIndex}>{index + 1}</AppText><AppText style={styles.setValue}>{set.loadValue} {set.loadUnit} × {set.reps}</AppText><AppText style={{ color: colors.textMuted }}>{set.kind === 'failure' ? 'To failure · ' : set.kind === 'drop' ? 'Drop · ' : set.kind === 'warmup' ? 'Warm-up · ' : ''}{set.rpe ? `RPE ${set.rpe}` : 'RPE —'}</AppText></View>)}
             {sets[0]?.exerciseId ? <Button label="View exercise history" onPress={() => router.push({ pathname: '/exercises/[id]', params: { id: sets[0]!.exerciseId } } as never)} variant="quiet" /> : null}

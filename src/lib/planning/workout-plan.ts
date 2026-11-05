@@ -102,6 +102,7 @@ export function buildPlannedWorkoutExercise(input: {
   });
 
   return {
+    ...(input.history[0]?.groupId ? { groupId: input.history[0].groupId } : {}),
     exerciseId: input.exercise.id,
     exerciseName: input.exercise.name,
     primaryMuscleGroup: input.exercise.primaryMuscleGroup,
@@ -181,6 +182,7 @@ function parseExercise(value: unknown): PlannedWorkoutExercise | null {
     || !Array.isArray(value.sets)
     || value.sets.length === 0
     || (value.setCountEdited !== undefined && value.setCountEdited !== true)
+    || (value.groupId !== undefined && (!isNonEmptyString(value.groupId) || !isUuid(value.groupId)))
     || !isRecord(value.progression)) return null;
 
   const sets = value.sets.map((set) => {
@@ -225,6 +227,7 @@ function parseExercise(value: unknown): PlannedWorkoutExercise | null {
   if (cues.some((cue) => cue == null)) return null;
 
   return {
+    ...(isNonEmptyString(value.groupId) ? { groupId: value.groupId } : {}),
     ...(value.setCountEdited === true ? { setCountEdited: true as const } : {}),
     exerciseId: value.exerciseId,
     exerciseName: value.exerciseName,
@@ -246,6 +249,10 @@ function isRecord(value: unknown): value is Record<string, any> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function isFiniteNumber(value: unknown): value is number {

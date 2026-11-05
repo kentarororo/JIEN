@@ -3,7 +3,7 @@ import { countsTowardTraining, countsTowardProgression, targetSetKind } from '..
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Pill, Screen, SectionHeading, StatePanel } from '@/components/ui';
 import { JointProgressionChoicePanel, type JointProgressionChoice } from '@/components/joint-progression-choice';
@@ -44,6 +44,7 @@ import { liveSetTarget, type LiveSetTarget } from '@/lib/progression/live-set-ta
 import { isSessionApproach } from '@/lib/planning/session-approach';
 import { radii, spacing, typography, useJienTheme } from '@/theme';
 import { formatShortDate, localTimestampForDate } from '@/lib/time';
+import { completionFlow, supersetLabels } from '@/lib/training/superset';
 import {
   fillBlankWorkoutLoads,
   latestValidWorkoutLoad,
@@ -67,6 +68,7 @@ type DraftSet = {
 type DraftExercise = {
   key: string;
   exerciseId: string;
+  groupId: string | null;
   sets: DraftSet[];
   progression: SetProgressionPlan | null;
   sourceSets: ProgressionSet[] | null;
@@ -87,6 +89,7 @@ const newSet = (
 const newBlock = (exerciseId: string): DraftExercise => ({
   key: Crypto.randomUUID(),
   exerciseId,
+  groupId: null,
   sets: [newSet(), newSet(), newSet()],
   progression: null,
   sourceSets: null,
@@ -103,6 +106,7 @@ export default function NewWorkoutScreen() {
   const workoutIdRef = useRef(editWorkoutId ?? planWorkoutId ?? Crypto.randomUUID());
   const submitLockRef = useRef(false);
   const draftPersistenceActiveRef = useRef(true);
+  const setLoadRefs = useRef<Record<string, TextInput | null>>({});
   const { width } = useWindowDimensions();
   const compact = width < 520;
   const { colors } = useJienTheme();
@@ -114,6 +118,7 @@ export default function NewWorkoutScreen() {
   const [hasJointConsideration, setHasJointConsideration] = useState(false);
   const [jointProgressionChoice, setJointProgressionChoice] = useState<JointProgressionChoice>('hold');
   const [blocks, setBlocks] = useState<DraftExercise[]>([]);
+  const [groupSelection, setGroupSelection] = useState<string[]>([]);
   const [exerciseQueries, setExerciseQueries] = useState<Record<string, string>>({});
   const [exerciseBrowsers, setExerciseBrowsers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
@@ -181,6 +186,7 @@ export default function NewWorkoutScreen() {
   }), [date, editWorkoutId, planWorkoutId, templateWorkoutId, sessionApproach]);
   const draftSummary = useMemo(() => summarizeWorkoutDraft(blocks), [blocks]);
   const draftMuscleCredits = useMemo(() => summarizeDraftMuscleCredits(blocks, catalog ?? []), [blocks, catalog]);
+  const groupLabels = useMemo(() => supersetLabels(blocks), [blocks]);
 
   useEffect(() => {
     let active = true;
@@ -218,6 +224,7 @@ export default function NewWorkoutScreen() {
         setBlocks(recovered.blocks.map((block) => ({
           key: Crypto.randomUUID(),
           exerciseId: block.exerciseId,
+          groupId: block.groupId,
           sets: block.sets.map((set) => newSet(set.load, set.reps, set.rpe, set.id, set.kind, set.completed)),
           progression: null,
           sourceSets: null,
@@ -237,7 +244,7 @@ export default function NewWorkoutScreen() {
   useEffect(() => {
     if (!draftReady || !draftOwnerUserId || blocks.length === 0) return;
     const draft = {
-      version: 2 as const,
+      version: 3 as const,
       ownerUserId: draftOwnerUserId,
       workoutId: workoutIdRef.current,
       context: draftContext,
@@ -249,6 +256,7 @@ export default function NewWorkoutScreen() {
       restEndsAt,
       blocks: blocks.map((block) => ({
         exerciseId: block.exerciseId,
+        groupId: block.groupId,
         sets: block.sets.map(({ id, load, reps, rpe, kind, completed }) => ({ id, load, reps, rpe, kind, completed })),
       })),
     };
@@ -408,7 +416,14 @@ export default function NewWorkoutScreen() {
       ...item,
       sets: item.sets.map((set) => isRowEmpty(set) ? set : { ...set, completed: true }),
     } : item));
-    if (restTimerSeconds > 0) setRestEndsAt(Date.now() + restTimerSeconds * 1_000);
+    const flow = completionFlow(blocks, blockKey);
+    if (flow.nextBlockKey) {
+      setRestEndsAt(null);
+      const nextSet = blocks.find((item) => item.key === flow.nextBlockKey)?.sets[0];
+      if (nextSet) setTimeout(() => setLoadRefs.current[nextSet.key]?.focus(), 0);
+    } else if (restTimerSeconds > 0) {
+      setRestEndsAt(Date.now() + restTimerSeconds * 1_000);
+    }
   }
 
   function toggleSetCompleted(blockKey: string, setKey: string) {
@@ -431,8 +446,16 @@ export default function NewWorkoutScreen() {
     } : item));
     if (set.completed) {
       setRestEndsAt(null);
-    } else if (restTimerSeconds > 0) {
-      setRestEndsAt(Date.now() + restTimerSeconds * 1_000);
+    } else {
+      const setIndex = block.sets.findIndex((item) => item.key === setKey);
+      const flow = completionFlow(blocks, blockKey);
+      if (flow.nextBlockKey) {
+        setRestEndsAt(null);
+        const nextSet = blocks.find((item) => item.key === flow.nextBlockKey)?.sets[setIndex];
+        if (nextSet) setTimeout(() => setLoadRefs.current[nextSet.key]?.focus(), 0);
+      } else if (flow.startsRest && restTimerSeconds > 0) {
+        setRestEndsAt(Date.now() + restTimerSeconds * 1_000);
+      }
     }
   }
 
@@ -450,7 +473,26 @@ export default function NewWorkoutScreen() {
   }
 
   function removeExercise(blockKey: string) {
-    setBlocks((current) => current.filter((block) => block.key !== blockKey));
+    setBlocks((current) => normalizeDraftGroups(current.filter((block) => block.key !== blockKey)));
+    setGroupSelection((current) => current.filter((key) => key !== blockKey));
+  }
+
+  function groupSelectedExercises() {
+    if (groupSelection.length < 2) {
+      setFormError('Select at least two exercises to make a superset or circuit.');
+      return;
+    }
+    const groupId = Crypto.randomUUID();
+    setBlocks((current) => normalizeDraftGroups(current.map((block) => groupSelection.includes(block.key)
+      ? { ...block, groupId }
+      : block)));
+    setGroupSelection([]);
+    setFormError(null);
+  }
+
+  function ungroupExercises(groupId: string) {
+    setBlocks((current) => current.map((block) => block.groupId === groupId ? { ...block, groupId: null } : block));
+    setGroupSelection([]);
   }
 
   function changeUnit(nextUnit: LoadUnit) {
@@ -619,7 +661,7 @@ export default function NewWorkoutScreen() {
             kind: set.kind,
           };
         });
-        return [{ exercise, sets }];
+        return [{ exercise, groupId: block.groupId, sets }];
       });
       if (exercises.length === 0) throw new Error('Complete at least one set before saving.');
       if (exercises.some((entry) => entry.sets.some((set) =>
@@ -720,7 +762,7 @@ export default function NewWorkoutScreen() {
         <View style={styles.timerHeader}>
           <View style={styles.flex}>
             <AppText style={styles.suggestionTitle}>Rest timer</AppText>
-            <AppText style={{ color: colors.textMuted }}>Starts when a set is marked complete. It does not affect saved training data.</AppText>
+            <AppText style={{ color: colors.textMuted }}>Starts after an ungrouped set, or after the last exercise in a superset round. It does not affect saved training data.</AppText>
           </View>
           {restEndsAt != null ? (
             <View accessibilityLiveRegion="polite" style={[styles.timerValue, { backgroundColor: colors.accentSoft }]}>
@@ -746,6 +788,15 @@ export default function NewWorkoutScreen() {
 
       {formError ? <View accessibilityRole="alert" style={[styles.errorBanner, { backgroundColor: colors.dangerSoft }]}><AppText style={{ color: colors.danger }}>{formError}</AppText></View> : null}
 
+      {blocks.length > 1 ? <Card style={{ backgroundColor: colors.surfaceMuted }}>
+        <SectionHeading title="Supersets and circuits" detail="Select two or more exercises. Sets alternate in exercise order; rest starts after the last exercise in each round." />
+        <View style={styles.groupingActions}>
+          <AppText style={{ color: colors.textMuted }}>{groupSelection.length} selected</AppText>
+          <Button label="Group as superset" disabled={groupSelection.length < 2} onPress={groupSelectedExercises} variant="secondary" />
+          {groupSelection.length ? <Button label="Clear selection" onPress={() => setGroupSelection([])} variant="quiet" /> : null}
+        </View>
+      </Card> : null}
+
       {blocks.map((block, blockIndex) => {
         const selected = catalog?.find((exercise) => exercise.id === block.exerciseId);
         const query = exerciseQueries[block.key]?.trim().toLocaleLowerCase() ?? '';
@@ -770,12 +821,15 @@ export default function NewWorkoutScreen() {
           rows: block.sets, rowIndex, unit, history: block.sourceSets ?? [], plan: block.progression,
           allowIncrease: !editWorkoutId && !planIncreaseHold && !editedCountIds.includes(block.exerciseId), jointHold: jointProgressionHold,
         }) : null);
+        const groupInfo = groupLabels.get(block.key);
         return (
-          <Card key={block.key} style={styles.exerciseCard}>
+          <Card key={block.key} style={[styles.exerciseCard, groupInfo ? { borderColor: colors.accent } : undefined]}>
             <View style={styles.blockHeader}>
-              <View style={styles.flex}><AppText style={styles.blockNumber}>EXERCISE {blockIndex + 1}</AppText><AppText style={styles.exerciseName}>{selected?.name ?? 'Choose exercise'}</AppText></View>
+              <View style={styles.flex}><AppText style={[styles.blockNumber, groupInfo ? { color: colors.accent } : undefined]}>{groupInfo ? `SUPERSET ${groupInfo.label}` : `EXERCISE ${blockIndex + 1}`}</AppText><AppText style={styles.exerciseName}>{selected?.name ?? 'Choose exercise'}</AppText></View>
               <View style={styles.blockHeaderActions}>
+                <Pill label="Select" accessibilityLabel={`${groupSelection.includes(block.key) ? 'Deselect' : 'Select'} ${selected?.name ?? `exercise ${blockIndex + 1}`} for superset`} active={groupSelection.includes(block.key)} onPress={() => setGroupSelection((current) => current.includes(block.key) ? current.filter((key) => key !== block.key) : [...current, block.key])} />
                 {setsComplete ? <Pill label="Sets checked" active /> : null}
+                {groupInfo ? <Button label="Ungroup" accessibilityLabel={`Ungroup ${groupInfo.label}`} onPress={() => ungroupExercises(groupInfo.groupId)} variant="quiet" /> : null}
                 {blocks.length > 1 ? <Button label="Remove" onPress={() => removeExercise(block.key)} variant="quiet" /> : null}
               </View>
             </View>
@@ -839,7 +893,7 @@ export default function NewWorkoutScreen() {
                 <View key={set.key} style={styles.setRowGroup}>
                   <View style={styles.setRow}>
                     <AppText style={styles.setNo}>{setIndex + 1}</AppText>
-                    <Field accessibilityLabel={`Set ${setIndex + 1} load in ${unit}`} value={set.load} onChangeText={(value) => updateSet(block.key, set.key, 'load', value)} keyboardType="decimal-pad" style={styles.compactInput} containerStyle={styles.setField} />
+                    <Field inputRef={(node) => { setLoadRefs.current[set.key] = node; }} accessibilityLabel={`Set ${setIndex + 1} load in ${unit}`} value={set.load} onChangeText={(value) => updateSet(block.key, set.key, 'load', value)} keyboardType="decimal-pad" style={styles.compactInput} containerStyle={styles.setField} />
                     <Field accessibilityLabel={`Set ${setIndex + 1} reps`} value={set.reps} onChangeText={(value) => updateSet(block.key, set.key, 'reps', value)} keyboardType="number-pad" style={styles.compactInput} containerStyle={styles.setField} />
                     <Field accessibilityLabel={`Set ${setIndex + 1} RPE`} value={set.rpe} placeholder="—" onChangeText={(value) => updateSet(block.key, set.key, 'rpe', value)} keyboardType="decimal-pad" style={styles.compactInput} containerStyle={styles.setField} />
                     <Pressable
@@ -867,7 +921,7 @@ export default function NewWorkoutScreen() {
                   <View key={set.key} style={[styles.mobileSetCard, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}>
                     <View style={styles.mobileSetHeader}><AppText style={styles.suggestionTitle}>Set {setIndex + 1} · {set.kind === 'warmup' ? 'Warm-up' : set.kind === 'working' ? 'Working' : set.kind === 'drop' ? 'Drop' : 'Failure'}</AppText><Pressable accessibilityRole="button" accessibilityLabel={`Remove set ${setIndex + 1}`} disabled={block.sets.length === 1} onPress={() => removeSet(block.key, set.key)} style={({ pressed }) => [styles.mobileRemove, pressed && styles.pressed, block.sets.length === 1 && styles.disabled]}><AppText style={{ color: colors.textMuted }}>Remove</AppText></Pressable></View>
                     <View style={styles.mobileSetFields}>
-                      <Field label={`Load (${unit})`} value={set.load} onChangeText={(value) => updateSet(block.key, set.key, 'load', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
+                      <Field inputRef={(node) => { setLoadRefs.current[set.key] = node; }} label={`Load (${unit})`} accessibilityLabel={`Set ${setIndex + 1} load in ${unit}`} value={set.load} onChangeText={(value) => updateSet(block.key, set.key, 'load', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
                       <Field label="Reps" value={set.reps} onChangeText={(value) => updateSet(block.key, set.key, 'reps', value)} keyboardType="number-pad" containerStyle={styles.mobileSetField} />
                       <Field label="RPE" value={set.rpe} placeholder="optional" onChangeText={(value) => updateSet(block.key, set.key, 'rpe', value)} keyboardType="decimal-pad" containerStyle={styles.mobileSetField} />
                     </View>
@@ -1025,6 +1079,7 @@ const styles = StyleSheet.create({
   timerValue: { minHeight: 48, borderRadius: radii.control, paddingLeft: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   timerDigits: { ...typography.section, minWidth: 64, fontWeight: '800', fontVariant: ['tabular-nums'] },
   exerciseCard: { paddingHorizontal: 0, overflow: 'hidden' },
+  groupingActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   blockHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, gap: spacing.sm },
   blockHeaderActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.xs },
   blockNumber: { ...typography.caption, fontWeight: '700', opacity: 0.65 },
@@ -1176,6 +1231,7 @@ function blocksFromTemplate(template: WorkoutDetail, approach?: string): DraftEx
     const block = grouped.get(set.exerciseId) ?? {
       key: Crypto.randomUUID(),
       exerciseId: set.exerciseId,
+      groupId: set.groupId ?? null,
       sets: [],
       progression: null,
       sourceSets: [],
@@ -1211,7 +1267,7 @@ function blocksFromEdit(template: WorkoutDetail): DraftExercise[] {
   const grouped = new Map<string, DraftExercise>();
   template.sets.forEach((set) => {
     const block = grouped.get(set.exerciseId) ?? {
-      key: Crypto.randomUUID(), exerciseId: set.exerciseId, sets: [], progression: null, sourceSets: null, baselineSessions: null, historyStatus: 'idle', historyRequestId: null,
+      key: Crypto.randomUUID(), exerciseId: set.exerciseId, groupId: set.groupId ?? null, sets: [], progression: null, sourceSets: null, baselineSessions: null, historyStatus: 'idle', historyRequestId: null,
     };
     block.sets.push(newSet(
       String(set.loadValue), String(set.reps), set.rpe == null ? '' : String(set.rpe), set.id, set.kind, true,
@@ -1225,6 +1281,7 @@ function blocksFromPlan(template: WorkoutDetail): DraftExercise[] {
   return template.plan?.exercises.map((exercise) => ({
     key: Crypto.randomUUID(),
     exerciseId: exercise.exerciseId,
+    groupId: exercise.groupId ?? null,
     sets: exercise.sets.map((set) => newSet(
       set.loadValue == null ? '' : String(set.loadValue),
       set.reps == null ? '' : String(set.reps),
@@ -1256,6 +1313,16 @@ function SetKindPicker({ value, onChange }: { value: SetKind; onChange: (kind: S
       ))}
     </View>
   );
+}
+
+function normalizeDraftGroups(blocks: DraftExercise[]): DraftExercise[] {
+  const counts = new Map<string, number>();
+  for (const block of blocks) {
+    if (block.groupId) counts.set(block.groupId, (counts.get(block.groupId) ?? 0) + 1);
+  }
+  return blocks.map((block) => block.groupId && (counts.get(block.groupId) ?? 0) < 2
+    ? { ...block, groupId: null }
+    : block);
 }
 
 function validateDraftSet(set: DraftSet, label: string): string | null {

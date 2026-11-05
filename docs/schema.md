@@ -199,6 +199,7 @@ baselines; warm-ups and drops do not. Failure holds increase cues without erasin
 | `id`, `user_id` | `uuid` | PK and owner FK |
 | `workout_id`, `exercise_id` | `uuid` | User-scoped parent FKs |
 | `sort_order` | `integer` | Zero-based order, unique within an active workout |
+| `group_id` | `uuid` | Optional client-generated superset/circuit identifier; presentation and logging order only |
 | `kind` | `set_kind` | `working`, `warmup`, `drop`, or `failure` |
 | `reps` | `smallint` | Positive completed reps |
 | `load_value`, `load_unit` | `numeric`, `load_unit` | Non-negative observed load and `kg`/`lb` |
@@ -212,6 +213,9 @@ baselines; warm-ups and drops do not. Failure holds increase cues without erasin
 Muscle analytics prefer the set snapshots and fall back to the current exercise row
 only for legacy or rolling-deployment rows where a snapshot is absent. Exercise
 target edits therefore change future logs without silently rewriting history.
+Sets that share a non-null `group_id` render as one superset or circuit block. The
+identifier does not change per-exercise volume, progression, or set accounting.
+Exercise order within the group is derived from each exercise's first `sort_order`.
 
 ### `meals`
 
