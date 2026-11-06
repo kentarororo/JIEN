@@ -128,8 +128,20 @@ export async function fixJienClock(page: Page, offsetMs = 0) {
 }
 
 async function clearStuckWebSqliteState(page: Page) {
-  // Best-effort reset for ios-webkit stuck on Cloud restore (#50): drop JIEN IDB DBs,
-  // unregister service workers, and drop held Web Locks by navigating away briefly.
+  // Best-effort reset for ios-webkit stuck on Cloud restore (#50).
+  // The React/SQLite client holds an exclusive Web Lock on jien.db while the app
+  // document is alive, so deleteDatabase stays blocked. Hop to a same-origin
+  // non-app asset first to unload the client and release the lock. Prefer
+  // /manifest.webmanifest over about:blank — the latter hangs Playwright WebKit.
+  try {
+    const origin = new URL(page.url()).origin;
+    if (origin.startsWith('http')) {
+      await page.goto(`${origin}/manifest.webmanifest`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 8_000,
+      }).catch(() => undefined);
+    }
+  } catch { /* ignore */ }
   await page.evaluate(async () => {
     try {
       if (typeof indexedDB.databases === 'function') {
@@ -160,6 +172,18 @@ async function clearStuckWebSqliteState(page: Page) {
 }
 
 export async function completeOnboarding(page: Page) {
+  // Abort sw.js during onboarding so a sticky PWA worker cannot re-seed a broken
+  // WebSQLite state mid-retry (#50). Root cause stays #50.
+  await page.route('**/sw.js', (route) => route.abort()).catch(() => undefined);
+
+  // Best-effort clear of sticky WebSQLite/IDB/SW before the first load so ios-webkit
+  // is less likely to open on "Cloud restore needs attention" (#50).
+  try {
+    if (!page.isClosed() && /^https?:/.test(page.url())) {
+      await clearStuckWebSqliteState(page);
+    }
+  } catch { /* ignore — still try the normal path */ }
+
   await page.goto('/');
   // ios-webkit sometimes lands on "Cloud restore needs attention" (#50) when a prior
   // worker left a SQLite lock, IndexedDB is sticky across workers, or the fake Supabase
@@ -168,24 +192,24 @@ export async function completeOnboarding(page: Page) {
   const restore = page.getByRole('heading', { name: 'Cloud restore needs attention', exact: true });
   const onboarding = page.getByRole('heading', { name: 'What are you working toward?' });
   const today = page.getByRole('heading', { name: 'Today', exact: true });
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     if (await onboarding.isVisible().catch(() => false)) break;
     if (await today.isVisible().catch(() => false)) break;
     if (!(await restore.isVisible().catch(() => false))) {
       // Still booting — give hydration a moment before the next check.
-      await page.waitForTimeout(800);
+      await page.waitForTimeout(1_000);
       if (await onboarding.isVisible().catch(() => false) || await today.isVisible().catch(() => false)) break;
       if (!(await restore.isVisible().catch(() => false))) break;
     }
     const tryAgain = page.getByRole('button', { name: 'Try again', exact: true });
     if (await tryAgain.isVisible().catch(() => false)) {
       await tryAgain.click();
-      await page.waitForTimeout(1_500);
+      await page.waitForTimeout(2_000);
     }
     if (await onboarding.isVisible().catch(() => false) || await today.isVisible().catch(() => false)) break;
-    if (attempt >= 1) await clearStuckWebSqliteState(page);
+    await clearStuckWebSqliteState(page);
     await page.goto(`/?e2e_restore=${attempt}&t=${Date.now()}`, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1_200);
+    await page.waitForTimeout(1_500);
   }
   // Already past onboarding (rare after a sticky restore) — treat as done.
   if (await today.isVisible().catch(() => false) && !(await onboarding.isVisible().catch(() => false))) {
