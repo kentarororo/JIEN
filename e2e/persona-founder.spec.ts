@@ -53,16 +53,59 @@ async function openFoodDay(page: Page, daysAgo: number) {
  * what a hurried user does for a one-off dish.
  */
 async function enterFood(m: Meter, page: Page, index: number, food: Food, saveForReuse: boolean, quick = false) {
-  if (index > 0) await m.tap(page.getByRole('button', { name: 'Add a blank food', exact: true }));
-  await m.type(page.getByRole('textbox', { name: 'Food', exact: true }).nth(index), food.name);
+  const foodBox = () => page.getByRole('textbox', { name: 'Food', exact: true }).nth(index);
+  const addBlank = () => page.getByRole('button', { name: 'Add a blank food', exact: true });
+  if (index > 0) {
+    // After "Save as private food" the draft remounts (busy → catalogId/toolMessage). A click that
+    // lands mid-remount focuses Add a blank food without appending a row (CI: Food nth(1) missing
+    // while the button stays [active]). Wait for a settled control, then for the new Food box;
+    // re-click without counting taps if the row never appears.
+    await expect(addBlank()).toBeEnabled();
+    await m.tap(addBlank());
+    await expect(async () => {
+      if (await page.getByRole('textbox', { name: 'Food', exact: true }).count() <= index) {
+        await addBlank().click();
+      }
+      await expect(foodBox()).toBeVisible({ timeout: 2_000 });
+      await expect(foodBox()).toBeEditable({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+  }
+  await m.type(foodBox(), food.name);
   const macros = [['Calories', food.kcal], ['Protein (g)', food.protein], ['Carbs (g)', food.carbs], ['Fat (g)', food.fat]] as const;
-  for (const [label, value] of quick ? macros.slice(0, 2) : macros) {
+  const fields = quick ? macros.slice(0, 2) : macros;
+  for (const [label, value] of fields) {
     await m.type(page.getByLabel(label, { exact: true }).nth(index), value);
   }
+  // The draft row can re-render while a fill lands, sending the text to the previously focused
+  // field (seen: "Whey protein shake24" with Protein empty). Re-fill without counting extra taps.
+  await expect(async () => {
+    for (const [label, value] of [['Food', food.name] as const, ...fields]) {
+      const box = label === 'Food' ? foodBox() : page.getByLabel(label, { exact: true }).nth(index);
+      if ((await box.inputValue()) !== value) await box.fill(value);
+      await expect(box).toHaveValue(value, { timeout: 1_000 });
+    }
+  }).toPass({ timeout: 10_000 });
   if (saveForReuse) {
     // Since #30 Save as private food sits on the row beside More details (no extra tap).
-    await m.tap(page.getByRole('button', { name: 'Save as private food', exact: true }).last());
-    await expect(page.getByText(new RegExp(`${food.name.replace(/[()]/g, '\\$&')}.*saved|Saved`, 'i')).first()).toBeVisible();
+    const saveBtn = () => page.getByRole('button', { name: 'Save as private food', exact: true }).last();
+    const updateBtn = () => page.getByRole('button', { name: 'Update private food', exact: true }).last();
+    await m.tap(saveBtn());
+    // Success = Save→Update flip. During save the button is busy (label opacity 0), and on CI
+    // the remount can drop a single click or leave Save armed; re-tap Save if it comes back
+    // enabled, and also accept "Private food" source label + enabled Add blank once Save is gone
+    // (durable UI, not the flaky "<name> saved…" toast / "saved foods" copy).
+    await expect(async () => {
+      if (await updateBtn().isVisible().catch(() => false)) return;
+      const save = saveBtn();
+      const saveVisible = await save.isVisible().catch(() => false);
+      if (saveVisible && await save.isEnabled().catch(() => false)) await save.click();
+      const privateLabel = page.getByText(/^Private food/);
+      if (!saveVisible
+        && await addBlank().isEnabled().catch(() => false)
+        && (await privateLabel.count()) > 0) return;
+      await expect(updateBtn()).toBeVisible({ timeout: 2_500 });
+    }).toPass({ timeout: 25_000 });
+    await expect(addBlank()).toBeEnabled();
   }
 }
 
@@ -101,15 +144,24 @@ async function saveInMyFoods(page: Page, food: Food) {
  * portion in one tap (no confirm dialog); a different portion goes through "Adjust <food> portion".
  */
 async function quickAdd(m: Meter, page: Page, query: string, name: string, portion?: string) {
-  const field = visible(page.getByLabel('Quick add', { exact: true }));
-  await field.fill('');
+  // Food-day remounts Quick add after each save; wait for a settled empty field so a stale
+  // instance cannot swallow the typed query (flake: empty Recent list, missing Add <food>).
+  const field = () => visible(page.getByLabel('Quick add', { exact: true })).first();
+  await expect.poll(async () => {
+    await field().fill('');
+    return field().inputValue();
+  }).toBe('');
   await expect(visible(page.getByText('Recent & frequent for this time of day', { exact: true })).first()).toBeVisible();
   const item = visible(page.getByRole('button', { name: `Add ${name}`, exact: true })).first();
   // Minimal path: tap it straight from the recent list when it is listed, otherwise type to find it.
   if (!(await item.count())) {
-    await m.type(field, query);
-    await expect(field).toHaveValue(query);
-    await expect(item).toBeVisible();
+    await m.type(field(), query);
+    // A late remount from the previous save can still clear the query; retype until the matches show.
+    await expect(async () => {
+      if ((await field().inputValue()) !== query) await field().fill(query);
+      await expect(visible(page.getByText('Your matches first', { exact: true })).first()).toBeVisible({ timeout: 2_000 });
+      await expect(item).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
   }
   if (portion) {
     await m.tap(visible(page.getByRole('button', { name: `Adjust ${name} portion`, exact: true })).first());
@@ -120,7 +172,7 @@ async function quickAdd(m: Meter, page: Page, query: string, name: string, porti
     await m.tap(item);
   }
   await expect(page.getByText(/ added\.$/).last()).toBeVisible();
-  await expect(field).toHaveValue('');
+  await expect(field()).toHaveValue('');
 }
 
 test('persona 1 founder-type lifter: hawker food first, then a push day', async ({ context, page }, testInfo) => {

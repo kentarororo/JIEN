@@ -31,6 +31,12 @@ test('My foods lists, edits and removes a saved food offline', async ({ context,
   await expect(page.getByText('Offline oats edited', { exact: true })).toBeVisible();
   await expect(page.getByText('Offline oats edited saved. Past meal entries were not changed.', { exact: true })).toBeVisible();
 
+  await page.getByLabel('Search saved foods', { exact: true }).fill('O');
+  await expect(page.getByText('Type at least 2 characters', { exact: true })).toBeVisible();
+  await expect(page.getByText('No matching saved foods', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Search saved foods', { exact: true }).fill('zz');
+  await expect(page.getByText('No matching saved foods', { exact: true })).toBeVisible();
+  await expect(page.getByText('Type at least 2 characters', { exact: true })).toHaveCount(0);
   await page.getByLabel('Search saved foods', { exact: true }).fill('00 12345678905');
   await expect(page.getByText('Offline oats edited', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search', exact: true }).click();

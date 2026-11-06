@@ -167,7 +167,8 @@ export default function MyFoodsScreen() {
       {loading && !data ? <StatePanel title="Loading saved foods" body="Reading your private food library from this device." loading /> : null}
       {error ? <StatePanel title="Saved foods are unavailable" body={error} actionLabel="Try again" onAction={() => void reload()} /> : null}
       {!loading && !error && foods.length === 0 && !query ? <StatePanel title="No saved foods yet" body="Create a reusable food here, or save one while adding food to a day." actionLabel="Create a saved food" onAction={beginCreate} /> : null}
-      {!loading && !error && foods.length === 0 && query ? <StatePanel title="No matching saved foods" body="Search by food name, brand, or the complete barcode." actionLabel="Clear search" onAction={() => setQuery('')} /> : null}
+      {!loading && !error && query.trim().length === 1 ? <StatePanel title="Type at least 2 characters" body="Saved food search starts from the second character." actionLabel="Clear search" onAction={() => setQuery('')} /> : null}
+      {!loading && !error && foods.length === 0 && query.trim().length > 1 ? <StatePanel title="No matching saved foods" body="Search by food name, brand, or the complete barcode." actionLabel="Clear search" onAction={() => setQuery('')} /> : null}
       <View style={styles.list}>
         {foods.map((food) => (
           <Card key={food.id} accessibilityLabel={`${food.name}${food.brand ? `, ${food.brand}` : ''}, ${formatNumber(food.servingQuantity)} ${food.servingUnit}`}>
