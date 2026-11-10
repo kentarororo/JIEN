@@ -13,11 +13,14 @@ import { spacing, typography, useJienTheme } from '@/theme';
 
 export type FoodSelection = { kind: 'logged'; food: DailyFoodItem } | { kind: 'catalog'; food: FoodCatalogItem };
 
-export function DailyFoodQuickAdd({ onSelect, onQuickAdd, onMultiAdd, onMore }: {
+export function DailyFoodQuickAdd({ onSelect, onQuickAdd, onMultiAdd, onMore, onActionStart, refreshKey, resetKey }: {
   onSelect: (selection: FoodSelection) => void;
   onQuickAdd: (food: FoodCatalogItem) => Promise<void>;
   onMultiAdd: (foods: FoodCatalogItem[]) => Promise<void>;
   onMore: (query: string) => void;
+  onActionStart?: () => void;
+  refreshKey?: number;
+  resetKey?: number;
 }) {
   const db = useSQLiteContext();
   const { colors } = useJienTheme();
@@ -27,6 +30,13 @@ export function DailyFoodQuickAdd({ onSelect, onQuickAdd, onMultiAdd, onMore }: 
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const previousResetKey = useRef(resetKey);
+  useEffect(() => {
+    if (previousResetKey.current === resetKey) return;
+    previousResetKey.current = resetKey;
+    setQuery('');
+    setSelectedIds([]);
+  }, [resetKey]);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -40,21 +50,23 @@ export function DailyFoodQuickAdd({ onSelect, onQuickAdd, onMultiAdd, onMore }: 
       }).finally(() => { if (active) setLoading(false); });
     }, 150);
     return () => { active = false; clearTimeout(timer); };
-  }, [db, query]);
+  }, [db, query, refreshKey]);
   const toggle = (id: string) => setSelectedIds((current) => current.includes(id)
     ? current.filter((value) => value !== id)
     : [...current, id]);
   const quickAdd = async (food: FoodCatalogItem) => {
+    onActionStart?.();
     setSavingId(food.id); setError(null);
-    try { await onQuickAdd(food); } catch (cause) {
+    try { await onQuickAdd(food); setQuery(''); } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The food could not be added. Try again.');
     } finally { setSavingId(null); }
   };
   const multiAdd = async () => {
     const selected = foods.filter((food) => selectedIds.includes(food.id));
     if (!selected.length) return;
+    onActionStart?.();
     setSavingId('multi'); setError(null);
-    try { await onMultiAdd(selected); setSelectedIds([]); } catch (cause) {
+    try { await onMultiAdd(selected); setSelectedIds([]); setQuery(''); } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected foods could not be added. Try again.');
     } finally { setSavingId(null); }
   };
@@ -85,7 +97,7 @@ export function DailyFoodQuickAdd({ onSelect, onQuickAdd, onMultiAdd, onMore }: 
             <Button label={`Add ${food.name}`} accessibilityLabel={`Add ${food.name}`} variant="secondary"
               busy={savingId === food.id} disabled={savingId != null} onPress={() => void quickAdd(food)} />
             <Button label="Portion" accessibilityLabel={`Adjust ${food.name} portion`} variant="quiet"
-              disabled={savingId != null} onPress={() => onSelect({ kind: 'catalog', food })} />
+              disabled={savingId != null} onPress={() => { onActionStart?.(); onSelect({ kind: 'catalog', food }); }} />
           </View>
         </View>;
       })}</View>

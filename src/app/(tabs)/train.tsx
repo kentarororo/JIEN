@@ -527,7 +527,7 @@ function MuscleAdvisoryCard({ advisory, onPlan, onLog }: { advisory: MuscleGroup
       </View> : null}
       <View style={styles.trainingTools}>
         <Button label={advisory.status === 'focus' ? 'Plan from this focus' : 'Plan next workout'} onPress={onPlan} variant="secondary" />
-        <Button label="Log workout" onPress={onLog} variant="quiet" />
+        <Button accessibilityLabel="Log workout from muscle guidance" label="Log workout" onPress={onLog} variant="quiet" />
       </View>
       <AppText style={[styles.chartNote, { color: colors.textMuted }]}>Muscle guidance uses set credits, not cross-exercise weight totals. Primary targets count 1.0 and assisting targets 0.5.</AppText>
     </Card>

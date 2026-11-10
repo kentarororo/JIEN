@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps, PropsWithChildren, ReactNode, Ref } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -120,6 +120,7 @@ export function Button({
 }) {
   const { colors } = useJienTheme();
   const [focused, setFocused] = useState(false);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const background = variant === 'primary' ? colors.accent : variant === 'danger' ? colors.dangerSoft : variant === 'secondary' ? colors.accentSoft : 'transparent';
   const foreground = variant === 'primary' ? colors.textOnAccent : variant === 'danger' ? colors.danger : colors.accent;
   return (
@@ -129,8 +130,24 @@ export function Button({
       accessibilityState={{ disabled: disabled || busy, busy, expanded }}
       disabled={disabled || busy}
       onPress={onPress}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      onFocus={() => {
+        if (Platform.OS !== 'web') {
+          setFocused(true);
+          return;
+        }
+        // A focus render can reset React Native Web's press responder between
+        // pointer down and pointer up, especially after an auto-scroll. Delay
+        // the visual focus state until the complete click sequence has settled.
+        focusTimerRef.current = setTimeout(() => {
+          focusTimerRef.current = null;
+          setFocused(true);
+        }, 100);
+      }}
+      onBlur={() => {
+        if (focusTimerRef.current != null) clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = null;
+        setFocused(false);
+      }}
       style={({ pressed }) => [
         styles.button,
         { backgroundColor: background, borderColor: variant === 'quiet' ? colors.border : background },
