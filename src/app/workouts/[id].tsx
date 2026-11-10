@@ -198,7 +198,7 @@ export default function WorkoutDetailScreen() {
       <ScreenHeading title={detail.title} eyebrow={`${formatShortDate(detail.completedAt ?? detail.performedOn)} · ${detail.completedAt ? formatTime(detail.completedAt) : 'completed'}`} />
       {storageWarning === '1' ? (
         <Card style={{ backgroundColor: colors.warningSoft, borderColor: colors.warning }}>
-          <AppText style={{ color: colors.warning, fontWeight: '800' }}>Workout captured; cloud recovery is in progress</AppText>
+          <AppText style={{ color: colors.warning, fontWeight: '700' }}>Workout captured; cloud recovery is in progress</AppText>
           <AppText style={{ color: colors.textMuted }}>Safari could not refresh its local snapshot after the save. The form draft remains available and account sync is queued. Keep this tab open until the sync indicator clears.</AppText>
         </Card>
       ) : null}
@@ -230,7 +230,7 @@ export default function WorkoutDetailScreen() {
                   <AppText style={styles.progressName}>{exercise.exerciseName}</AppText>
                   <AppText style={{ color: colors.textMuted }}>{Math.round(exercise.currentVolumeKg).toLocaleString()} kg·reps this session{exercise.baselineVolumeKg == null ? '' : ` · ${Math.round(exercise.baselineVolumeKg).toLocaleString()} recent median (${exercise.baselineSessionCount})`}</AppText>
                 </View>
-                <AppText style={{ color: exercise.changePercent == null ? colors.textMuted : exercise.changePercent >= 0 ? colors.success : colors.warning, fontWeight: '800' }}>
+                <AppText style={{ color: exercise.changePercent == null ? colors.textMuted : exercise.changePercent >= 0 ? colors.success : colors.warning, fontWeight: '700' }}>
                   {exercise.changePercent == null ? 'baseline' : formatPercent(exercise.changePercent)}
                 </AppText>
               </View>
@@ -327,8 +327,8 @@ const styles = StyleSheet.create({
   summary: { flexDirection: 'row', justifyContent: 'space-around' },
   metric: { ...typography.section, fontWeight: '700' },
   progress: { padding: spacing.lg },
-  kicker: { ...typography.caption, fontWeight: '800', letterSpacing: 0.6 },
-  progressValue: { ...typography.display, fontWeight: '800', letterSpacing: -0.7 },
+  kicker: { ...typography.caption, fontWeight: '700', letterSpacing: 0.6 },
+  progressValue: { ...typography.display, fontWeight: '700', letterSpacing: -0.7 },
   progressRows: { gap: spacing.sm, marginTop: spacing.xs },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   progressName: { fontWeight: '700' },

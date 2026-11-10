@@ -4,7 +4,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { AppText, Button } from '@/components/ui';
 import { useWebSQLiteBeforeReload } from '@/components/web-sqlite-gate';
 import { registerOfflineAppShell } from '@/lib/pwa';
-import { radii, spacing, typography, useJienTheme } from '@/theme';
+import { elevation, radii, spacing, typography, useJienTheme } from '@/theme';
 
 export function WebUpdateBanner() {
   const { colors } = useJienTheme();
@@ -92,11 +92,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    shadowColor: '#000000',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    ...elevation.floating,
   },
   copy: { flex: 1, minWidth: 180 },
   title: { ...typography.bodyLarge, fontWeight: '700' },

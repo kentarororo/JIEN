@@ -152,7 +152,7 @@ export default function SleepScreen() {
           style={({ pressed }) => [styles.historyRow, { borderBottomColor: colors.border }, pressed && styles.pressed]}
         >
           <View style={styles.flex}><AppText style={styles.historyValue}>{formatSleepDuration(entry.sleepDurationMinutes)}</AppText><AppText style={{ color: colors.textMuted }}>{formatShortDate(entry.loggedAt)} · {entry.source === 'manual' ? 'Manual' : 'Imported'}</AppText>{entry.notes ? <AppText numberOfLines={1} style={{ color: colors.textMuted }}>{entry.notes}</AppText> : null}</View>
-          <View style={styles.historyEnd}><AppText style={styles.quality}>{entry.sleepQualityScore == null ? '—' : `${entry.sleepQualityScore}/5`}</AppText><AppText style={{ color: colors.accent, fontWeight: '800' }}>Edit</AppText></View>
+          <View style={styles.historyEnd}><AppText style={styles.quality}>{entry.sleepQualityScore == null ? '—' : `${entry.sleepQualityScore}/5`}</AppText><AppText style={{ color: colors.accent, fontWeight: '700' }}>Edit</AppText></View>
         </Pressable>
       ))}</Card> : <StatePanel title="No sleep entries yet" body="Log only what is useful. Duration and quality remain editable, private, and available offline." />}
 
@@ -190,16 +190,16 @@ const styles = StyleSheet.create({
   layoutWide: { flexDirection: 'row', alignItems: 'flex-start' },
   formCard: { flex: 2 },
   summaryCard: { flex: 1, minWidth: 240 },
-  cardTitle: { ...typography.bodyLarge, fontWeight: '800' },
-  metric: { ...typography.title, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  cardTitle: { ...typography.bodyLarge, fontWeight: '700' },
+  metric: { ...typography.title, fontWeight: '700', fontVariant: ['tabular-nums'] },
   fieldLabel: { ...typography.label, fontWeight: '700' },
   scoreBlock: { gap: spacing.xs },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   multiline: { minHeight: 96, textAlignVertical: 'top', paddingTop: spacing.sm },
   historyRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderRadius: radii.compact },
-  historyValue: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  historyValue: { ...typography.bodyLarge, fontWeight: '700', fontVariant: ['tabular-nums'] },
   historyEnd: { alignItems: 'flex-end', gap: spacing.xxs },
-  quality: { ...typography.bodyLarge, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  quality: { ...typography.bodyLarge, fontWeight: '700', fontVariant: ['tabular-nums'] },
   flex: { flex: 1 },
   pressed: { opacity: 0.68 },
 });

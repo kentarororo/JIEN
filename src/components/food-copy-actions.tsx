@@ -6,7 +6,7 @@ import { AppText, Button, Card, Screen, ScreenHeading, StatePanel } from '@/comp
 import { copyFoodHistoryToDay, getLatestFoodCopyMeal, listRecentFoodCopyDays, type FoodCopyDay, type FoodCopyMeal } from '@/lib/db';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { shiftLocalDateKey } from '@/lib/time';
-import { spacing, useJienTheme } from '@/theme';
+import { radii, spacing, useJienTheme } from '@/theme';
 
 export function FoodCopyActions({
   date,
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
   title: { fontWeight: '700' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   choice: { minHeight: 56, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs },
-  check: { width: 24, height: 24, borderWidth: 1.5, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  check: { width: 24, height: 24, borderWidth: 1.5, borderRadius: radii.compact, alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1, minWidth: 0 },
   pressed: { opacity: 0.68 },
 });

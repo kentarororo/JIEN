@@ -307,10 +307,10 @@ function provenanceLabel(source: MealItemSnapshot['originalSource'], edited: boo
 const styles = StyleSheet.create({
   screenContent: { width: '100%', maxWidth: 900, alignSelf: 'center' },
   summary: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: spacing.lg },
-  metric: { ...typography.section, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  metric: { ...typography.section, fontWeight: '700', fontVariant: ['tabular-nums'] },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   itemTitle: { ...typography.bodyLarge, fontWeight: '700' },
-  value: { fontWeight: '800', fontVariant: ['tabular-nums'] },
+  value: { fontWeight: '700', fontVariant: ['tabular-nums'] },
   flex: { flex: 1 },
   fieldGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   headerField: { flexGrow: 1, flexBasis: 220 },

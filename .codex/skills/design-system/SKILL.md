@@ -35,6 +35,18 @@ Use direct product language in the order **state → consequence → action**.
 
 Direction: **Warm Utility**, softened with pastel cream, royal-brown, and restrained wood accents.
 
+| Group | Token | Approved values |
+| --- | --- | --- |
+| Color | `colors.*` | Semantic light/dark roles in `src/theme/tokens.ts`; WCAG AA text/background pairs |
+| Type | `typography.*` | `12/16`, `14/20`, `16/24`, `18/24`, `22/28`, `28/34`, `36/42` |
+| Weight | `fontWeight` | `400`, `500`, `600`, `700` |
+| Spacing | `spacing.*` | `4`, `8`, `12`, `16`, `20`, `24`, `32`, `40`, `48` |
+| Radius | `radii.*` | `8`, `12`, `16`, `24`, full pill |
+| Controls | `controls.*` | 44-point minimum target, 48-point standard height |
+| Elevation | `elevation.floating` | One shadow recipe for floating surfaces only |
+
+`pnpm typecheck` runs the design-token check before TypeScript. Screen and shared-component source must not add raw colours, font sizes, spacing, radii, shadows, or unsupported weights.
+
 ### Color
 
 Use semantic tokens from `src/theme/tokens.ts` only.

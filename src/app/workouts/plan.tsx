@@ -675,7 +675,7 @@ const styles = StyleSheet.create({
   result: { minHeight: 58, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
   resultName: { fontWeight: '700' },
   planList: { gap: spacing.md },
-  kicker: { ...typography.caption, fontWeight: '800', opacity: 0.65 },
+  kicker: { ...typography.caption, fontWeight: '700', opacity: 0.65 },
   exerciseName: { ...typography.section, fontWeight: '700' },
   targetList: { gap: spacing.xs },
   targetRow: { minHeight: 52, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.compact, padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

@@ -9,7 +9,7 @@ import {
 } from '@/lib/db';
 import { localTimestampForDate } from '@/lib/time';
 import { convertServingQuantity, multipliedPortion, PORTION_MULTIPLIERS, servingScale, servingUnitOptions } from '@/lib/nutrition/serving';
-import { spacing, typography, useJienTheme } from '@/theme';
+import { radii, spacing, typography, useJienTheme } from '@/theme';
 
 export type FoodSelection = { kind: 'logged'; food: DailyFoodItem } | { kind: 'catalog'; food: FoodCatalogItem };
 
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   suggestionCopy: { flex: 1, minWidth: 0 },
   suggestionName: { fontWeight: '700' },
   suggestionActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  check: { width: 24, height: 24, borderWidth: 1.5, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  check: { width: 24, height: 24, borderWidth: 1.5, borderRadius: radii.compact, alignItems: 'center', justifyContent: 'center' },
   multiplierRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   pressed: { opacity: 0.68 },
 });

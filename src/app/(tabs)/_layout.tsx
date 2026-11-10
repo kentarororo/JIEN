@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 
-import { useJienTheme } from '@/theme';
+import { typography, useJienTheme } from '@/theme';
 
 export default function TabLayout() {
   const { colors } = useJienTheme();
@@ -15,7 +15,7 @@ export default function TabLayout() {
         lazy: true,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: typography.caption.fontSize, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
