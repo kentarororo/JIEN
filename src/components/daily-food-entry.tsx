@@ -43,7 +43,7 @@ export function DailyFoodQuickAdd({ onSelect, onQuickAdd, onMultiAdd, onMore, on
     setError(null);
     setSelectedIds([]);
     const timer = setTimeout(() => {
-      void searchLocalFoodCatalog(db, query, query.trim() ? 8 : 3).then((rows) => {
+      void searchLocalFoodCatalog(db, query, query.trim() ? 8 : 6).then((rows) => {
         if (active) setFoods(rows);
       }).catch(() => {
         if (active) { setFoods([]); setError('Saved foods could not be loaded. You can still add food below.'); }

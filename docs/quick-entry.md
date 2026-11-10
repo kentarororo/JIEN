@@ -24,7 +24,9 @@
 - Food now ranks the user's last logged portions, saved foods and time-of-day
   frequency before built-in or provider results. Local abbreviations and small
   spelling errors are resolved on-device. A suggestion can be added in one tap, or
-  several suggestions can be selected and committed once.
+  several suggestions can be selected and committed once. Quick add shows six
+  suggestions before any typing; never-logged My foods entries can fill the list
+  after foods ranked from meal history.
 - Copy yesterday, copy the latest earlier meal, and past-day item selection create
   new editable snapshots in one local transaction. The source records are unchanged.
   Quick macros records calories and protein with optional carbs and fat without
