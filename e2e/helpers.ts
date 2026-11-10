@@ -127,11 +127,128 @@ export async function fixJienClock(page: Page, offsetMs = 0) {
   await page.clock.setFixedTime(new Date(FIXED_NOW.getTime() + offsetMs));
 }
 
-export async function completeOnboarding(page: Page) {
-  await page.goto('/');
+async function clearStuckWebSqliteState(page: Page) {
+  // Best-effort reset for ios-webkit stuck on Cloud restore (#50).
+  // The React/SQLite client holds an exclusive Web Lock on jien.db while the app
+  // document is alive, so deleteDatabase stays blocked. Hop to a same-origin
+  // non-app asset first to unload the client and release the lock. Prefer
+  // /manifest.webmanifest over about:blank — the latter hangs Playwright WebKit.
+  //
+  // Hard-cap every step: an unbounded page.evaluate on Windows WebKit was burning
+  // the full 90s test timeout, closing the page, and surfacing as
+  // "Target page, context or browser has been closed" on the next goto — which
+  // then ate the 45m browser-CI wall via retries (run 42148018583).
+  if (page.isClosed()) return;
   try {
-    await expect(page.getByRole('heading', { name: 'What are you working toward?' })).toBeVisible();
+    const origin = new URL(page.url()).origin;
+    if (origin.startsWith('http')) {
+      await page.goto(`${origin}/manifest.webmanifest`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 4_000,
+      }).catch(() => undefined);
+    }
+  } catch { /* ignore */ }
+  if (page.isClosed()) return;
+  await page.evaluate(async () => {
+    const withBudget = <T,>(work: Promise<T>, ms: number) => Promise.race([
+      work,
+      new Promise<T>((resolve) => setTimeout(() => resolve(undefined as T), ms)),
+    ]);
+    try {
+      // Steal/release the SQLite lock if a prior document left it held (#50).
+      if (typeof navigator.locks?.request === 'function') {
+        await withBudget(
+          navigator.locks.request('jien:sqlite:jien.db', { steal: true }, async () => undefined).catch(() => undefined),
+          1_000,
+        );
+      }
+    } catch { /* ignore */ }
+    try {
+      if (typeof indexedDB.databases === 'function') {
+        const dbs = await withBudget(indexedDB.databases(), 1_000);
+        if (Array.isArray(dbs)) {
+          await withBudget(Promise.all(
+            dbs
+              .filter((db) => (db.name ?? '').includes('jien'))
+              .map((db) => new Promise<void>((resolve) => {
+                const req = indexedDB.deleteDatabase(db.name!);
+                req.onsuccess = req.onerror = req.onblocked = () => resolve();
+                setTimeout(resolve, 800);
+              })),
+          ), 2_000);
+        }
+      }
+    } catch { /* ignore */ }
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await withBudget(navigator.serviceWorker.getRegistrations(), 800);
+        if (Array.isArray(regs)) {
+          await withBudget(Promise.all(regs.map((r) => r.unregister().catch(() => false))), 800);
+        }
+      }
+    } catch { /* ignore */ }
+    try {
+      if ('caches' in window) {
+        const keys = await withBudget(caches.keys(), 800);
+        if (Array.isArray(keys)) {
+          await withBudget(Promise.all(keys.map((k) => caches.delete(k).catch(() => false))), 800);
+        }
+      }
+    } catch { /* ignore */ }
+  }, { timeout: 4_000 }).catch(() => undefined);
+}
+
+export async function completeOnboarding(page: Page) {
+  // Abort sw.js during onboarding so a sticky PWA worker cannot re-seed a broken
+  // WebSQLite state mid-retry (#50). Root cause stays #50.
+  await page.route('**/sw.js', (route) => route.abort()).catch(() => undefined);
+
+  // Skip a heavy pre-clear on the fresh prepareIsolatedJienContext load — hopping
+  // away mid-SQLite boot was hanging Windows WebKit evaluate until the test
+  // timeout closed the page. Only clear when we already see the restore gate,
+  // or after a failed Try-again inside the budgeted loop below.
+  if (page.isClosed()) throw new Error('completeOnboarding: page already closed');
+  await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  // ios-webkit sometimes lands on "Cloud restore needs attention" (#50). Keep the
+  // recovery budget tight (~30s) so a sticky restore fails fast instead of
+  // burning the 90s test timeout × CI retry and starving the 45m suite wall.
+  const restore = page.getByRole('heading', { name: 'Cloud restore needs attention', exact: true });
+  const onboarding = page.getByRole('heading', { name: 'What are you working toward?' });
+  const today = page.getByRole('heading', { name: 'Today', exact: true });
+  const restoreDeadline = Date.now() + 30_000;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (page.isClosed()) throw new Error('completeOnboarding: page closed during restore recovery');
+    if (Date.now() > restoreDeadline) break;
+    if (await onboarding.isVisible().catch(() => false)) break;
+    if (await today.isVisible().catch(() => false)) break;
+    if (!(await restore.isVisible().catch(() => false))) {
+      // Still booting — give hydration a moment before the next check.
+      await page.waitForTimeout(700);
+      if (await onboarding.isVisible().catch(() => false) || await today.isVisible().catch(() => false)) break;
+      if (!(await restore.isVisible().catch(() => false))) break;
+    }
+    const tryAgain = page.getByRole('button', { name: 'Try again', exact: true });
+    if (await tryAgain.isVisible().catch(() => false)) {
+      await tryAgain.click().catch(() => undefined);
+      await page.waitForTimeout(1_000);
+    }
+    if (await onboarding.isVisible().catch(() => false) || await today.isVisible().catch(() => false)) break;
+    await clearStuckWebSqliteState(page);
+    if (page.isClosed()) throw new Error('completeOnboarding: page closed after IDB clear');
+    await page.goto(`/?e2e_restore=${attempt}&t=${Date.now()}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 10_000,
+    }).catch(() => undefined);
+    await page.waitForTimeout(800);
+  }
+  // Already past onboarding (rare after a sticky restore) — treat as done.
+  if (await today.isVisible().catch(() => false) && !(await onboarding.isVisible().catch(() => false))) {
+    return;
+  }
+  try {
+    await expect(onboarding).toBeVisible({ timeout: 10_000 });
   } catch (error) {
+    if (page.isClosed()) throw error;
     const startupState = await page.evaluate(async () => ({
       bodyText: document.body.innerText.slice(0, 500),
       broadcastChannel: typeof BroadcastChannel,
@@ -146,7 +263,7 @@ export async function completeOnboarding(page: Page) {
       url: location.href,
       webLocks: typeof navigator.locks,
       webAssembly: typeof WebAssembly,
-    }));
+    }), { timeout: 3_000 }).catch((evaluateError) => ({ evaluateError: String(evaluateError) }));
     console.error(`Onboarding startup state: ${JSON.stringify(startupState)}`);
     throw error;
   }

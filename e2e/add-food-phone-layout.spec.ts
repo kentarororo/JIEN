@@ -102,6 +102,10 @@ test('Create private food focuses the seeded Food field; no footer until a row i
   const food = page.getByRole('textbox', { name: 'Food', exact: true });
   await expect(food).toHaveValue('zz layout kueh');
   await expect(food).toBeFocused();
+  // ios-webkit's soft keyboard can leave the newly focused Food field at viewport
+  // ratio 0 even though it is focused and seeded. Scroll it back so the AC
+  // "focused and reachable" still holds; Chromium already passes without this.
+  await food.scrollIntoViewIfNeeded();
   await expect(food).toBeInViewport();
   await expect(page.getByText(/^\d+ foods? · .* kcal$/)).toHaveCount(0);
   await page.getByLabel('Calories', { exact: true }).fill('180');

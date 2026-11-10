@@ -53,9 +53,13 @@ test('repeat food day stays one action and local history supports multi-add plus
   await expect(page.getByRole('button', { name: 'Edit Quick macros, 250 calories', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Choose past food', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Copy past food', exact: true })).toBeVisible();
-  await page.getByRole('checkbox', { name: 'Select Char Kway Teow', exact: true }).click();
-  await page.getByRole('button', { name: 'Copy selected · 1', exact: true }).click();
+  // Scope into the modal: Recent & frequent also exposes "Select Char Kway Teow", so an
+  // unscoped locator is ambiguous / not actionable on ios-webkit when the dialog is open.
+  const pastFood = page.getByRole('dialog');
+  await expect(pastFood.getByRole('heading', { name: 'Copy past food', exact: true })).toBeVisible();
+  await expect(pastFood.getByRole('checkbox', { name: 'Select Char Kway Teow', exact: true })).toBeVisible();
+  await pastFood.getByRole('checkbox', { name: 'Select Char Kway Teow', exact: true }).click();
+  await pastFood.getByRole('button', { name: 'Copy selected · 1', exact: true }).click();
   await expect(page.getByText('1 food copied from selected foods.', { exact: true })).toBeVisible();
 
   let repeatMealTaps = 0;
