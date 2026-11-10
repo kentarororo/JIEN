@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from '@/lib/db/database-context';
 import { useCallback, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -90,7 +90,7 @@ function MacroSnapshot({ label, value }: { label: string; value: number }) {
 export default function FoodScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const { date } = useLocalSearchParams<{ date?: string }>();
+  const { date, repeatTargetDate } = useLocalSearchParams<{ date?: string; repeatTargetDate?: string }>();
   const { colors } = useJienTheme();
   const todayKey = toLocalDateKey();
   const selectedDate = historicalDateKey(date, todayKey);
@@ -120,7 +120,13 @@ export default function FoodScreen() {
     setFoodMessage(null);
     setDayStateError(null);
     setDayStateMessage(null);
-    router.replace({ pathname: '/food', params: nextDate === todayKey ? {} : { date: nextDate } } as never);
+    router.replace({
+      pathname: '/food',
+      params: {
+        ...(nextDate === todayKey ? {} : { date: nextDate }),
+        ...(nextDate < todayKey ? { repeatTargetDate: selectedDate } : {}),
+      },
+    } as never);
   };
 
   const savedFastFood = async (foods: FoodCatalogItem[]) => {
@@ -351,7 +357,13 @@ export default function FoodScreen() {
           setSelection(null); setQuickAddResetKey((current) => current + 1); setFoodMessage(message); void reload();
           void reconcileMealGapNotification(db).catch(() => undefined);
         }}
-        onDetails={(mealId) => { setSelection(null); router.push(`/meals/${mealId}` as Href); }} /> : null}
+        onDetails={(mealId) => {
+          setSelection(null);
+          router.push({
+            pathname: '/meals/[id]',
+            params: { id: mealId, repeatDate: selectedDate, repeatTargetDate },
+          });
+        }} /> : null}
     </Screen>
   );
 }

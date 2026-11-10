@@ -9,7 +9,7 @@ import {
   validateMealEdit,
 } from './meal-record.ts';
 import { toLocalDateKey } from '../time.ts';
-import { buildRepeatMealDraft } from './meal-template.ts';
+import { buildRepeatMealDraft, resolveRepeatMealTarget } from './meal-template.ts';
 
 test('item edits recalculate all meal totals', () => {
   const eatenAt = localMealTimestamp('2026-08-12', '18:45');
@@ -78,4 +78,29 @@ test('repeating a saved meal copies editable snapshots without claiming a new AI
     key: 'copy-1', quantity: '1.5', calories: '700', source: 'manual', confidence: null,
     sourceLabel: 'Copied from saved meal',
   }]);
+});
+
+test('repeat-meal target defaults to today and offers yesterday (#29)', () => {
+  const target = resolveRepeatMealTarget(undefined, '2026-10-21');
+  assert.deepEqual(target, { date: '2026-10-21', today: '2026-10-21', yesterday: '2026-10-20', viewedDate: null });
+});
+
+test('repeat-meal target adds the viewed Food day as a choice only when it is an earlier, distinct day (#29)', () => {
+  assert.equal(resolveRepeatMealTarget('2026-10-17', '2026-10-21').viewedDate, '2026-10-17');
+  assert.equal(resolveRepeatMealTarget('2026-10-17', '2026-10-21').date, '2026-10-21', 'viewing a past day keeps Today as the default');
+  assert.equal(resolveRepeatMealTarget('2026-10-21', '2026-10-21').viewedDate, null, 'today already has its own choice');
+  assert.equal(resolveRepeatMealTarget('2026-10-20', '2026-10-21').viewedDate, null, 'yesterday already has its own choice');
+  assert.equal(resolveRepeatMealTarget('2026-10-25', '2026-10-21').viewedDate, null, 'a future day is never offered');
+  assert.equal(resolveRepeatMealTarget('not-a-date', '2026-10-21').viewedDate, null);
+});
+
+test('repeat-meal target uses a valid back-fill day as the default and ignores future or malformed ones (#29)', () => {
+  assert.equal(resolveRepeatMealTarget('2026-10-17', '2026-10-21', '2026-10-18').date, '2026-10-18');
+  assert.equal(resolveRepeatMealTarget('2026-10-17', '2026-10-21', '2026-10-30').date, '2026-10-21');
+  assert.equal(resolveRepeatMealTarget('2026-10-17', '2026-10-21', '18/10/2026').date, '2026-10-21');
+});
+
+test('repeat-meal targets cross month and year boundaries on local calendar days (#29)', () => {
+  assert.equal(resolveRepeatMealTarget(undefined, '2026-01-01').yesterday, '2025-12-31');
+  assert.equal(resolveRepeatMealTarget(undefined, '2026-03-01').yesterday, '2026-02-28');
 });
