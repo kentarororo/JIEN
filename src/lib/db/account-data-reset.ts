@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { SINGAPORE_FOOD_ESTIMATES } from '../../data/singapore-food-estimates';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import { DEFAULT_EXERCISES, REGIONAL_STARTER_FOODS, STARTER_FOODS } from './migrate';
 
@@ -64,8 +65,27 @@ export async function resetLocalAccountData(
         `INSERT INTO food_catalog_cache (
           id, name, serving_quantity, serving_unit, calories_kcal,
           protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'usda', ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'usda_fdc', ?, ?)`,
         [...food, timestamp],
+      );
+    }
+
+    for (const food of SINGAPORE_FOOD_ESTIMATES) {
+      await transactionDb.runAsync(
+        `INSERT INTO food_catalog_cache (
+          id, name, brand, serving_quantity, serving_unit, calories_kcal,
+          protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref,
+          metadata_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sg_estimate', ?, ?, ?)`,
+        [
+          food.id, food.name, food.brand, food.servingQuantity, food.servingUnit,
+          food.caloriesKcal, food.proteinG, food.carbohydrateG, food.fatG,
+          food.fibreG, food.sourceRef, JSON.stringify({
+            method: 'recipe-derived estimate',
+            source: 'USDA FoodData Central (CC0 1.0)',
+            ingredients: food.ingredients,
+          }), timestamp,
+        ],
       );
     }
   });

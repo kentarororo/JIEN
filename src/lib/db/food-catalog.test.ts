@@ -6,6 +6,7 @@ import { parseCommunityFoods } from './community-food-contract.ts';
 
 import { mapOpenFoodFactsProduct, rankOpenFoodFactsProductsForSingapore } from './open-food-facts.ts';
 import { foodItemsEligibleForDiscoveryCache, parseFoodSearchData } from './food-search-contract.ts';
+import type { FoodCatalogItem } from './types.ts';
 
 test('private barcode identity preserves leading zeros and rejects non-numeric identifiers', () => {
   assert.equal(normalizePrivateFoodBarcode('00 12345678905'), '0012345678905');
@@ -190,4 +191,51 @@ test('does not bulk-cache unselected FatSecret search results', () => {
   const starter = { ...fatSecret, id: 'starter-rice', source: 'starter' as const };
 
   assert.deepEqual(foodItemsEligibleForDiscoveryCache([fatSecret, starter]), [starter]);
+});
+
+test('Singapore starter set: ~150 unique items with complete macros, kcal within 15% of 4/4/9 and an ingredient breakdown', async () => {
+  const { SINGAPORE_FOOD_ESTIMATES } = await import('../../data/singapore-food-estimates.ts');
+  assert.ok(SINGAPORE_FOOD_ESTIMATES.length >= 140 && SINGAPORE_FOOD_ESTIMATES.length <= 170, `${SINGAPORE_FOOD_ESTIMATES.length} items`);
+  assert.equal(new Set(SINGAPORE_FOOD_ESTIMATES.map((item) => item.id)).size, SINGAPORE_FOOD_ESTIMATES.length, 'ids are unique');
+  assert.equal(new Set(SINGAPORE_FOOD_ESTIMATES.map((item) => item.name.toLowerCase())).size, SINGAPORE_FOOD_ESTIMATES.length, 'names are unique');
+  for (const item of SINGAPORE_FOOD_ESTIMATES) {
+    assert.match(item.id, /^sg-estimate-[a-z0-9-]+$/);
+    assert.ok(item.name.trim() && item.servingUnit.trim() && item.servingQuantity > 0, `${item.name} has a serving description`);
+    assert.equal(item.brand, 'SG');
+    assert.equal(item.source, 'sg_estimate');
+    assert.match(item.sourceRef, /^usda-fdc-recipe:/);
+    for (const value of [item.caloriesKcal, item.proteinG, item.carbohydrateG, item.fatG, item.fibreG]) {
+      assert.ok(Number.isFinite(value) && value >= 0, `${item.name} has a finite non-negative macro`);
+    }
+    const fromMacros = item.proteinG * 4 + item.carbohydrateG * 4 + item.fatG * 9;
+    assert.ok(Math.abs(item.caloriesKcal - fromMacros) <= Math.max(5, fromMacros * 0.15), `${item.name}: ${item.caloriesKcal} kcal vs ${fromMacros.toFixed(0)} from macros`);
+    assert.ok(item.caloriesKcal <= 1200, `${item.name} is a single plausible serving`);
+    assert.ok(item.ingredients.length > 0, `${item.name} keeps its ingredient breakdown`);
+    for (const ingredient of item.ingredients) {
+      assert.ok(ingredient.grams > 0 && ingredient.name.trim(), `${item.name}: ${ingredient.key} has a gram weight`);
+      assert.match(ingredient.fdcId ?? '', /^\d+$/, `${item.name}: ${ingredient.key} cites a FoodData Central id`);
+    }
+  }
+  const names = SINGAPORE_FOOD_ESTIMATES.map((item) => item.name.toLowerCase());
+  for (const required of ['chicken rice', 'nasi lemak', 'char kway teow', 'laksa', 'kopi c', 'kopi o kosong', 'teh tarik', 'milo', 'roti prata', 'kaya', 'carrot cake', 'satay']) {
+    assert.ok(names.some((name) => name.includes(required)), `covers ${required}`);
+  }
+});
+
+test('search ranking puts private foods first, then SG estimates, then generic providers', async () => {
+  const { rankFoodCatalogMatches } = await import('./food-catalog.ts');
+  const food = (id: string, name: string, source: FoodCatalogItem['source']): FoodCatalogItem => ({
+    id, name, brand: null, servingQuantity: 1, servingUnit: 'serving', caloriesKcal: 100,
+    proteinG: 1, carbohydrateG: 1, fatG: 1, fibreG: null, source, sourceRef: null, barcode: null, confidence: null,
+  });
+  const ranked = rankFoodCatalogMatches('Chicken rice', [
+    food('off', 'Chicken rice', 'open_food_facts'),
+    food('usda', 'Chicken rice', 'usda_fdc'),
+    food('community', 'Chicken rice', 'community'),
+    food('sg-roasted', 'Chicken rice, roasted chicken', 'sg_estimate'),
+    food('sg-contains', 'Roast chicken rice set', 'sg_estimate'),
+    food('mine', 'My chicken rice', 'custom'),
+  ]);
+  assert.deepEqual(ranked.map((item) => item.id), ['mine', 'sg-roasted', 'sg-contains', 'off', 'usda', 'community']);
+  assert.deepEqual(rankFoodCatalogMatches('kopi', [food('a', 'Kopi C', 'sg_estimate'), food('b', 'kopi', 'sg_estimate')]).map((item) => item.id), ['b', 'a']);
 });
