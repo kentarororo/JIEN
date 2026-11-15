@@ -53,6 +53,8 @@ export { migrateDatabase } from './migrate';
 export { deleteWorkoutDraft, getWorkoutDraft, getWorkoutDraftOwnerId, saveWorkoutDraft } from './workout-drafts';
 export { getUserProfile, hasCompletedOnboarding, saveUserProfile } from './profile';
 export { getTrainingAdherence, getTrainingProgrammeProgress, saveTrainingProgramme } from './training-programme';
+export { importWorkoutHistory } from './workout-import';
+export type { WorkoutImportExerciseChoice, WorkoutImportResult } from './workout-import';
 export {
   acknowledgeMedicalDisclaimer,
   deleteSleepLog,
