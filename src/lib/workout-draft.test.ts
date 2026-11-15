@@ -65,7 +65,7 @@ test('version two drafts preserve performed state and set kind while version one
     blocks: [{ exerciseId: 'row', sets: [{ load: '50', reps: '10', rpe: '8', kind: 'warmup', completed: true }] }],
   });
   const parsed = parseWorkoutDraft(versionTwo, owner, 'new:2026-09-04');
-  assert.equal(parsed?.version, 2);
+  assert.equal(parsed?.version, 3);
   assert.equal(parsed?.blocks[0]?.sets[0]?.kind, 'warmup');
   assert.equal(parsed?.blocks[0]?.sets[0]?.completed, true);
   assert.equal(parsed?.restTimerSeconds, 90);
@@ -89,4 +89,24 @@ test('only completed working sets contribute to the active workout summary', () 
     blankSetCount: 0,
     work: 320,
   });
+});
+
+test('version three drafts keep superset groups; older drafts and malformed group ids load ungrouped', () => {
+  const groupId = '3f2b8c1e-5a7d-4e9f-9b2a-1c3d5e7f9a0b';
+  const draft = (version: number, blocks: unknown[]) => JSON.stringify({
+    version, ownerUserId: owner, workoutId: 'workout-3', context: 'new:2026-11-05',
+    title: 'Upper superset', unit: 'kg', startedAt: null, updatedAt: '2026-11-05T08:00:00.000Z',
+    restTimerSeconds: 60, restEndsAt: null, blocks,
+  });
+  const sets = [{ load: '20', reps: '10', rpe: '', kind: 'working', completed: true }];
+  const parsed = parseWorkoutDraft(draft(3, [
+    { exerciseId: 'squat', groupId, sets },
+    { exerciseId: 'press', groupId, sets },
+    { exerciseId: 'curl', groupId: null, sets },
+    { exerciseId: 'row', groupId: 'not-a-uuid', sets },
+  ]), owner, 'new:2026-11-05');
+  assert.deepEqual(parsed?.blocks.map((block) => block.groupId), [groupId, groupId, null, null]);
+
+  const versionTwo = parseWorkoutDraft(draft(2, [{ exerciseId: 'squat', sets }]), owner, 'new:2026-11-05');
+  assert.equal(versionTwo?.blocks[0]?.groupId, null);
 });

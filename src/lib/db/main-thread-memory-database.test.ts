@@ -249,7 +249,7 @@ test('main-thread database persists committed work and isolates delayed transact
     const foodColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(food_items)');
     const targetColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(nutrition_targets)');
     const setColumns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(workout_sets)');
-    assert.equal(version?.user_version, 19);
+    assert.equal(version?.user_version, 22);
     const cardioInput = { activity: 'run' as const, minutes: 20, distanceKm: 3, effort: null };
     const cardioNow = new Date().toISOString();
     const cardioId = await saveCardioSession(database, cardioInput, cardioNow);
@@ -1012,7 +1012,7 @@ test('main-thread database persists committed work and isolates delayed transact
       null,
       'private foods must be removed with the account',
     );
-    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 19 });
+    assert.deepEqual(await database.getFirstAsync('PRAGMA user_version'), { user_version: 22 });
     assert.deepEqual(await database.getFirstAsync('PRAGMA integrity_check'), { integrity_check: 'ok' });
     assert.deepEqual(await database.getAllAsync('PRAGMA foreign_key_check'), []);
 

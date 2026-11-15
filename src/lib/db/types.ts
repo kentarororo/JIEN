@@ -154,6 +154,7 @@ export type SaveWorkoutInput = {
   notes?: string;
   exercises: Array<{
     exercise: Exercise;
+    groupId?: string | null;
     sets: WorkoutSetInput[];
   }>;
 };
@@ -168,6 +169,8 @@ export type PlannedWorkoutSet = {
 };
 
 export type PlannedWorkoutExercise = {
+  /** Presentation-only superset/circuit identifier shared by two or more exercises. */
+  groupId?: string;
   /** Edited target counts must not become a new completed-history progression baseline. */
   setCountEdited?: true;
   exerciseId: string;
@@ -286,6 +289,7 @@ export type WorkoutSet = WorkoutSetInput & {
   loadIncrement: number;
   completedAt: string;
   sortOrder: number;
+  groupId?: string | null;
 };
 
 export type WorkoutDetail = WorkoutSummary & {

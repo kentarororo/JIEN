@@ -1,7 +1,7 @@
 import type { LoadUnit, SetKind } from './db/types';
 import { countsTowardTraining, targetSetKind } from '../../supabase/functions/_shared/training-set-policy.ts';
 
-const DRAFT_VERSION = 2;
+const DRAFT_VERSION = 3;
 
 export type RecoverableWorkoutDraft = {
   version: typeof DRAFT_VERSION;
@@ -16,6 +16,7 @@ export type RecoverableWorkoutDraft = {
   restEndsAt: number | null;
   blocks: Array<{
     exerciseId: string;
+    groupId: string | null;
     sets: Array<{
       id?: string;
       load: string;
@@ -147,7 +148,7 @@ export function parseWorkoutDraft(
       version?: number;
       blocks?: unknown;
     };
-    if ((draft.version !== 1 && draft.version !== DRAFT_VERSION)
+    if ((draft.version !== 1 && draft.version !== 2 && draft.version !== DRAFT_VERSION)
       || draft.ownerUserId !== ownerUserId
       || draft.context !== context
       || typeof draft.workoutId !== 'string'
@@ -164,6 +165,7 @@ export function parseWorkoutDraft(
       }
       return {
         exerciseId: block.exerciseId,
+        groupId: typeof block.groupId === 'string' && isUuid(block.groupId) ? block.groupId : null,
         sets: block.sets.map((rawSet) => {
           const set = rawSet as Record<string, unknown> | null;
           if (!set || typeof set.load !== 'string' || typeof set.reps !== 'string' || typeof set.rpe !== 'string') {
@@ -194,6 +196,10 @@ export function parseWorkoutDraft(
 
 function isSetKind(value: unknown): value is SetKind {
   return value === 'working' || value === 'warmup' || value === 'drop' || value === 'failure';
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 export function normalizeRestTimerSeconds(value: unknown): number {
