@@ -31,6 +31,23 @@ Use direct product language in the order **state → consequence → action**.
 - Preserve precise safety, privacy, consent, billing, and medical limitations.
 - Run the copy-quality harness and update it when a repeated failure mode is found.
 
+## Ken's design direction (5 Nov 2026)
+
+Decided by Ken after Grok's UI audit (#59). These override older visual choices.
+
+1. **Human-centred, Apple-in-its-prime.** Clarity, deference to content, depth only
+   where it explains. Calm, quiet, generous whitespace; the data is the hero.
+2. **Flatter lists over nested cards.** Grouped lists with hairline dividers, like
+   iOS Settings and Health. A card only when it is a genuinely separate object.
+   The warm palette can stay, but quieter: fewer tinted surfaces.
+3. **Minimal text.** No uppercase eyebrow labels above titles by default; add one only
+   when the screen would be ambiguous without it. No explanatory sub-copy under every
+   heading, no "AI" filler, no motivational lines. If a label can go, it goes.
+4. **Food hero: logged first, with the target in view.** Show calories logged as the
+   big number, a progress ring or bar toward the target, and "x left" as a quiet
+   secondary value next to it. Same pattern for protein. Never show a macro without
+   its target.
+
 ## Approved tokens
 
 Direction: **Warm Utility**, softened with pastel cream, royal-brown, and restrained wood accents.
