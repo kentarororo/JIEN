@@ -147,6 +147,7 @@ export default function TodayScreen() {
         <View style={styles.actions}>
           <ActionCard tone="accent" title="Log workout" detail="Sets, reps and load" icon="barbell-outline" onPress={() => router.push('/workouts/new')} />
           <ActionCard title="Food log" detail="Today’s food and macros" icon="restaurant-outline" onPress={() => router.push('/food')} />
+          <ActionCard title="Weigh in" detail="Weight and body trend" icon="scale-outline" onPress={() => router.push('/wellness/body' as never)} />
         </View>
       </HeroPanel>
 
