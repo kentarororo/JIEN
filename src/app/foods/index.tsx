@@ -5,7 +5,7 @@ import { Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, Button, Card, Field, Screen, ScreenHeading, SectionHeading, StatePanel } from '@/components/ui';
 import { useScreenData } from '@/hooks/use-screen-data';
-import { listPrivateFoods, removePrivateFood, savePrivateFood, type FoodCatalogItem } from '@/lib/db';
+import { listPrivateFoods, listRecipes, removePrivateFood, savePrivateFood, type FoodCatalogItem } from '@/lib/db';
 import { spacing, typography, useJienTheme } from '@/theme';
 
 type FoodDraft = {
@@ -47,9 +47,13 @@ export default function MyFoodsScreen() {
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const loader = useCallback(() => listPrivateFoods(db, query), [db, query]);
+  const loader = useCallback(async () => {
+    const [foods, recipes] = await Promise.all([listPrivateFoods(db, query), listRecipes(db, query)]);
+    return { foods, recipes };
+  }, [db, query]);
   const { data, error, loading, reload } = useScreenData(loader);
-  const foods = data ?? [];
+  const foods = data?.foods ?? [];
+  const recipes = data?.recipes ?? [];
 
   const beginCreate = () => {
     setDraft(emptyDraft());
@@ -117,7 +121,7 @@ export default function MyFoodsScreen() {
       <ScreenHeading
         title="My foods"
         eyebrow="Saved food library"
-        action={<View style={styles.actions}><Button label="Create saved food" onPress={beginCreate} variant="secondary" /><Button label="Done" onPress={() => router.back()} variant="quiet" /></View>}
+        action={<View style={styles.actions}><Button label="Manage recipes" onPress={() => router.push('/recipes' as never)} variant="secondary" /><Button label="Create saved food" onPress={beginCreate} variant="secondary" /><Button label="Done" onPress={() => router.back()} variant="quiet" /></View>}
       />
       <Card style={{ backgroundColor: colors.surfaceMuted }}>
         <Field
@@ -162,6 +166,10 @@ export default function MyFoodsScreen() {
 
       {message ? <Card style={{ backgroundColor: colors.successSoft, borderColor: colors.success }}><AppText accessibilityLiveRegion="polite" style={{ color: colors.success }}>{message}</AppText></Card> : null}
       {!draft && formError ? <Card style={{ backgroundColor: colors.dangerSoft, borderColor: colors.danger }}><AppText accessibilityRole="alert" style={{ color: colors.danger }}>{formError}</AppText></Card> : null}
+
+      <SectionHeading title="Recipes" detail={`${recipes.length} result${recipes.length === 1 ? '' : 's'}`} />
+      {!loading && !error && recipes.length === 0 && !query ? <StatePanel title="No recipes yet" body="Build a recipe once, then log servings from Add food." actionLabel="Create recipe" onAction={() => router.push('/recipes' as never)} /> : null}
+      <View style={styles.list}>{recipes.map((recipe) => <Card key={recipe.id}><View style={styles.foodHeader}><View style={styles.flex}><AppText style={styles.foodName}>{recipe.name}</AppText><AppText style={{ color: colors.textMuted }}>Recipe · {recipe.ingredients.length} ingredients · {formatNumber(recipe.perServing.caloriesKcal)} kcal per serving</AppText></View><Button label={`Edit ${recipe.name}`} onPress={() => router.push('/recipes' as never)} variant="secondary" /></View></Card>)}</View>
 
       <SectionHeading title="Saved foods" detail={loading && data ? 'Updating local results…' : `${foods.length} result${foods.length === 1 ? '' : 's'} · newest first`} />
       {loading && !data ? <StatePanel title="Loading saved foods" body="Reading your private food library from this device." loading /> : null}

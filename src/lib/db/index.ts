@@ -32,6 +32,15 @@ export {
 } from './food-catalog';
 export { listPrivateFoods, removePrivateFood, savePrivateFood, stopSharingPrivateFood } from './private-food';
 export type { SavePrivateFoodInput } from './private-food';
+export {
+  calculateRecipePerServing,
+  getRecipe,
+  listRecipes,
+  removeRecipe,
+  saveRecipe,
+  searchRecipesAsFoods,
+} from './recipes';
+export type { Recipe, RecipeIngredient, RecipeIngredientInput, SaveRecipeInput } from './recipes';
 export { classifyMealPhotoAnalysisError } from './meal-photo-api';
 export type {
   MealPhotoAnalysisFailure,

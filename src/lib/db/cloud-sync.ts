@@ -21,6 +21,8 @@ type PullTable =
   | 'meals'
   | 'food_items'
   | 'private_foods'
+  | 'recipes'
+  | 'recipe_ingredients'
   | 'nutrition_day_states'
   | 'nutrition_targets'
   | 'wellness_logs'
@@ -40,6 +42,8 @@ const PULL_TABLES: PullTable[] = [
   'sets',
   'food_items',
   'private_foods',
+  'recipes',
+  'recipe_ingredients',
   'ai_messages',
 ];
 
@@ -50,6 +54,8 @@ const LOCAL_TABLE: Record<PullTable, string> = {
   meals: 'meals',
   food_items: 'food_items',
   private_foods: 'private_foods',
+  recipes: 'recipes',
+  recipe_ingredients: 'recipe_ingredients',
   nutrition_day_states: 'nutrition_day_states',
   nutrition_targets: 'nutrition_targets',
   wellness_logs: 'wellness_logs',

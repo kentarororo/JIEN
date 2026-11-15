@@ -48,6 +48,11 @@ snapshots remain their own records. Existing private foods never publish automat
 3. Deploy the web/native client. Do not deploy it before the table exists: missing
    schema pauses sync rather than silently claiming a backup.
 4. Verify offline save -> reconnect -> second-device restore and community discovery.
+
+Recipe release gate: apply `supabase/migrations/20261024000200_recipes.sql` before
+deploying the version-19 client. Verify create/edit/remove offline, ingredient restore
+order, complete JSON export, and account deletion. Recipes and their ingredient
+snapshots are always private; there is no sharing control or community projection.
    Local/HTTP-mocked QA is not a live RLS audit.
 
 No migration or deployment is performed automatically by this implementation.

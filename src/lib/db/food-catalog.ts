@@ -17,6 +17,7 @@ import {
 import { foodItemsEligibleForDiscoveryCache, parseFoodSearchData } from './food-search-contract';
 import { parseCommunityFoods } from './community-food-contract';
 import type { FoodCatalogItem } from './types';
+import { searchRecipesAsFoods } from './recipes';
 import { normalizeFoodSearch, rankFoodCandidates } from '../nutrition/food-ranking';
 import { withExclusiveTransaction } from './exclusive-transaction';
 import {
@@ -80,7 +81,8 @@ export async function searchLocalFoodCatalog(
   const clean = query.trim();
   if (clean.length === 1) return [];
   const at = options.at ?? new Date();
-  const [catalogRows, historyRows] = await Promise.all([
+  const [recipes, catalogRows, historyRows] = await Promise.all([
+    searchRecipesAsFoods(db, clean, limit),
     db.getAllAsync<FoodCatalogRow>(
       `SELECT id, name, brand, serving_quantity, serving_unit, calories_kcal,
         protein_g, carbohydrate_g, fat_g, fibre_g, source, source_ref, barcode,
@@ -101,7 +103,7 @@ export async function searchLocalFoodCatalog(
        LIMIT 1000`,
     ),
   ]);
-  const candidates = mergeFoodUsage(catalogRows, historyRows, at);
+  const candidates = [...recipes, ...mergeFoodUsage(catalogRows, historyRows, at)];
   const barcode = clean.replace(/[\s-]/g, '');
   if (/^\d{8,14}$/.test(barcode)) {
     const exact = candidates.filter((item) => item.barcode === barcode);
@@ -188,6 +190,7 @@ export async function cacheFoodCatalogItems(db: SQLiteDatabase, items: FoodCatal
 }
 
 export async function markFoodCatalogItemUsed(db: SQLiteDatabase, id: string): Promise<void> {
+  if (id.startsWith('recipe-')) return;
   if (id.startsWith('custom-')) {
     await db.runAsync('UPDATE private_foods SET last_used_at = ? WHERE catalog_id = ?', [new Date().toISOString(), id]);
     return;
